@@ -18,7 +18,9 @@ type LibraryState = {
   error: string | null;
 };
 
-const api = (window as unknown as { api: RendererApi }).api;
+function getApi(): RendererApi | null {
+  return (window as unknown as { api?: RendererApi }).api ?? null;
+}
 
 const modes: Record<Mode, { label: string; eyebrow: string; title: string; emptyTitle: string; emptyText: string }> = {
   library: {
@@ -48,6 +50,16 @@ export default function App() {
 
   useEffect(() => {
     let isMounted = true;
+    const api = getApi();
+
+    if (!api) {
+      setLibrary({
+        loading: false,
+        path: null,
+        error: "App API is unavailable. Restart the app or check the preload script."
+      });
+      return;
+    }
 
     void api.library
       .getCurrent()
@@ -74,6 +86,16 @@ export default function App() {
   }, []);
 
   async function chooseLibraryFolder(): Promise<void> {
+    const api = getApi();
+    if (!api) {
+      setLibrary({
+        loading: false,
+        path: null,
+        error: "App API is unavailable. Restart the app or check the preload script."
+      });
+      return;
+    }
+
     setLibrary((current) => ({ ...current, loading: true, error: null }));
 
     const response = await api.library.chooseFolder();
