@@ -1,6 +1,24 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Mode = "library" | "manager";
+type ApiResponse<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: { code: string; message: string; details?: unknown } };
+
+type RendererApi = {
+  library: {
+    getCurrent: () => Promise<ApiResponse<{ path: string | null }>>;
+    chooseFolder: () => Promise<ApiResponse<{ path: string | null }>>;
+  };
+};
+
+type LibraryState = {
+  loading: boolean;
+  path: string | null;
+  error: string | null;
+};
+
+const api = (window as unknown as { api: RendererApi }).api;
 
 const modes: Record<Mode, { label: string; eyebrow: string; title: string; emptyTitle: string; emptyText: string }> = {
   library: {
@@ -21,7 +39,50 @@ const modes: Record<Mode, { label: string; eyebrow: string; title: string; empty
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("library");
+  const [library, setLibrary] = useState<LibraryState>({
+    loading: true,
+    path: null,
+    error: null
+  });
   const currentMode = modes[mode];
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void api.library
+      .getCurrent()
+      .then((response) => {
+        if (!isMounted) {
+          return;
+        }
+
+        if (response.ok) {
+          setLibrary({ loading: false, path: response.data.path, error: null });
+        } else {
+          setLibrary({ loading: false, path: null, error: response.error.message });
+        }
+      })
+      .catch((error) => {
+        if (isMounted) {
+          setLibrary({ loading: false, path: null, error: String(error) });
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  async function chooseLibraryFolder(): Promise<void> {
+    setLibrary((current) => ({ ...current, loading: true, error: null }));
+
+    const response = await api.library.chooseFolder();
+    if (response.ok) {
+      setLibrary({ loading: false, path: response.data.path, error: null });
+    } else {
+      setLibrary({ loading: false, path: null, error: response.error.message });
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -53,8 +114,25 @@ export default function App() {
         </header>
 
         <section className="empty-state">
-          <h2>{currentMode.emptyTitle}</h2>
-          <p>{currentMode.emptyText}</p>
+          {library.loading ? (
+            <>
+              <h2>Checking library</h2>
+              <p>Loading the current Library folder.</p>
+            </>
+          ) : library.path ? (
+            <>
+              <h2>Library selected</h2>
+              <p className="library-path">{library.path}</p>
+            </>
+          ) : (
+            <>
+              <h2>{currentMode.emptyTitle}</h2>
+              <p>{library.error ?? currentMode.emptyText}</p>
+              <button className="primary-action" onClick={chooseLibraryFolder} type="button">
+                Choose Library folder
+              </button>
+            </>
+          )}
         </section>
       </main>
     </div>

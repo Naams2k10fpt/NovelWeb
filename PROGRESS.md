@@ -78,13 +78,13 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 
 ## Phase 2 - Nền tảng lưu trữ an toàn
 
-**Trạng thái:** `[ ]`
+**Trạng thái:** `[~]`
 
 **Mục tiêu:** Xây hệ thống lưu trữ local an toàn, rõ ràng và có thể mở rộng.
 
 ### Checklist
 
-- [ ] Tạo cơ chế chọn thư mục Library lần đầu mở app.
+- [x] Tạo cơ chế chọn thư mục Library lần đầu mở app.
 - [ ] Tạo cơ chế đổi thư mục Library trong settings.
 - [ ] Tạo thư mục Library nếu chưa tồn tại.
 - [ ] Tách rõ app settings trong `userData` và library settings trong Library folder.

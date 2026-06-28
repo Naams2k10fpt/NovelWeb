@@ -109,3 +109,23 @@ body {
 .empty-state p {
   color: #66707a;
 }
+
+.library-path {
+  overflow-wrap: anywhere;
+}
+
+.primary-action {
+  justify-self: start;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  background: #2f6f73;
+  color: #ffffff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.primary-action:hover {
+  background: #255b5f;
+}
