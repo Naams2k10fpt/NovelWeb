@@ -87,10 +87,12 @@ export default function App() {
 
   async function chooseLibraryFolder(): Promise<void> {
     const api = getApi();
+    const previousPath = library.path;
+
     if (!api) {
       setLibrary({
         loading: false,
-        path: null,
+        path: previousPath,
         error: "App API is unavailable. Restart the app or check the preload script."
       });
       return;
@@ -98,11 +100,15 @@ export default function App() {
 
     setLibrary((current) => ({ ...current, loading: true, error: null }));
 
-    const response = await api.library.chooseFolder();
-    if (response.ok) {
-      setLibrary({ loading: false, path: response.data.path, error: null });
-    } else {
-      setLibrary({ loading: false, path: null, error: response.error.message });
+    try {
+      const response = await api.library.chooseFolder();
+      if (response.ok) {
+        setLibrary({ loading: false, path: response.data.path ?? previousPath, error: null });
+      } else {
+        setLibrary({ loading: false, path: previousPath, error: response.error.message });
+      }
+    } catch (error) {
+      setLibrary({ loading: false, path: previousPath, error: String(error) });
     }
   }
 
@@ -145,6 +151,10 @@ export default function App() {
             <>
               <h2>Library selected</h2>
               <p className="library-path">{library.path}</p>
+              {library.error ? <p>{library.error}</p> : null}
+              <button className="primary-action" onClick={chooseLibraryFolder} type="button">
+                Change Library folder
+              </button>
             </>
           ) : (
             <>
