@@ -47,7 +47,7 @@ File này dùng để theo dõi tiến độ phát triển NovelWeb theo từng 
 
 ## Phase 1 - Khởi tạo app
 
-**Trạng thái:** `[~]`
+**Trạng thái:** `[x]`
 
 **Mục tiêu:** Tạo nền app Electron + Vite + React + TypeScript chạy được ở dev mode.
 
@@ -64,13 +64,13 @@ File này dùng để theo dõi tiến độ phát triển NovelWeb theo từng 
 - [x] Tạo BrowserWindow cơ bản.
 - [x] Tạo layout app cơ bản với sidebar.
 - [x] Tạo 2 mode chính: Library và Manager.
-- [ ] App chạy được bằng `npm run dev`.
+- [x] App chạy được bằng `npm run dev`.
 
-Ghi chú: Scaffold tối thiểu build được; chưa chạy `npm run dev` vì sẽ mở app GUI. `npm run build` cần chạy ngoài sandbox do esbuild bị chặn đọc config trong sandbox.
+Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa Library/Manager. `npm run build` cần chạy ngoài sandbox do esbuild bị chặn đọc config trong sandbox.
 
 ### Tiêu chí hoàn thành
 
-- [ ] Chạy `npm run dev` mở được app desktop.
+- [x] Chạy `npm run dev` mở được app desktop.
 - [x] Có sidebar chuyển được giữa Library và Manager.
 - [x] Renderer không truy cập trực tiếp Node.js API.
 
