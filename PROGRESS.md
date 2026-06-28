@@ -63,7 +63,7 @@ File này dùng để theo dõi tiến độ phát triển NovelWeb theo từng 
 - [x] Tắt `nodeIntegration`.
 - [x] Tạo BrowserWindow cơ bản.
 - [x] Tạo layout app cơ bản với sidebar.
-- [ ] Tạo 2 mode chính: Library và Manager.
+- [x] Tạo 2 mode chính: Library và Manager.
 - [ ] App chạy được bằng `npm run dev`.
 
 Ghi chú: Scaffold tối thiểu build được; chưa chạy `npm run dev` vì sẽ mở app GUI. `npm run build` cần chạy ngoài sandbox do esbuild bị chặn đọc config trong sandbox.
@@ -71,8 +71,8 @@ Ghi chú: Scaffold tối thiểu build được; chưa chạy `npm run dev` vì 
 ### Tiêu chí hoàn thành
 
 - [ ] Chạy `npm run dev` mở được app desktop.
-- [ ] Có sidebar chuyển được giữa Library và Manager.
-- [ ] Renderer không truy cập trực tiếp Node.js API.
+- [x] Có sidebar chuyển được giữa Library và Manager.
+- [x] Renderer không truy cập trực tiếp Node.js API.
 
 ---
 
