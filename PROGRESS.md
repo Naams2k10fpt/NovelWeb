@@ -62,7 +62,7 @@ File này dùng để theo dõi tiến độ phát triển NovelWeb theo từng 
 - [x] Bật `contextIsolation`.
 - [x] Tắt `nodeIntegration`.
 - [x] Tạo BrowserWindow cơ bản.
-- [ ] Tạo layout app cơ bản với sidebar.
+- [x] Tạo layout app cơ bản với sidebar.
 - [ ] Tạo 2 mode chính: Library và Manager.
 - [ ] App chạy được bằng `npm run dev`.
 
