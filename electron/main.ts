@@ -51,13 +51,23 @@ async function writeAppSettings(settings: AppSettings): Promise<void> {
   await rename(tmpPath, filePath);
 }
 
+async function ensureLibraryFolder(libraryPath: string): Promise<void> {
+  await mkdir(libraryPath, { recursive: true });
+}
+
 function registerLibraryIpc(): void {
   ipcMain.handle("library:getCurrent", async (): Promise<ApiResponse<{ path: string | null }>> => {
     try {
       const settings = await readAppSettings();
-      return ok({ path: settings.currentLibraryPath ?? null });
+      const currentLibraryPath = settings.currentLibraryPath ?? null;
+
+      if (currentLibraryPath) {
+        await ensureLibraryFolder(currentLibraryPath);
+      }
+
+      return ok({ path: currentLibraryPath });
     } catch (error) {
-      return fail("APP_SETTINGS_READ_FAILED", "Could not read app settings.", String(error));
+      return fail("LIBRARY_FOLDER_LOAD_FAILED", "Could not load current Library folder.", String(error));
     }
   });
 
@@ -76,6 +86,7 @@ function registerLibraryIpc(): void {
 
       const settings = await readAppSettings();
       const currentLibraryPath = result.filePaths[0];
+      await ensureLibraryFolder(currentLibraryPath);
       await writeAppSettings({ ...settings, currentLibraryPath });
 
       return ok({ path: currentLibraryPath });
