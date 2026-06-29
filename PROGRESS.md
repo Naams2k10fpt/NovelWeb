@@ -98,7 +98,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Implement ghi JSON an toàn bằng `.tmp` rồi rename.
 - [x] Tạo backup gần nhất trước khi ghi đè file quan trọng.
 - [x] Implement path safety để mọi thao tác nằm trong library root.
-- [ ] Cho phép đọc source import ngoài Library chỉ khi path đến từ Electron dialog/import session hợp lệ.
+- [~] Cho phép đọc source import ngoài Library chỉ khi path đến từ Electron dialog/import session hợp lệ.
 - [ ] Chuẩn hóa response IPC dạng `{ ok, data, error }`.
 - [ ] Chuẩn hóa error code cơ bản.
 - [ ] Implement library health check cơ bản.
@@ -109,6 +109,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [ ] Implement per-resource write lock hoặc save queue nền tảng.
 
 Ghi chú: Đã có Settings tab cơ bản để xem/đổi Library folder; các setting khác thêm khi có task tương ứng.
+Ghi chú: Import source guard đang chờ Import Wizard/import session; hiện chưa expose API đọc source ngoài Library.
 
 ### Tiêu chí hoàn thành
 
