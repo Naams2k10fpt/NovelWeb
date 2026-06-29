@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
 import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -8,6 +8,13 @@ type ApiResponse<T> =
 
 type AppSettings = {
   currentLibraryPath?: string;
+};
+
+type LibraryMetadata = {
+  schemaVersion: 1;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 function ok<T>(data: T): ApiResponse<T> {
@@ -55,6 +62,31 @@ async function ensureLibraryFolder(libraryPath: string): Promise<void> {
   await mkdir(libraryPath, { recursive: true });
 }
 
+async function ensureLibraryJson(libraryPath: string): Promise<void> {
+  await ensureLibraryFolder(libraryPath);
+
+  const filePath = join(libraryPath, "library.json");
+  try {
+    await readFile(filePath, "utf8");
+    return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const now = new Date().toISOString();
+  const metadata: LibraryMetadata = {
+    schemaVersion: 1,
+    name: basename(libraryPath),
+    createdAt: now,
+    updatedAt: now
+  };
+
+  await writeFile(`${filePath}.tmp`, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+  await rename(`${filePath}.tmp`, filePath);
+}
+
 function registerLibraryIpc(): void {
   ipcMain.handle("library:getCurrent", async (): Promise<ApiResponse<{ path: string | null }>> => {
     try {
@@ -62,7 +94,7 @@ function registerLibraryIpc(): void {
       const currentLibraryPath = settings.currentLibraryPath ?? null;
 
       if (currentLibraryPath) {
-        await ensureLibraryFolder(currentLibraryPath);
+        await ensureLibraryJson(currentLibraryPath);
       }
 
       return ok({ path: currentLibraryPath });
@@ -86,7 +118,7 @@ function registerLibraryIpc(): void {
 
       const settings = await readAppSettings();
       const currentLibraryPath = result.filePaths[0];
-      await ensureLibraryFolder(currentLibraryPath);
+      await ensureLibraryJson(currentLibraryPath);
       await writeAppSettings({ ...settings, currentLibraryPath });
 
       return ok({ path: currentLibraryPath });
