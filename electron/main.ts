@@ -46,9 +46,20 @@ function appSettingsPath(): string {
   return join(app.getPath("userData"), "app-settings.json");
 }
 
+async function readJsonFile<T>(filePath: string): Promise<T> {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8")) as T;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Invalid JSON in ${filePath}: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
 async function readAppSettings(): Promise<AppSettings> {
   try {
-    return JSON.parse(await readFile(appSettingsPath(), "utf8")) as AppSettings;
+    return await readJsonFile<AppSettings>(appSettingsPath());
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return {};
@@ -85,7 +96,7 @@ async function ensureLibraryDirectory(libraryPath: string, directoryName: string
 
 async function ensureJsonFile(filePath: string, createData: () => unknown): Promise<void> {
   try {
-    await readFile(filePath, "utf8");
+    await readJsonFile(filePath);
     return;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {

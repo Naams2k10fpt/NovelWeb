@@ -94,7 +94,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Tạo thư mục `series/`.
 - [x] Tạo thư mục `backups/`.
 - [x] Tạo thư mục `.trash/` tối thiểu để phục vụ xóa mềm sớm.
-- [ ] Implement đọc JSON an toàn.
+- [x] Implement đọc JSON an toàn.
 - [ ] Implement ghi JSON an toàn bằng `.tmp` rồi rename.
 - [ ] Tạo backup gần nhất trước khi ghi đè file quan trọng.
 - [ ] Implement path safety để mọi thao tác nằm trong library root.
