@@ -141,6 +141,7 @@ async function ensureLibraryFiles(libraryPath: string): Promise<void> {
   await ensureLibraryDirectory(libraryPath, "index");
   await ensureLibraryDirectory(libraryPath, "series");
   await ensureLibraryDirectory(libraryPath, "backups");
+  await ensureLibraryDirectory(libraryPath, ".trash");
 }
 
 function registerLibraryIpc(): void {
