@@ -108,6 +108,8 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [ ] Kiểm tra `schemaVersion` khi mở Library.
 - [ ] Implement per-resource write lock hoặc save queue nền tảng.
 
+Ghi chú: Đã có Settings tab cơ bản để xem/đổi Library folder; các setting khác thêm khi có task tương ứng.
+
 ### Tiêu chí hoàn thành
 
 - [ ] App có thể tạo và ghi vào Library folder.
