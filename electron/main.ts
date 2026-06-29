@@ -14,6 +14,7 @@ import {
   type CategoryMetadata,
   type CategoryType
 } from "./schemas/category";
+import { VOLUME_METADATA_SCHEMA_VERSION, type VolumeMetadata } from "./schemas/volume";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -23,7 +24,8 @@ const ErrorCode = {
   LIBRARY_FOLDER_LOAD_FAILED: "LIBRARY_FOLDER_LOAD_FAILED",
   LIBRARY_FOLDER_CHOOSE_FAILED: "LIBRARY_FOLDER_CHOOSE_FAILED",
   SERIES_CRUD_FAILED: "SERIES_CRUD_FAILED",
-  CATEGORY_CRUD_FAILED: "CATEGORY_CRUD_FAILED"
+  CATEGORY_CRUD_FAILED: "CATEGORY_CRUD_FAILED",
+  VOLUME_CRUD_FAILED: "VOLUME_CRUD_FAILED"
 } as const;
 
 const REQUIRED_LIBRARY_DIRECTORIES = ["index", "series", "backups", ".trash"] as const;
@@ -283,6 +285,20 @@ function readOptionalNullableNumber(record: JsonRecord, fieldName: string, fallb
   return value;
 }
 
+function readOptionalInteger(record: JsonRecord, fieldName: string, fallback: number): number {
+  const value = record[fieldName];
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new Error(`${fieldName} must be an integer.`);
+  }
+
+  return value;
+}
+
 function readSeriesStatus(record: JsonRecord, fallback: SeriesStatus): SeriesStatus {
   const value = record.status;
 
@@ -336,6 +352,31 @@ function categoryMetaPath(libraryPath: string, seriesId: string, categoryId: str
     assertId(seriesId, "seriesId"),
     "categories",
     assertId(categoryId, "categoryId"),
+    "meta.json"
+  );
+}
+
+function volumeDirectoryPath(libraryPath: string, seriesId: string, categoryId: string, volumeId: string): string {
+  return libraryChildPath(
+    libraryPath,
+    "series",
+    assertId(seriesId, "seriesId"),
+    "categories",
+    assertId(categoryId, "categoryId"),
+    "volumes",
+    assertId(volumeId, "volumeId")
+  );
+}
+
+function volumeMetaPath(libraryPath: string, seriesId: string, categoryId: string, volumeId: string): string {
+  return libraryChildPath(
+    libraryPath,
+    "series",
+    assertId(seriesId, "seriesId"),
+    "categories",
+    assertId(categoryId, "categoryId"),
+    "volumes",
+    assertId(volumeId, "volumeId"),
     "meta.json"
   );
 }
@@ -665,6 +706,124 @@ async function updateCategoryMetadata(
   return metadata;
 }
 
+function assertNovelCategory(category: CategoryMetadata): void {
+  if (category.type === "manga") {
+    throw new Error("Manga categories do not support novel volumes.");
+  }
+}
+
+function parseVolumeCreateInput(input: unknown, orderFallback: number): VolumeMetadata {
+  const record = assertRecord(input);
+  const now = new Date().toISOString();
+
+  return {
+    schemaVersion: VOLUME_METADATA_SCHEMA_VERSION,
+    id: randomUUID(),
+    title: readRequiredString(record, "title"),
+    order: readOptionalInteger(record, "order", orderFallback),
+    chapterOrder: [],
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function parseVolumeUpdateInput(input: unknown, current: VolumeMetadata): VolumeMetadata {
+  const record = assertRecord(input);
+
+  return {
+    ...current,
+    title: record.title === undefined ? current.title : readRequiredString(record, "title"),
+    order: readOptionalInteger(record, "order", current.order),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function readVolumeMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string
+): Promise<VolumeMetadata> {
+  const metadata = await readJsonFile<VolumeMetadata>(volumeMetaPath(libraryPath, seriesId, categoryId, volumeId));
+  assertSupportedSchemaVersion(`series/${seriesId}/categories/${categoryId}/volumes/${volumeId}/meta.json`, metadata);
+  return metadata;
+}
+
+async function listVolumeMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string
+): Promise<VolumeMetadata[]> {
+  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  assertNovelCategory(category);
+
+  const volumeDirectory = libraryChildPath(libraryPath, "series", seriesId, "categories", categoryId, "volumes");
+  const entries = await readdir(volumeDirectory, { withFileTypes: true });
+  const volumes = new Map<string, VolumeMetadata>();
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    try {
+      const metadata = await readVolumeMetadata(libraryPath, seriesId, categoryId, entry.name);
+      volumes.set(metadata.id, metadata);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  return [
+    ...category.volumeOrder.map((volumeId) => volumes.get(volumeId)).filter((item): item is VolumeMetadata => !!item),
+    ...[...volumes.values()].filter((volume) => !category.volumeOrder.includes(volume.id))
+  ];
+}
+
+async function createVolumeMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  input: unknown
+): Promise<VolumeMetadata> {
+  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  assertNovelCategory(category);
+
+  const metadata = parseVolumeCreateInput(input, category.volumeOrder.length + 1);
+  const now = new Date().toISOString();
+
+  await mkdir(volumeDirectoryPath(libraryPath, seriesId, categoryId, metadata.id), { recursive: true });
+  await mkdir(libraryChildPath(libraryPath, "series", seriesId, "categories", categoryId, "volumes", metadata.id, "chapters"), {
+    recursive: true
+  });
+  await writeJsonFile(volumeMetaPath(libraryPath, seriesId, categoryId, metadata.id), metadata);
+  await writeJsonFile(
+    categoryMetaPath(libraryPath, seriesId, categoryId),
+    { ...category, volumeOrder: [...category.volumeOrder, metadata.id], updatedAt: now } satisfies CategoryMetadata,
+    { backup: true }
+  );
+
+  return metadata;
+}
+
+async function updateVolumeMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string,
+  input: unknown
+): Promise<VolumeMetadata> {
+  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  assertNovelCategory(category);
+
+  const current = await readVolumeMetadata(libraryPath, seriesId, categoryId, volumeId);
+  const metadata = parseVolumeUpdateInput(input, current);
+  await writeJsonFile(volumeMetaPath(libraryPath, seriesId, categoryId, volumeId), metadata, { backup: true });
+  return metadata;
+}
+
 function registerLibraryIpc(): void {
   ipcMain.handle("library:getCurrent", async (): Promise<ApiResponse<{ path: string | null }>> => {
     try {
@@ -804,6 +963,96 @@ function registerCategoryIpc(): void {
   );
 }
 
+function registerVolumeIpc(): void {
+  ipcMain.handle(
+    "volumes:list",
+    async (_event, seriesId: unknown, categoryId: unknown): Promise<ApiResponse<VolumeMetadata[]>> => {
+      try {
+        return ok(
+          await listVolumeMetadata(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.VOLUME_CRUD_FAILED, "Could not list volumes.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "volumes:get",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown
+    ): Promise<ApiResponse<VolumeMetadata>> => {
+      try {
+        return ok(
+          await readVolumeMetadata(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(volumeId, "volumeId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.VOLUME_CRUD_FAILED, "Could not load volume.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "volumes:create",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<VolumeMetadata>> => {
+      try {
+        return ok(
+          await createVolumeMetadata(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.VOLUME_CRUD_FAILED, "Could not create volume.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "volumes:update",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<VolumeMetadata>> => {
+      try {
+        return ok(
+          await updateVolumeMetadata(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(volumeId, "volumeId"),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.VOLUME_CRUD_FAILED, "Could not update volume.", String(error));
+      }
+    }
+  );
+}
+
 function createWindow(): void {
   const window = new BrowserWindow({
     width: 1200,
@@ -827,6 +1076,7 @@ void app.whenReady().then(() => {
   registerLibraryIpc();
   registerSeriesIpc();
   registerCategoryIpc();
+  registerVolumeIpc();
   createWindow();
 
   app.on("activate", () => {

@@ -17,5 +17,14 @@ contextBridge.exposeInMainWorld("api", {
     create: (seriesId: string, input: unknown) => ipcRenderer.invoke("categories:create", seriesId, input),
     update: (seriesId: string, categoryId: string, input: unknown) =>
       ipcRenderer.invoke("categories:update", seriesId, categoryId, input)
+  },
+  volumes: {
+    list: (seriesId: string, categoryId: string) => ipcRenderer.invoke("volumes:list", seriesId, categoryId),
+    get: (seriesId: string, categoryId: string, volumeId: string) =>
+      ipcRenderer.invoke("volumes:get", seriesId, categoryId, volumeId),
+    create: (seriesId: string, categoryId: string, input: unknown) =>
+      ipcRenderer.invoke("volumes:create", seriesId, categoryId, input),
+    update: (seriesId: string, categoryId: string, volumeId: string, input: unknown) =>
+      ipcRenderer.invoke("volumes:update", seriesId, categoryId, volumeId, input)
   }
 });
