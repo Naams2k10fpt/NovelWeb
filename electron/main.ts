@@ -17,6 +17,23 @@ type LibraryMetadata = {
   updatedAt: string;
 };
 
+type LibrarySettings = {
+  schemaVersion: 1;
+  reading: {
+    theme: "system" | "light" | "dark";
+    fontFamily: string;
+    fontSize: number;
+    lineHeight: number;
+  };
+  backup: {
+    enabled: boolean;
+  };
+  import: {
+    keepOriginalFiles: boolean;
+  };
+  updatedAt: string;
+};
+
 function ok<T>(data: T): ApiResponse<T> {
   return { ok: true, data };
 }
@@ -62,10 +79,7 @@ async function ensureLibraryFolder(libraryPath: string): Promise<void> {
   await mkdir(libraryPath, { recursive: true });
 }
 
-async function ensureLibraryJson(libraryPath: string): Promise<void> {
-  await ensureLibraryFolder(libraryPath);
-
-  const filePath = join(libraryPath, "library.json");
+async function ensureJsonFile(filePath: string, createData: () => unknown): Promise<void> {
   try {
     await readFile(filePath, "utf8");
     return;
@@ -75,16 +89,51 @@ async function ensureLibraryJson(libraryPath: string): Promise<void> {
     }
   }
 
-  const now = new Date().toISOString();
-  const metadata: LibraryMetadata = {
-    schemaVersion: 1,
-    name: basename(libraryPath),
-    createdAt: now,
-    updatedAt: now
-  };
-
-  await writeFile(`${filePath}.tmp`, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+  await writeFile(`${filePath}.tmp`, `${JSON.stringify(createData(), null, 2)}\n`, "utf8");
   await rename(`${filePath}.tmp`, filePath);
+}
+
+async function ensureLibraryJson(libraryPath: string): Promise<void> {
+  await ensureLibraryFolder(libraryPath);
+
+  const filePath = join(libraryPath, "library.json");
+  await ensureJsonFile(filePath, (): LibraryMetadata => {
+    const now = new Date().toISOString();
+
+    return {
+      schemaVersion: 1,
+      name: basename(libraryPath),
+      createdAt: now,
+      updatedAt: now
+    };
+  });
+}
+
+async function ensureLibrarySettingsJson(libraryPath: string): Promise<void> {
+  await ensureLibraryFolder(libraryPath);
+
+  const filePath = join(libraryPath, "settings.json");
+  await ensureJsonFile(filePath, (): LibrarySettings => ({
+    schemaVersion: 1,
+    reading: {
+      theme: "system",
+      fontFamily: "system",
+      fontSize: 18,
+      lineHeight: 1.7
+    },
+    backup: {
+      enabled: false
+    },
+    import: {
+      keepOriginalFiles: true
+    },
+    updatedAt: new Date().toISOString()
+  }));
+}
+
+async function ensureLibraryFiles(libraryPath: string): Promise<void> {
+  await ensureLibraryJson(libraryPath);
+  await ensureLibrarySettingsJson(libraryPath);
 }
 
 function registerLibraryIpc(): void {
@@ -94,7 +143,7 @@ function registerLibraryIpc(): void {
       const currentLibraryPath = settings.currentLibraryPath ?? null;
 
       if (currentLibraryPath) {
-        await ensureLibraryJson(currentLibraryPath);
+        await ensureLibraryFiles(currentLibraryPath);
       }
 
       return ok({ path: currentLibraryPath });
@@ -118,7 +167,7 @@ function registerLibraryIpc(): void {
 
       const settings = await readAppSettings();
       const currentLibraryPath = result.filePaths[0];
-      await ensureLibraryJson(currentLibraryPath);
+      await ensureLibraryFiles(currentLibraryPath);
       await writeAppSettings({ ...settings, currentLibraryPath });
 
       return ok({ path: currentLibraryPath });
