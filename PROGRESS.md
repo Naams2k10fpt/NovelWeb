@@ -97,7 +97,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Implement đọc JSON an toàn.
 - [x] Implement ghi JSON an toàn bằng `.tmp` rồi rename.
 - [x] Tạo backup gần nhất trước khi ghi đè file quan trọng.
-- [ ] Implement path safety để mọi thao tác nằm trong library root.
+- [x] Implement path safety để mọi thao tác nằm trong library root.
 - [ ] Cho phép đọc source import ngoài Library chỉ khi path đến từ Electron dialog/import session hợp lệ.
 - [ ] Chuẩn hóa response IPC dạng `{ ok, data, error }`.
 - [ ] Chuẩn hóa error code cơ bản.

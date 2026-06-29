@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
 import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -98,8 +98,20 @@ async function ensureLibraryFolder(libraryPath: string): Promise<void> {
   await mkdir(libraryPath, { recursive: true });
 }
 
+function libraryChildPath(libraryPath: string, ...parts: string[]): string {
+  const libraryRoot = resolve(libraryPath);
+  const targetPath = resolve(libraryRoot, ...parts);
+  const relativePath = relative(libraryRoot, targetPath);
+
+  if (relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath))) {
+    return targetPath;
+  }
+
+  throw new Error(`Refusing to access path outside Library root: ${targetPath}`);
+}
+
 async function ensureLibraryDirectory(libraryPath: string, directoryName: string): Promise<void> {
-  await mkdir(join(libraryPath, directoryName), { recursive: true });
+  await mkdir(libraryChildPath(libraryPath, directoryName), { recursive: true });
 }
 
 async function ensureJsonFile(filePath: string, createData: () => unknown): Promise<void> {
@@ -118,7 +130,7 @@ async function ensureJsonFile(filePath: string, createData: () => unknown): Prom
 async function ensureLibraryJson(libraryPath: string): Promise<void> {
   await ensureLibraryFolder(libraryPath);
 
-  const filePath = join(libraryPath, "library.json");
+  const filePath = libraryChildPath(libraryPath, "library.json");
   await ensureJsonFile(filePath, (): LibraryMetadata => {
     const now = new Date().toISOString();
 
@@ -134,7 +146,7 @@ async function ensureLibraryJson(libraryPath: string): Promise<void> {
 async function ensureLibrarySettingsJson(libraryPath: string): Promise<void> {
   await ensureLibraryFolder(libraryPath);
 
-  const filePath = join(libraryPath, "settings.json");
+  const filePath = libraryChildPath(libraryPath, "settings.json");
   await ensureJsonFile(filePath, (): LibrarySettings => ({
     schemaVersion: 1,
     reading: {
