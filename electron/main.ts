@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
-import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 type ApiResponse<T> =
@@ -10,6 +10,8 @@ const ErrorCode = {
   LIBRARY_FOLDER_LOAD_FAILED: "LIBRARY_FOLDER_LOAD_FAILED",
   LIBRARY_FOLDER_CHOOSE_FAILED: "LIBRARY_FOLDER_CHOOSE_FAILED"
 } as const;
+
+const REQUIRED_LIBRARY_DIRECTORIES = ["index", "series", "backups", ".trash"] as const;
 
 type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 
@@ -121,6 +123,13 @@ async function ensureLibraryDirectory(libraryPath: string, directoryName: string
   await mkdir(libraryChildPath(libraryPath, directoryName), { recursive: true });
 }
 
+async function assertDirectory(directoryPath: string): Promise<void> {
+  const directoryStat = await stat(directoryPath);
+  if (!directoryStat.isDirectory()) {
+    throw new Error(`Expected directory: ${directoryPath}`);
+  }
+}
+
 async function ensureJsonFile(filePath: string, createData: () => unknown): Promise<void> {
   try {
     await readJsonFile(filePath);
@@ -175,10 +184,19 @@ async function ensureLibrarySettingsJson(libraryPath: string): Promise<void> {
 async function ensureLibraryFiles(libraryPath: string): Promise<void> {
   await ensureLibraryJson(libraryPath);
   await ensureLibrarySettingsJson(libraryPath);
-  await ensureLibraryDirectory(libraryPath, "index");
-  await ensureLibraryDirectory(libraryPath, "series");
-  await ensureLibraryDirectory(libraryPath, "backups");
-  await ensureLibraryDirectory(libraryPath, ".trash");
+  for (const directoryName of REQUIRED_LIBRARY_DIRECTORIES) {
+    await ensureLibraryDirectory(libraryPath, directoryName);
+  }
+  await checkLibraryHealth(libraryPath);
+}
+
+async function checkLibraryHealth(libraryPath: string): Promise<void> {
+  await readJsonFile<LibraryMetadata>(libraryChildPath(libraryPath, "library.json"));
+  await readJsonFile<LibrarySettings>(libraryChildPath(libraryPath, "settings.json"));
+
+  for (const directoryName of REQUIRED_LIBRARY_DIRECTORIES) {
+    await assertDirectory(libraryChildPath(libraryPath, directoryName));
+  }
 }
 
 function registerLibraryIpc(): void {
