@@ -79,6 +79,10 @@ async function ensureLibraryFolder(libraryPath: string): Promise<void> {
   await mkdir(libraryPath, { recursive: true });
 }
 
+async function ensureLibraryDirectory(libraryPath: string, directoryName: string): Promise<void> {
+  await mkdir(join(libraryPath, directoryName), { recursive: true });
+}
+
 async function ensureJsonFile(filePath: string, createData: () => unknown): Promise<void> {
   try {
     await readFile(filePath, "utf8");
@@ -134,6 +138,7 @@ async function ensureLibrarySettingsJson(libraryPath: string): Promise<void> {
 async function ensureLibraryFiles(libraryPath: string): Promise<void> {
   await ensureLibraryJson(libraryPath);
   await ensureLibrarySettingsJson(libraryPath);
+  await ensureLibraryDirectory(libraryPath, "index");
 }
 
 function registerLibraryIpc(): void {

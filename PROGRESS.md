@@ -90,7 +90,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Tách rõ app settings trong `userData` và library settings trong Library folder.
 - [x] Tạo `library.json`.
 - [x] Tạo `settings.json`.
-- [ ] Tạo thư mục `index/`.
+- [x] Tạo thư mục `index/`.
 - [ ] Tạo thư mục `series/`.
 - [ ] Tạo thư mục `backups/`.
 - [ ] Tạo thư mục `.trash/` tối thiểu để phục vụ xóa mềm sớm.
