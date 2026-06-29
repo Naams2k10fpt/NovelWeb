@@ -140,6 +140,7 @@ async function ensureLibraryFiles(libraryPath: string): Promise<void> {
   await ensureLibrarySettingsJson(libraryPath);
   await ensureLibraryDirectory(libraryPath, "index");
   await ensureLibraryDirectory(libraryPath, "series");
+  await ensureLibraryDirectory(libraryPath, "backups");
 }
 
 function registerLibraryIpc(): void {

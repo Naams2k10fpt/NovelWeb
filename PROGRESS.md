@@ -92,7 +92,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Tạo `settings.json`.
 - [x] Tạo thư mục `index/`.
 - [x] Tạo thư mục `series/`.
-- [ ] Tạo thư mục `backups/`.
+- [x] Tạo thư mục `backups/`.
 - [ ] Tạo thư mục `.trash/` tối thiểu để phục vụ xóa mềm sớm.
 - [ ] Implement đọc JSON an toàn.
 - [ ] Implement ghi JSON an toàn bằng `.tmp` rồi rename.
