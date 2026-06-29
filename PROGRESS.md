@@ -78,7 +78,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 
 ## Phase 2 - Nền tảng lưu trữ an toàn
 
-**Trạng thái:** `[~]`
+**Trạng thái:** `[x]`
 
 **Mục tiêu:** Xây hệ thống lưu trữ local an toàn, rõ ràng và có thể mở rộng.
 
@@ -109,15 +109,15 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Implement per-resource write lock hoặc save queue nền tảng.
 
 Ghi chú: Đã có Settings tab cơ bản để xem/đổi Library folder; các setting khác thêm khi có task tương ứng.
-Ghi chú: Import source guard đang chờ Import Wizard/import session; hiện chưa expose API đọc source ngoài Library.
+Ghi chú: Import source guard được defer sang Phase 6 vì cần Import Wizard/import session; hiện chưa expose API đọc source ngoài Library.
 
 ### Tiêu chí hoàn thành
 
-- [ ] App có thể tạo và ghi vào Library folder.
-- [ ] App không ghi dữ liệu chính vào thư mục cài app.
-- [ ] Ghi file lỗi không làm mất file cũ.
-- [ ] Main process từ chối path nằm ngoài library root.
-- [ ] Library bị lệch index có thể repair/rebuild cơ bản.
+- [x] App có thể tạo và ghi vào Library folder.
+- [x] App không ghi dữ liệu chính vào thư mục cài app.
+- [x] Ghi file lỗi không làm mất file cũ.
+- [x] Main process từ chối path nằm ngoài library root.
+- [x] Library bị lệch index có thể repair/rebuild cơ bản.
 
 ---
 
