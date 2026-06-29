@@ -123,13 +123,13 @@ Ghi chú: Import source guard được defer sang Phase 6 vì cần Import Wizar
 
 ## Phase 3 - Data model core
 
-**Trạng thái:** `[ ]`
+**Trạng thái:** `[~]`
 
 **Mục tiêu:** Tạo mô hình dữ liệu cốt lõi cho series, category, volume và chapter LN/WN trong MVP đầu.
 
 ### Checklist
 
-- [ ] Định nghĩa schema Series metadata.
+- [x] Định nghĩa schema Series metadata.
 - [ ] Định nghĩa schema Category metadata.
 - [ ] Định nghĩa schema Volume metadata.
 - [ ] Định nghĩa schema Chapter metadata cho LN/WN.
