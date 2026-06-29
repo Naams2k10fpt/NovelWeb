@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
-import { copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 type ApiResponse<T> =
@@ -41,6 +41,16 @@ type LibrarySettings = {
     keepOriginalFiles: boolean;
   };
   updatedAt: string;
+};
+
+type SeriesIndex = {
+  schemaVersion: 1;
+  generatedAt: string;
+  series: Array<{
+    id: string;
+    title: string;
+    updatedAt?: string;
+  }>;
 };
 
 function ok<T>(data: T): ApiResponse<T> {
@@ -188,6 +198,7 @@ async function ensureLibraryFiles(libraryPath: string): Promise<void> {
     await ensureLibraryDirectory(libraryPath, directoryName);
   }
   await checkLibraryHealth(libraryPath);
+  await rebuildSeriesIndex(libraryPath);
 }
 
 async function checkLibraryHealth(libraryPath: string): Promise<void> {
@@ -197,6 +208,41 @@ async function checkLibraryHealth(libraryPath: string): Promise<void> {
   for (const directoryName of REQUIRED_LIBRARY_DIRECTORIES) {
     await assertDirectory(libraryChildPath(libraryPath, directoryName));
   }
+}
+
+async function rebuildSeriesIndex(libraryPath: string): Promise<void> {
+  const seriesDirectory = libraryChildPath(libraryPath, "series");
+  const entries = await readdir(seriesDirectory, { withFileTypes: true });
+  const series: SeriesIndex["series"] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    try {
+      const metadata = await readJsonFile<Record<string, unknown>>(
+        libraryChildPath(libraryPath, "series", entry.name, "meta.json")
+      );
+      if (typeof metadata.id === "string" && typeof metadata.title === "string") {
+        series.push({
+          id: metadata.id,
+          title: metadata.title,
+          updatedAt: typeof metadata.updatedAt === "string" ? metadata.updatedAt : undefined
+        });
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  await writeJsonFile(libraryChildPath(libraryPath, "index", "series-index.json"), {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    series
+  } satisfies SeriesIndex);
 }
 
 function registerLibraryIpc(): void {

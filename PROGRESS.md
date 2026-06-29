@@ -102,7 +102,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Chuẩn hóa response IPC dạng `{ ok, data, error }`.
 - [x] Chuẩn hóa error code cơ bản.
 - [x] Implement library health check cơ bản.
-- [ ] Implement rebuild `series-index.json`.
+- [x] Implement rebuild `series-index.json`.
 - [ ] Tạo skeleton rebuild `search-index.json`.
 - [ ] Tạo `migrationService` skeleton.
 - [ ] Kiểm tra `schemaVersion` khi mở Library.
