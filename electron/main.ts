@@ -15,6 +15,14 @@ import {
   type CategoryType
 } from "./schemas/category";
 import { VOLUME_METADATA_SCHEMA_VERSION, type VolumeMetadata } from "./schemas/volume";
+import {
+  CHAPTER_METADATA_SCHEMA_VERSION,
+  NOVEL_CHAPTER_TYPES,
+  TRANSLATION_STATUSES,
+  type NovelChapterMetadata,
+  type NovelChapterType,
+  type TranslationStatus
+} from "./schemas/chapter";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -25,7 +33,8 @@ const ErrorCode = {
   LIBRARY_FOLDER_CHOOSE_FAILED: "LIBRARY_FOLDER_CHOOSE_FAILED",
   SERIES_CRUD_FAILED: "SERIES_CRUD_FAILED",
   CATEGORY_CRUD_FAILED: "CATEGORY_CRUD_FAILED",
-  VOLUME_CRUD_FAILED: "VOLUME_CRUD_FAILED"
+  VOLUME_CRUD_FAILED: "VOLUME_CRUD_FAILED",
+  CHAPTER_CRUD_FAILED: "CHAPTER_CRUD_FAILED"
 } as const;
 
 const REQUIRED_LIBRARY_DIRECTORIES = ["index", "series", "backups", ".trash"] as const;
@@ -299,6 +308,30 @@ function readOptionalInteger(record: JsonRecord, fieldName: string, fallback: nu
   return value;
 }
 
+function readOptionalNonNegativeInteger(record: JsonRecord, fieldName: string, fallback: number): number {
+  const value = readOptionalInteger(record, fieldName, fallback);
+
+  if (value < 0) {
+    throw new Error(`${fieldName} must be zero or greater.`);
+  }
+
+  return value;
+}
+
+function readOptionalBoolean(record: JsonRecord, fieldName: string, fallback: boolean): boolean {
+  const value = record[fieldName];
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value !== "boolean") {
+    throw new Error(`${fieldName} must be a boolean.`);
+  }
+
+  return value;
+}
+
 function readSeriesStatus(record: JsonRecord, fallback: SeriesStatus): SeriesStatus {
   const value = record.status;
 
@@ -325,6 +358,34 @@ function readCategoryType(record: JsonRecord, fallback?: CategoryType): Category
   }
 
   throw new Error("type is invalid.");
+}
+
+function readNovelChapterType(record: JsonRecord, fallback: NovelChapterType): NovelChapterType {
+  const value = record.type;
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value === "string" && (NOVEL_CHAPTER_TYPES as readonly string[]).includes(value)) {
+    return value as NovelChapterType;
+  }
+
+  throw new Error("type is invalid.");
+}
+
+function readTranslationStatus(record: JsonRecord, fallback: TranslationStatus): TranslationStatus {
+  const value = record.translationStatus;
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value === "string" && (TRANSLATION_STATUSES as readonly string[]).includes(value)) {
+    return value as TranslationStatus;
+  }
+
+  throw new Error("translationStatus is invalid.");
 }
 
 function seriesDirectoryPath(libraryPath: string, seriesId: string): string {
@@ -377,6 +438,42 @@ function volumeMetaPath(libraryPath: string, seriesId: string, categoryId: strin
     assertId(categoryId, "categoryId"),
     "volumes",
     assertId(volumeId, "volumeId"),
+    "meta.json"
+  );
+}
+
+function optionalVolumeId(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return assertId(value, "volumeId");
+}
+
+function chapterDirectoryPath(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): string {
+  const baseParts = ["series", assertId(seriesId, "seriesId"), "categories", assertId(categoryId, "categoryId")];
+  const chapterParts = volumeId
+    ? ["volumes", assertId(volumeId, "volumeId"), "chapters", assertId(chapterId, "chapterId")]
+    : ["chapters", assertId(chapterId, "chapterId")];
+
+  return libraryChildPath(libraryPath, ...baseParts, ...chapterParts);
+}
+
+function chapterMetaPath(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): string {
+  return libraryChildPath(
+    chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId),
     "meta.json"
   );
 }
@@ -824,6 +921,166 @@ async function updateVolumeMetadata(
   return metadata;
 }
 
+async function assertNovelChapterScope(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null
+): Promise<{ category: CategoryMetadata; volume: VolumeMetadata | null }> {
+  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  assertNovelCategory(category);
+
+  if (!volumeId) {
+    if (category.type !== "web-novel") {
+      throw new Error("Direct category chapters are only for web-novel categories.");
+    }
+
+    return { category, volume: null };
+  }
+
+  return { category, volume: await readVolumeMetadata(libraryPath, seriesId, categoryId, volumeId) };
+}
+
+function parseNovelChapterCreateInput(input: unknown, orderFallback: number): NovelChapterMetadata {
+  const record = assertRecord(input);
+  const now = new Date().toISOString();
+
+  return {
+    schemaVersion: CHAPTER_METADATA_SCHEMA_VERSION,
+    id: randomUUID(),
+    title: readRequiredString(record, "title"),
+    type: readNovelChapterType(record, "chapter"),
+    order: readOptionalInteger(record, "order", orderFallback),
+    wordCount: readOptionalNonNegativeInteger(record, "wordCount", 0),
+    characterCount: readOptionalNonNegativeInteger(record, "characterCount", 0),
+    translationStatus: readTranslationStatus(record, "draft"),
+    hasOriginalPdf: readOptionalBoolean(record, "hasOriginalPdf", false),
+    originalFileName: readOptionalNullableString(record, "originalFileName", null),
+    contentFile: "content.html",
+    plainTextFile: "content.txt",
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function parseNovelChapterUpdateInput(input: unknown, current: NovelChapterMetadata): NovelChapterMetadata {
+  const record = assertRecord(input);
+
+  return {
+    ...current,
+    title: record.title === undefined ? current.title : readRequiredString(record, "title"),
+    type: readNovelChapterType(record, current.type),
+    order: readOptionalInteger(record, "order", current.order),
+    wordCount: readOptionalNonNegativeInteger(record, "wordCount", current.wordCount),
+    characterCount: readOptionalNonNegativeInteger(record, "characterCount", current.characterCount),
+    translationStatus: readTranslationStatus(record, current.translationStatus),
+    hasOriginalPdf: readOptionalBoolean(record, "hasOriginalPdf", current.hasOriginalPdf),
+    originalFileName: readOptionalNullableString(record, "originalFileName", current.originalFileName),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function readNovelChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<NovelChapterMetadata> {
+  await assertNovelChapterScope(libraryPath, seriesId, categoryId, volumeId);
+  const metadata = await readJsonFile<NovelChapterMetadata>(
+    chapterMetaPath(libraryPath, seriesId, categoryId, volumeId, chapterId)
+  );
+  assertSupportedSchemaVersion(`series/${seriesId}/categories/${categoryId}/chapters/${chapterId}/meta.json`, metadata);
+  return metadata;
+}
+
+async function listNovelChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null
+): Promise<NovelChapterMetadata[]> {
+  const { category, volume } = await assertNovelChapterScope(libraryPath, seriesId, categoryId, volumeId);
+  const order = volume ? volume.chapterOrder : category.chapterOrder;
+  const chapterDirectory = volumeId
+    ? libraryChildPath(libraryPath, "series", seriesId, "categories", categoryId, "volumes", volumeId, "chapters")
+    : libraryChildPath(libraryPath, "series", seriesId, "categories", categoryId, "chapters");
+  const entries = await readdir(chapterDirectory, { withFileTypes: true });
+  const chapters = new Map<string, NovelChapterMetadata>();
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    try {
+      const metadata = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, entry.name);
+      chapters.set(metadata.id, metadata);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  return [
+    ...order.map((chapterId) => chapters.get(chapterId)).filter((item): item is NovelChapterMetadata => !!item),
+    ...[...chapters.values()].filter((chapter) => !order.includes(chapter.id))
+  ];
+}
+
+async function createNovelChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  input: unknown
+): Promise<NovelChapterMetadata> {
+  const { category, volume } = await assertNovelChapterScope(libraryPath, seriesId, categoryId, volumeId);
+  const order = volume ? volume.chapterOrder : category.chapterOrder;
+  const metadata = parseNovelChapterCreateInput(input, order.length + 1);
+  const now = new Date().toISOString();
+
+  await mkdir(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, metadata.id), { recursive: true });
+  await mkdir(libraryChildPath(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, metadata.id), "assets"), {
+    recursive: true
+  });
+  await writeJsonFile(chapterMetaPath(libraryPath, seriesId, categoryId, volumeId, metadata.id), metadata);
+
+  if (volume) {
+    await writeJsonFile(
+      volumeMetaPath(libraryPath, seriesId, categoryId, volume.id),
+      { ...volume, chapterOrder: [...volume.chapterOrder, metadata.id], updatedAt: now } satisfies VolumeMetadata,
+      { backup: true }
+    );
+  } else {
+    await writeJsonFile(
+      categoryMetaPath(libraryPath, seriesId, categoryId),
+      { ...category, chapterOrder: [...category.chapterOrder, metadata.id], updatedAt: now } satisfies CategoryMetadata,
+      { backup: true }
+    );
+  }
+
+  return metadata;
+}
+
+async function updateNovelChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  input: unknown
+): Promise<NovelChapterMetadata> {
+  const current = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  const metadata = parseNovelChapterUpdateInput(input, current);
+  await writeJsonFile(chapterMetaPath(libraryPath, seriesId, categoryId, volumeId, chapterId), metadata, {
+    backup: true
+  });
+  return metadata;
+}
+
 function registerLibraryIpc(): void {
   ipcMain.handle("library:getCurrent", async (): Promise<ApiResponse<{ path: string | null }>> => {
     try {
@@ -1053,6 +1310,103 @@ function registerVolumeIpc(): void {
   );
 }
 
+function registerChapterIpc(): void {
+  ipcMain.handle(
+    "chapters:list",
+    async (_event, seriesId: unknown, categoryId: unknown, volumeId: unknown): Promise<ApiResponse<NovelChapterMetadata[]>> => {
+      try {
+        return ok(
+          await listNovelChapterMetadata(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId)
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not list chapters.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:get",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown
+    ): Promise<ApiResponse<NovelChapterMetadata>> => {
+      try {
+        return ok(
+          await readNovelChapterMetadata(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not load chapter.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:create",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<NovelChapterMetadata>> => {
+      try {
+        return ok(
+          await createNovelChapterMetadata(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not create chapter.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:update",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<NovelChapterMetadata>> => {
+      try {
+        return ok(
+          await updateNovelChapterMetadata(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId"),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not update chapter.", String(error));
+      }
+    }
+  );
+}
+
 function createWindow(): void {
   const window = new BrowserWindow({
     width: 1200,
@@ -1077,6 +1431,7 @@ void app.whenReady().then(() => {
   registerSeriesIpc();
   registerCategoryIpc();
   registerVolumeIpc();
+  registerChapterIpc();
   createWindow();
 
   app.on("activate", () => {

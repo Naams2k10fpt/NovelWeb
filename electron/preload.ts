@@ -26,5 +26,15 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("volumes:create", seriesId, categoryId, input),
     update: (seriesId: string, categoryId: string, volumeId: string, input: unknown) =>
       ipcRenderer.invoke("volumes:update", seriesId, categoryId, volumeId, input)
+  },
+  chapters: {
+    list: (seriesId: string, categoryId: string, volumeId: string | null = null) =>
+      ipcRenderer.invoke("chapters:list", seriesId, categoryId, volumeId),
+    get: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
+      ipcRenderer.invoke("chapters:get", seriesId, categoryId, volumeId, chapterId),
+    create: (seriesId: string, categoryId: string, volumeId: string | null, input: unknown) =>
+      ipcRenderer.invoke("chapters:create", seriesId, categoryId, volumeId, input),
+    update: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>
+      ipcRenderer.invoke("chapters:update", seriesId, categoryId, volumeId, chapterId, input)
   }
 });
