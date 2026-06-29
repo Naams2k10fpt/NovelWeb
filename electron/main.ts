@@ -12,22 +12,27 @@ const ErrorCode = {
 } as const;
 
 const REQUIRED_LIBRARY_DIRECTORIES = ["index", "series", "backups", ".trash"] as const;
+const SUPPORTED_SCHEMA_VERSION = 1;
 
 type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
+type SupportedSchemaVersion = typeof SUPPORTED_SCHEMA_VERSION;
+type VersionedMetadata = {
+  schemaVersion: unknown;
+};
 
 type AppSettings = {
   currentLibraryPath?: string;
 };
 
 type LibraryMetadata = {
-  schemaVersion: 1;
+  schemaVersion: SupportedSchemaVersion;
   name: string;
   createdAt: string;
   updatedAt: string;
 };
 
 type LibrarySettings = {
-  schemaVersion: 1;
+  schemaVersion: SupportedSchemaVersion;
   reading: {
     theme: "system" | "light" | "dark";
     fontFamily: string;
@@ -44,7 +49,7 @@ type LibrarySettings = {
 };
 
 type SeriesIndex = {
-  schemaVersion: 1;
+  schemaVersion: SupportedSchemaVersion;
   generatedAt: string;
   series: Array<{
     id: string;
@@ -54,7 +59,7 @@ type SeriesIndex = {
 };
 
 type SearchIndex = {
-  schemaVersion: 1;
+  schemaVersion: SupportedSchemaVersion;
   generatedAt: string;
   documents: [];
 };
@@ -65,6 +70,12 @@ function ok<T>(data: T): ApiResponse<T> {
 
 function fail(code: ErrorCode, message: string, details?: unknown): ApiResponse<never> {
   return { ok: false, error: { code, message, details } };
+}
+
+function assertSupportedSchemaVersion(fileName: string, metadata: VersionedMetadata): void {
+  if (metadata.schemaVersion !== SUPPORTED_SCHEMA_VERSION) {
+    throw new Error(`Unsupported schemaVersion in ${fileName}: ${String(metadata.schemaVersion)}`);
+  }
 }
 
 function appSettingsPath(): string {
@@ -167,7 +178,7 @@ async function ensureLibraryJson(libraryPath: string): Promise<void> {
     const now = new Date().toISOString();
 
     return {
-      schemaVersion: 1,
+      schemaVersion: SUPPORTED_SCHEMA_VERSION,
       name: basename(libraryPath),
       createdAt: now,
       updatedAt: now
@@ -180,7 +191,7 @@ async function ensureLibrarySettingsJson(libraryPath: string): Promise<void> {
 
   const filePath = libraryChildPath(libraryPath, "settings.json");
   await ensureJsonFile(filePath, (): LibrarySettings => ({
-    schemaVersion: 1,
+    schemaVersion: SUPPORTED_SCHEMA_VERSION,
     reading: {
       theme: "system",
       fontFamily: "system",
@@ -246,7 +257,7 @@ async function rebuildSeriesIndex(libraryPath: string): Promise<void> {
   }
 
   await writeJsonFile(libraryChildPath(libraryPath, "index", "series-index.json"), {
-    schemaVersion: 1,
+    schemaVersion: SUPPORTED_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
     series
   } satisfies SeriesIndex);
@@ -254,7 +265,7 @@ async function rebuildSeriesIndex(libraryPath: string): Promise<void> {
 
 async function ensureSearchIndexJson(libraryPath: string): Promise<void> {
   await ensureJsonFile(libraryChildPath(libraryPath, "index", "search-index.json"), (): SearchIndex => ({
-    schemaVersion: 1,
+    schemaVersion: SUPPORTED_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
     documents: []
   }));

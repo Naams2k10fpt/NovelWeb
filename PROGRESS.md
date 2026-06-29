@@ -104,7 +104,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Implement library health check cơ bản.
 - [x] Implement rebuild `series-index.json`.
 - [x] Tạo skeleton rebuild `search-index.json`.
-- [ ] Tạo `migrationService` skeleton.
+- [x] Tạo `migrationService` skeleton.
 - [ ] Kiểm tra `schemaVersion` khi mở Library.
 - [ ] Implement per-resource write lock hoặc save queue nền tảng.
 
