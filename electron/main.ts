@@ -13,6 +13,7 @@ const ErrorCode = {
 
 const REQUIRED_LIBRARY_DIRECTORIES = ["index", "series", "backups", ".trash"] as const;
 const SUPPORTED_SCHEMA_VERSION = 1;
+const writeQueues = new Map<string, Promise<unknown>>();
 
 type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 type SupportedSchemaVersion = typeof SUPPORTED_SCHEMA_VERSION;
@@ -104,15 +105,33 @@ async function backupExistingFile(filePath: string): Promise<void> {
 }
 
 async function writeJsonFile(filePath: string, data: unknown, options: { backup?: boolean } = {}): Promise<void> {
-  const tmpPath = `${filePath}.tmp`;
+  await withResourceWriteLock(filePath, async () => {
+    const tmpPath = `${filePath}.tmp`;
 
-  await mkdir(dirname(filePath), { recursive: true });
-  if (options.backup) {
-    await backupExistingFile(filePath);
+    await mkdir(dirname(filePath), { recursive: true });
+    if (options.backup) {
+      await backupExistingFile(filePath);
+    }
+
+    await writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+    await rename(tmpPath, filePath);
+  });
+}
+
+async function withResourceWriteLock<T>(resourcePath: string, operation: () => Promise<T>): Promise<T> {
+  const lockKey = resolve(resourcePath);
+  const previousWrite = writeQueues.get(lockKey) ?? Promise.resolve();
+  const nextWrite = previousWrite.catch(() => undefined).then(operation);
+
+  writeQueues.set(lockKey, nextWrite);
+
+  try {
+    return await nextWrite;
+  } finally {
+    if (writeQueues.get(lockKey) === nextWrite) {
+      writeQueues.delete(lockKey);
+    }
   }
-
-  await writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-  await rename(tmpPath, filePath);
 }
 
 async function readAppSettings(): Promise<AppSettings> {

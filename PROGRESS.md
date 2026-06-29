@@ -106,7 +106,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Tạo skeleton rebuild `search-index.json`.
 - [x] Tạo `migrationService` skeleton.
 - [x] Kiểm tra `schemaVersion` khi mở Library.
-- [ ] Implement per-resource write lock hoặc save queue nền tảng.
+- [x] Implement per-resource write lock hoặc save queue nền tảng.
 
 Ghi chú: Đã có Settings tab cơ bản để xem/đổi Library folder; các setting khác thêm khi có task tương ứng.
 Ghi chú: Import source guard đang chờ Import Wizard/import session; hiện chưa expose API đọc source ngoài Library.
