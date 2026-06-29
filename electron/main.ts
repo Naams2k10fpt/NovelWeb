@@ -57,6 +57,14 @@ async function readJsonFile<T>(filePath: string): Promise<T> {
   }
 }
 
+async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
+  const tmpPath = `${filePath}.tmp`;
+
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+  await rename(tmpPath, filePath);
+}
+
 async function readAppSettings(): Promise<AppSettings> {
   try {
     return await readJsonFile<AppSettings>(appSettingsPath());
@@ -70,10 +78,6 @@ async function readAppSettings(): Promise<AppSettings> {
 
 async function writeAppSettings(settings: AppSettings): Promise<void> {
   const filePath = appSettingsPath();
-  const tmpPath = `${filePath}.tmp`;
-
-  await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(tmpPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
 
   try {
     await copyFile(filePath, `${filePath}.bak`);
@@ -83,7 +87,7 @@ async function writeAppSettings(settings: AppSettings): Promise<void> {
     }
   }
 
-  await rename(tmpPath, filePath);
+  await writeJsonFile(filePath, settings);
 }
 
 async function ensureLibraryFolder(libraryPath: string): Promise<void> {
@@ -104,8 +108,7 @@ async function ensureJsonFile(filePath: string, createData: () => unknown): Prom
     }
   }
 
-  await writeFile(`${filePath}.tmp`, `${JSON.stringify(createData(), null, 2)}\n`, "utf8");
-  await rename(`${filePath}.tmp`, filePath);
+  await writeJsonFile(filePath, createData());
 }
 
 async function ensureLibraryJson(libraryPath: string): Promise<void> {
