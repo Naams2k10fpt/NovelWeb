@@ -96,7 +96,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Tạo thư mục `.trash/` tối thiểu để phục vụ xóa mềm sớm.
 - [x] Implement đọc JSON an toàn.
 - [x] Implement ghi JSON an toàn bằng `.tmp` rồi rename.
-- [ ] Tạo backup gần nhất trước khi ghi đè file quan trọng.
+- [x] Tạo backup gần nhất trước khi ghi đè file quan trọng.
 - [ ] Implement path safety để mọi thao tác nằm trong library root.
 - [ ] Cho phép đọc source import ngoài Library chỉ khi path đến từ Electron dialog/import session hợp lệ.
 - [ ] Chuẩn hóa response IPC dạng `{ ok, data, error }`.

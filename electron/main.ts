@@ -57,10 +57,24 @@ async function readJsonFile<T>(filePath: string): Promise<T> {
   }
 }
 
-async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
+async function backupExistingFile(filePath: string): Promise<void> {
+  try {
+    await copyFile(filePath, `${filePath}.bak`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+}
+
+async function writeJsonFile(filePath: string, data: unknown, options: { backup?: boolean } = {}): Promise<void> {
   const tmpPath = `${filePath}.tmp`;
 
   await mkdir(dirname(filePath), { recursive: true });
+  if (options.backup) {
+    await backupExistingFile(filePath);
+  }
+
   await writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
   await rename(tmpPath, filePath);
 }
@@ -77,17 +91,7 @@ async function readAppSettings(): Promise<AppSettings> {
 }
 
 async function writeAppSettings(settings: AppSettings): Promise<void> {
-  const filePath = appSettingsPath();
-
-  try {
-    await copyFile(filePath, `${filePath}.bak`);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw error;
-    }
-  }
-
-  await writeJsonFile(filePath, settings);
+  await writeJsonFile(appSettingsPath(), settings, { backup: true });
 }
 
 async function ensureLibraryFolder(libraryPath: string): Promise<void> {
