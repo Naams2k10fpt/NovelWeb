@@ -87,7 +87,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Tạo cơ chế chọn thư mục Library lần đầu mở app.
 - [x] Tạo cơ chế đổi thư mục Library trong settings.
 - [x] Tạo thư mục Library nếu chưa tồn tại.
-- [ ] Tách rõ app settings trong `userData` và library settings trong Library folder.
+- [x] Tách rõ app settings trong `userData` và library settings trong Library folder.
 - [ ] Tạo `library.json`.
 - [ ] Tạo `settings.json`.
 - [ ] Tạo thư mục `index/`.
