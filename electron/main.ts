@@ -8,6 +8,12 @@ import {
   type SeriesMetadata,
   type SeriesStatus
 } from "./schemas/series";
+import {
+  CATEGORY_METADATA_SCHEMA_VERSION,
+  CATEGORY_TYPES,
+  type CategoryMetadata,
+  type CategoryType
+} from "./schemas/category";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -16,7 +22,8 @@ type ApiResponse<T> =
 const ErrorCode = {
   LIBRARY_FOLDER_LOAD_FAILED: "LIBRARY_FOLDER_LOAD_FAILED",
   LIBRARY_FOLDER_CHOOSE_FAILED: "LIBRARY_FOLDER_CHOOSE_FAILED",
-  SERIES_CRUD_FAILED: "SERIES_CRUD_FAILED"
+  SERIES_CRUD_FAILED: "SERIES_CRUD_FAILED",
+  CATEGORY_CRUD_FAILED: "CATEGORY_CRUD_FAILED"
 } as const;
 
 const REQUIRED_LIBRARY_DIRECTORIES = ["index", "series", "backups", ".trash"] as const;
@@ -290,12 +297,47 @@ function readSeriesStatus(record: JsonRecord, fallback: SeriesStatus): SeriesSta
   throw new Error("status is invalid.");
 }
 
+function readCategoryType(record: JsonRecord, fallback?: CategoryType): CategoryType {
+  const value = record.type;
+
+  if (value === undefined && fallback) {
+    return fallback;
+  }
+
+  if (typeof value === "string" && (CATEGORY_TYPES as readonly string[]).includes(value)) {
+    return value as CategoryType;
+  }
+
+  throw new Error("type is invalid.");
+}
+
 function seriesDirectoryPath(libraryPath: string, seriesId: string): string {
   return libraryChildPath(libraryPath, "series", assertId(seriesId, "seriesId"));
 }
 
 function seriesMetaPath(libraryPath: string, seriesId: string): string {
   return libraryChildPath(libraryPath, "series", assertId(seriesId, "seriesId"), "meta.json");
+}
+
+function categoryDirectoryPath(libraryPath: string, seriesId: string, categoryId: string): string {
+  return libraryChildPath(
+    libraryPath,
+    "series",
+    assertId(seriesId, "seriesId"),
+    "categories",
+    assertId(categoryId, "categoryId")
+  );
+}
+
+function categoryMetaPath(libraryPath: string, seriesId: string, categoryId: string): string {
+  return libraryChildPath(
+    libraryPath,
+    "series",
+    assertId(seriesId, "seriesId"),
+    "categories",
+    assertId(categoryId, "categoryId"),
+    "meta.json"
+  );
 }
 
 async function ensureLibraryDirectory(libraryPath: string, directoryName: string): Promise<void> {
@@ -521,6 +563,108 @@ async function updateSeriesMetadata(libraryPath: string, seriesId: string, input
   return metadata;
 }
 
+function parseCategoryCreateInput(input: unknown): CategoryMetadata {
+  const record = assertRecord(input);
+  const now = new Date().toISOString();
+
+  return {
+    schemaVersion: CATEGORY_METADATA_SCHEMA_VERSION,
+    id: randomUUID(),
+    type: readCategoryType(record),
+    title: readRequiredString(record, "title"),
+    volumeOrder: [],
+    chapterOrder: [],
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function parseCategoryUpdateInput(input: unknown, current: CategoryMetadata): CategoryMetadata {
+  const record = assertRecord(input);
+
+  return {
+    ...current,
+    title: record.title === undefined ? current.title : readRequiredString(record, "title"),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function readCategoryMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string
+): Promise<CategoryMetadata> {
+  const metadata = await readJsonFile<CategoryMetadata>(categoryMetaPath(libraryPath, seriesId, categoryId));
+  assertSupportedSchemaVersion(`series/${seriesId}/categories/${categoryId}/meta.json`, metadata);
+  return metadata;
+}
+
+async function listCategoryMetadata(libraryPath: string, seriesId: string): Promise<CategoryMetadata[]> {
+  const series = await readSeriesMetadata(libraryPath, seriesId);
+  const categoryDirectory = libraryChildPath(libraryPath, "series", series.id, "categories");
+  const entries = await readdir(categoryDirectory, { withFileTypes: true });
+  const categories = new Map<string, CategoryMetadata>();
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    try {
+      const metadata = await readCategoryMetadata(libraryPath, series.id, entry.name);
+      categories.set(metadata.id, metadata);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  return [
+    ...series.categoryOrder.map((categoryId) => categories.get(categoryId)).filter((item): item is CategoryMetadata => !!item),
+    ...[...categories.values()].filter((category) => !series.categoryOrder.includes(category.id))
+  ];
+}
+
+async function createCategoryMetadata(
+  libraryPath: string,
+  seriesId: string,
+  input: unknown
+): Promise<CategoryMetadata> {
+  const series = await readSeriesMetadata(libraryPath, seriesId);
+  const metadata = parseCategoryCreateInput(input);
+  const now = new Date().toISOString();
+
+  await mkdir(categoryDirectoryPath(libraryPath, series.id, metadata.id), { recursive: true });
+  await mkdir(libraryChildPath(libraryPath, "series", series.id, "categories", metadata.id, "volumes"), {
+    recursive: true
+  });
+  await mkdir(libraryChildPath(libraryPath, "series", series.id, "categories", metadata.id, "chapters"), {
+    recursive: true
+  });
+  await writeJsonFile(categoryMetaPath(libraryPath, series.id, metadata.id), metadata);
+  await writeJsonFile(
+    seriesMetaPath(libraryPath, series.id),
+    { ...series, categoryOrder: [...series.categoryOrder, metadata.id], updatedAt: now } satisfies SeriesMetadata,
+    { backup: true }
+  );
+  await rebuildSeriesIndex(libraryPath);
+
+  return metadata;
+}
+
+async function updateCategoryMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  input: unknown
+): Promise<CategoryMetadata> {
+  const current = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  const metadata = parseCategoryUpdateInput(input, current);
+  await writeJsonFile(categoryMetaPath(libraryPath, seriesId, categoryId), metadata, { backup: true });
+  return metadata;
+}
+
 function registerLibraryIpc(): void {
   ipcMain.handle("library:getCurrent", async (): Promise<ApiResponse<{ path: string | null }>> => {
     try {
@@ -599,6 +743,67 @@ function registerSeriesIpc(): void {
   );
 }
 
+function registerCategoryIpc(): void {
+  ipcMain.handle("categories:list", async (_event, seriesId: unknown): Promise<ApiResponse<CategoryMetadata[]>> => {
+    try {
+      return ok(await listCategoryMetadata(await currentLibraryPathOrThrow(), assertId(seriesId, "seriesId")));
+    } catch (error) {
+      return fail(ErrorCode.CATEGORY_CRUD_FAILED, "Could not list categories.", String(error));
+    }
+  });
+
+  ipcMain.handle(
+    "categories:get",
+    async (_event, seriesId: unknown, categoryId: unknown): Promise<ApiResponse<CategoryMetadata>> => {
+      try {
+        return ok(
+          await readCategoryMetadata(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CATEGORY_CRUD_FAILED, "Could not load category.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "categories:create",
+    async (_event, seriesId: unknown, input: unknown): Promise<ApiResponse<CategoryMetadata>> => {
+      try {
+        return ok(await createCategoryMetadata(await currentLibraryPathOrThrow(), assertId(seriesId, "seriesId"), input));
+      } catch (error) {
+        return fail(ErrorCode.CATEGORY_CRUD_FAILED, "Could not create category.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "categories:update",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<CategoryMetadata>> => {
+      try {
+        return ok(
+          await updateCategoryMetadata(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CATEGORY_CRUD_FAILED, "Could not update category.", String(error));
+      }
+    }
+  );
+}
+
 function createWindow(): void {
   const window = new BrowserWindow({
     width: 1200,
@@ -621,6 +826,7 @@ function createWindow(): void {
 void app.whenReady().then(() => {
   registerLibraryIpc();
   registerSeriesIpc();
+  registerCategoryIpc();
   createWindow();
 
   app.on("activate", () => {

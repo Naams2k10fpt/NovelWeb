@@ -136,7 +136,7 @@ Ghi chú: Import source guard được defer sang Phase 6 vì cần Import Wizar
 - [x] Ghi chú schema Chapter metadata cho Manga để chuẩn bị phase sau.
 - [x] Thêm `schemaVersion` vào mọi metadata.
 - [x] CRUD Series.
-- [ ] CRUD Category: `light-novel`, `web-novel`, `manga`.
+- [x] CRUD Category: `light-novel`, `web-novel`, `manga`.
 - [ ] CRUD Volume cho LN/WN.
 - [ ] CRUD Chapter cho LN/WN.
 - [ ] Hoãn CRUD Chapter Manga sang Phase 7.
