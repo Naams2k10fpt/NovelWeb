@@ -100,7 +100,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Implement path safety để mọi thao tác nằm trong library root.
 - [~] Cho phép đọc source import ngoài Library chỉ khi path đến từ Electron dialog/import session hợp lệ.
 - [x] Chuẩn hóa response IPC dạng `{ ok, data, error }`.
-- [ ] Chuẩn hóa error code cơ bản.
+- [x] Chuẩn hóa error code cơ bản.
 - [ ] Implement library health check cơ bản.
 - [ ] Implement rebuild `series-index.json`.
 - [ ] Tạo skeleton rebuild `search-index.json`.

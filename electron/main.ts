@@ -6,6 +6,13 @@ type ApiResponse<T> =
   | { ok: true; data: T }
   | { ok: false; error: { code: string; message: string; details?: unknown } };
 
+const ErrorCode = {
+  LIBRARY_FOLDER_LOAD_FAILED: "LIBRARY_FOLDER_LOAD_FAILED",
+  LIBRARY_FOLDER_CHOOSE_FAILED: "LIBRARY_FOLDER_CHOOSE_FAILED"
+} as const;
+
+type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
+
 type AppSettings = {
   currentLibraryPath?: string;
 };
@@ -38,7 +45,7 @@ function ok<T>(data: T): ApiResponse<T> {
   return { ok: true, data };
 }
 
-function fail(code: string, message: string, details?: unknown): ApiResponse<never> {
+function fail(code: ErrorCode, message: string, details?: unknown): ApiResponse<never> {
   return { ok: false, error: { code, message, details } };
 }
 
@@ -186,7 +193,7 @@ function registerLibraryIpc(): void {
 
       return ok({ path: currentLibraryPath });
     } catch (error) {
-      return fail("LIBRARY_FOLDER_LOAD_FAILED", "Could not load current Library folder.", String(error));
+      return fail(ErrorCode.LIBRARY_FOLDER_LOAD_FAILED, "Could not load current Library folder.", String(error));
     }
   });
 
@@ -210,7 +217,7 @@ function registerLibraryIpc(): void {
 
       return ok({ path: currentLibraryPath });
     } catch (error) {
-      return fail("LIBRARY_FOLDER_CHOOSE_FAILED", "Could not choose Library folder.", String(error));
+      return fail(ErrorCode.LIBRARY_FOLDER_CHOOSE_FAILED, "Could not choose Library folder.", String(error));
     }
   });
 }
