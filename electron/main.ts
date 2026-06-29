@@ -220,8 +220,11 @@ async function ensureLibraryFiles(libraryPath: string): Promise<void> {
 }
 
 async function checkLibraryHealth(libraryPath: string): Promise<void> {
-  await readJsonFile<LibraryMetadata>(libraryChildPath(libraryPath, "library.json"));
-  await readJsonFile<LibrarySettings>(libraryChildPath(libraryPath, "settings.json"));
+  const libraryMetadata = await readJsonFile<VersionedMetadata>(libraryChildPath(libraryPath, "library.json"));
+  const librarySettings = await readJsonFile<VersionedMetadata>(libraryChildPath(libraryPath, "settings.json"));
+
+  assertSupportedSchemaVersion("library.json", libraryMetadata);
+  assertSupportedSchemaVersion("settings.json", librarySettings);
 
   for (const directoryName of REQUIRED_LIBRARY_DIRECTORIES) {
     await assertDirectory(libraryChildPath(libraryPath, directoryName));
