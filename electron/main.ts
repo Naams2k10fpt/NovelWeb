@@ -53,6 +53,12 @@ type SeriesIndex = {
   }>;
 };
 
+type SearchIndex = {
+  schemaVersion: 1;
+  generatedAt: string;
+  documents: [];
+};
+
 function ok<T>(data: T): ApiResponse<T> {
   return { ok: true, data };
 }
@@ -197,6 +203,7 @@ async function ensureLibraryFiles(libraryPath: string): Promise<void> {
   for (const directoryName of REQUIRED_LIBRARY_DIRECTORIES) {
     await ensureLibraryDirectory(libraryPath, directoryName);
   }
+  await ensureSearchIndexJson(libraryPath);
   await checkLibraryHealth(libraryPath);
   await rebuildSeriesIndex(libraryPath);
 }
@@ -243,6 +250,14 @@ async function rebuildSeriesIndex(libraryPath: string): Promise<void> {
     generatedAt: new Date().toISOString(),
     series
   } satisfies SeriesIndex);
+}
+
+async function ensureSearchIndexJson(libraryPath: string): Promise<void> {
+  await ensureJsonFile(libraryChildPath(libraryPath, "index", "search-index.json"), (): SearchIndex => ({
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    documents: []
+  }));
 }
 
 function registerLibraryIpc(): void {
