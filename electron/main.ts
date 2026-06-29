@@ -1,6 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
+import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  SERIES_METADATA_SCHEMA_VERSION,
+  SERIES_STATUSES,
+  type SeriesMetadata,
+  type SeriesStatus
+} from "./schemas/series";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -8,7 +15,8 @@ type ApiResponse<T> =
 
 const ErrorCode = {
   LIBRARY_FOLDER_LOAD_FAILED: "LIBRARY_FOLDER_LOAD_FAILED",
-  LIBRARY_FOLDER_CHOOSE_FAILED: "LIBRARY_FOLDER_CHOOSE_FAILED"
+  LIBRARY_FOLDER_CHOOSE_FAILED: "LIBRARY_FOLDER_CHOOSE_FAILED",
+  SERIES_CRUD_FAILED: "SERIES_CRUD_FAILED"
 } as const;
 
 const REQUIRED_LIBRARY_DIRECTORIES = ["index", "series", "backups", ".trash"] as const;
@@ -64,6 +72,8 @@ type SearchIndex = {
   generatedAt: string;
   documents: [];
 };
+
+type JsonRecord = Record<string, unknown>;
 
 function ok<T>(data: T): ApiResponse<T> {
   return { ok: true, data };
@@ -149,6 +159,17 @@ async function writeAppSettings(settings: AppSettings): Promise<void> {
   await writeJsonFile(appSettingsPath(), settings, { backup: true });
 }
 
+async function currentLibraryPathOrThrow(): Promise<string> {
+  const settings = await readAppSettings();
+
+  if (!settings.currentLibraryPath) {
+    throw new Error("No Library folder selected.");
+  }
+
+  await ensureLibraryFiles(settings.currentLibraryPath);
+  return settings.currentLibraryPath;
+}
+
 async function ensureLibraryFolder(libraryPath: string): Promise<void> {
   await mkdir(libraryPath, { recursive: true });
 }
@@ -163,6 +184,118 @@ function libraryChildPath(libraryPath: string, ...parts: string[]): string {
   }
 
   throw new Error(`Refusing to access path outside Library root: ${targetPath}`);
+}
+
+function assertRecord(input: unknown): JsonRecord {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("Expected object input.");
+  }
+
+  return input as JsonRecord;
+}
+
+function assertId(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || !/^[a-zA-Z0-9_-]+$/.test(value)) {
+    throw new Error(`${fieldName} must be a safe id.`);
+  }
+
+  return value;
+}
+
+function readRequiredString(record: JsonRecord, fieldName: string): string {
+  const value = record[fieldName];
+
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${fieldName} is required.`);
+  }
+
+  return value.trim();
+}
+
+function readOptionalString(record: JsonRecord, fieldName: string, fallback: string): string {
+  const value = record[fieldName];
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value !== "string") {
+    throw new Error(`${fieldName} must be a string.`);
+  }
+
+  return value.trim();
+}
+
+function readOptionalNullableString(record: JsonRecord, fieldName: string, fallback: string | null): string | null {
+  const value = record[fieldName];
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw new Error(`${fieldName} must be a string or null.`);
+  }
+
+  return value.trim() || null;
+}
+
+function readOptionalStringArray(record: JsonRecord, fieldName: string, fallback: string[]): string[] {
+  const value = record[fieldName];
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error(`${fieldName} must be a string array.`);
+  }
+
+  return value.map((item) => item.trim()).filter(Boolean);
+}
+
+function readOptionalNullableNumber(record: JsonRecord, fieldName: string, fallback: number | null): number | null {
+  const value = record[fieldName];
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new Error(`${fieldName} must be an integer or null.`);
+  }
+
+  return value;
+}
+
+function readSeriesStatus(record: JsonRecord, fallback: SeriesStatus): SeriesStatus {
+  const value = record.status;
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value === "string" && (SERIES_STATUSES as readonly string[]).includes(value)) {
+    return value as SeriesStatus;
+  }
+
+  throw new Error("status is invalid.");
+}
+
+function seriesDirectoryPath(libraryPath: string, seriesId: string): string {
+  return libraryChildPath(libraryPath, "series", assertId(seriesId, "seriesId"));
+}
+
+function seriesMetaPath(libraryPath: string, seriesId: string): string {
+  return libraryChildPath(libraryPath, "series", assertId(seriesId, "seriesId"), "meta.json");
 }
 
 async function ensureLibraryDirectory(libraryPath: string, directoryName: string): Promise<void> {
@@ -293,6 +426,101 @@ async function ensureSearchIndexJson(libraryPath: string): Promise<void> {
   }));
 }
 
+function parseSeriesCreateInput(input: unknown): SeriesMetadata {
+  const record = assertRecord(input);
+  const now = new Date().toISOString();
+
+  return {
+    schemaVersion: SERIES_METADATA_SCHEMA_VERSION,
+    id: randomUUID(),
+    title: readRequiredString(record, "title"),
+    originalTitle: readOptionalNullableString(record, "originalTitle", null),
+    originalAuthor: readOptionalNullableString(record, "originalAuthor", null),
+    translator: readOptionalNullableString(record, "translator", null),
+    genres: readOptionalStringArray(record, "genres", []),
+    tags: readOptionalStringArray(record, "tags", []),
+    status: readSeriesStatus(record, "planning"),
+    publisher: readOptionalNullableString(record, "publisher", null),
+    year: readOptionalNullableNumber(record, "year", null),
+    language: readOptionalString(record, "language", "vi") || "vi",
+    sourceLanguage: readOptionalNullableString(record, "sourceLanguage", null),
+    description: readOptionalString(record, "description", ""),
+    categoryOrder: [],
+    coverImage: readOptionalNullableString(record, "coverImage", null),
+    createdAt: now,
+    updatedAt: now,
+    lastReadAt: null
+  };
+}
+
+function parseSeriesUpdateInput(input: unknown, current: SeriesMetadata): SeriesMetadata {
+  const record = assertRecord(input);
+
+  return {
+    ...current,
+    title: record.title === undefined ? current.title : readRequiredString(record, "title"),
+    originalTitle: readOptionalNullableString(record, "originalTitle", current.originalTitle),
+    originalAuthor: readOptionalNullableString(record, "originalAuthor", current.originalAuthor),
+    translator: readOptionalNullableString(record, "translator", current.translator),
+    genres: readOptionalStringArray(record, "genres", current.genres),
+    tags: readOptionalStringArray(record, "tags", current.tags),
+    status: readSeriesStatus(record, current.status),
+    publisher: readOptionalNullableString(record, "publisher", current.publisher),
+    year: readOptionalNullableNumber(record, "year", current.year),
+    language: readOptionalString(record, "language", current.language) || current.language,
+    sourceLanguage: readOptionalNullableString(record, "sourceLanguage", current.sourceLanguage),
+    description: readOptionalString(record, "description", current.description),
+    coverImage: readOptionalNullableString(record, "coverImage", current.coverImage),
+    lastReadAt: readOptionalNullableString(record, "lastReadAt", current.lastReadAt),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function readSeriesMetadata(libraryPath: string, seriesId: string): Promise<SeriesMetadata> {
+  const metadata = await readJsonFile<SeriesMetadata>(seriesMetaPath(libraryPath, seriesId));
+  assertSupportedSchemaVersion(`series/${seriesId}/meta.json`, metadata);
+  return metadata;
+}
+
+async function listSeriesMetadata(libraryPath: string): Promise<SeriesMetadata[]> {
+  const seriesDirectory = libraryChildPath(libraryPath, "series");
+  const entries = await readdir(seriesDirectory, { withFileTypes: true });
+  const series: SeriesMetadata[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    try {
+      series.push(await readSeriesMetadata(libraryPath, entry.name));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  return series.sort((left, right) => left.title.localeCompare(right.title));
+}
+
+async function createSeriesMetadata(libraryPath: string, input: unknown): Promise<SeriesMetadata> {
+  const metadata = parseSeriesCreateInput(input);
+  await mkdir(seriesDirectoryPath(libraryPath, metadata.id), { recursive: true });
+  await mkdir(libraryChildPath(libraryPath, "series", metadata.id, "categories"), { recursive: true });
+  await writeJsonFile(seriesMetaPath(libraryPath, metadata.id), metadata);
+  await rebuildSeriesIndex(libraryPath);
+  return metadata;
+}
+
+async function updateSeriesMetadata(libraryPath: string, seriesId: string, input: unknown): Promise<SeriesMetadata> {
+  const current = await readSeriesMetadata(libraryPath, seriesId);
+  const metadata = parseSeriesUpdateInput(input, current);
+  await writeJsonFile(seriesMetaPath(libraryPath, seriesId), metadata, { backup: true });
+  await rebuildSeriesIndex(libraryPath);
+  return metadata;
+}
+
 function registerLibraryIpc(): void {
   ipcMain.handle("library:getCurrent", async (): Promise<ApiResponse<{ path: string | null }>> => {
     try {
@@ -334,6 +562,43 @@ function registerLibraryIpc(): void {
   });
 }
 
+function registerSeriesIpc(): void {
+  ipcMain.handle("series:list", async (): Promise<ApiResponse<SeriesMetadata[]>> => {
+    try {
+      return ok(await listSeriesMetadata(await currentLibraryPathOrThrow()));
+    } catch (error) {
+      return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not list series.", String(error));
+    }
+  });
+
+  ipcMain.handle("series:get", async (_event, seriesId: unknown): Promise<ApiResponse<SeriesMetadata>> => {
+    try {
+      return ok(await readSeriesMetadata(await currentLibraryPathOrThrow(), assertId(seriesId, "seriesId")));
+    } catch (error) {
+      return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not load series.", String(error));
+    }
+  });
+
+  ipcMain.handle("series:create", async (_event, input: unknown): Promise<ApiResponse<SeriesMetadata>> => {
+    try {
+      return ok(await createSeriesMetadata(await currentLibraryPathOrThrow(), input));
+    } catch (error) {
+      return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not create series.", String(error));
+    }
+  });
+
+  ipcMain.handle(
+    "series:update",
+    async (_event, seriesId: unknown, input: unknown): Promise<ApiResponse<SeriesMetadata>> => {
+      try {
+        return ok(await updateSeriesMetadata(await currentLibraryPathOrThrow(), assertId(seriesId, "seriesId"), input));
+      } catch (error) {
+        return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not update series.", String(error));
+      }
+    }
+  );
+}
+
 function createWindow(): void {
   const window = new BrowserWindow({
     width: 1200,
@@ -355,6 +620,7 @@ function createWindow(): void {
 
 void app.whenReady().then(() => {
   registerLibraryIpc();
+  registerSeriesIpc();
   createWindow();
 
   app.on("activate", () => {
