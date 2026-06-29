@@ -131,7 +131,7 @@ Ghi chú: Import source guard được defer sang Phase 6 vì cần Import Wizar
 
 - [x] Định nghĩa schema Series metadata.
 - [x] Định nghĩa schema Category metadata.
-- [ ] Định nghĩa schema Volume metadata.
+- [x] Định nghĩa schema Volume metadata.
 - [ ] Định nghĩa schema Chapter metadata cho LN/WN.
 - [ ] Ghi chú schema Chapter metadata cho Manga để chuẩn bị phase sau.
 - [ ] Thêm `schemaVersion` vào mọi metadata.
