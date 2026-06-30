@@ -204,12 +204,12 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 - [x] Tạo toolbar format cơ bản: bold, italic, heading, quote, list.
 - [x] Lưu nội dung chapter vào `content.html`.
 - [x] Sinh và lưu `content.txt` để phục vụ search.
-- [ ] Autosave debounce sau khi chỉnh sửa.
-- [ ] Ctrl+S để save ngay.
-- [ ] Chống race condition giữa autosave và Ctrl+S.
-- [ ] Không cho 2 thao tác save cùng chapter chạy song song.
-- [ ] Không cho save cũ ghi đè save mới.
-- [ ] Cảnh báo khi rời chapter còn nội dung chưa lưu.
+- [x] Autosave debounce sau khi chỉnh sửa.
+- [x] Ctrl+S để save ngay.
+- [x] Chống race condition giữa autosave và Ctrl+S.
+- [x] Không cho 2 thao tác save cùng chapter chạy song song.
+- [x] Không cho save cũ ghi đè save mới.
+- [x] Cảnh báo khi rời chapter còn nội dung chưa lưu.
 - [x] Hiển thị trạng thái `Đang lưu`.
 - [x] Hiển thị trạng thái `Đã lưu`.
 - [x] Hiển thị trạng thái `Lỗi lưu`.
@@ -224,6 +224,7 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 
 Ghi chú: Đã thêm API nền `chapters.getContent`/`chapters.saveContent`; editor UI và autosave làm ở task sau.
 Ghi chú: Đã thêm editor TipTap tối thiểu mở từ Series Detail, toolbar format cơ bản và nút Save thủ công; autosave/Ctrl+S làm ở task sau.
+Ghi chú: Đã thêm autosave debounce, Ctrl+S, serialize save trong editor và cảnh báo khi rời chapter còn thay đổi chưa lưu.
 
 ### Tiêu chí hoàn thành
 

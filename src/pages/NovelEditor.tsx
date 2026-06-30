@@ -1,6 +1,6 @@
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -42,6 +42,8 @@ type RendererApi = {
 
 type EditorStatus = "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
 
+const AUTOSAVE_DELAY_MS = 1200;
+
 function getApi(): RendererApi | null {
   return (window as unknown as { api?: RendererApi }).api ?? null;
 }
@@ -78,9 +80,23 @@ function statusText(status: EditorStatus): string {
   return "Sẵn sàng";
 }
 
-export default function NovelEditor({ onBack, target }: { onBack: () => void; target: ChapterTarget }) {
+export default function NovelEditor({
+  onBack,
+  onDirtyChange,
+  target
+}: {
+  onBack: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+  target: ChapterTarget;
+}) {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<EditorStatus>("loading");
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLoadedRef = useRef(false);
+  const lastSavedHtmlRef = useRef("");
+  const latestHtmlRef = useRef("");
+  const saveInFlightRef = useRef(false);
+  const saveAgainRef = useRef(false);
   const editor = useEditor({
     extensions: [StarterKit],
     content: "",
@@ -91,11 +107,30 @@ export default function NovelEditor({ onBack, target }: { onBack: () => void; ta
         class: "novel-editor-content"
       }
     },
-    onUpdate: () => {
+    onUpdate: ({ editor: currentEditor }) => {
+      if (!isLoadedRef.current) {
+        return;
+      }
+
+      latestHtmlRef.current = currentEditor.getHTML();
+      onDirtyChange(latestHtmlRef.current !== lastSavedHtmlRef.current);
       setError(null);
       setStatus((current) => (current === "loading" || current === "saving" ? current : "dirty"));
+      scheduleAutosave();
     }
   });
+
+  function clearAutosave(): void {
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+  }
+
+  function scheduleAutosave(): void {
+    clearAutosave();
+    autosaveTimerRef.current = setTimeout(() => void save(), AUTOSAVE_DELAY_MS);
+  }
 
   useEffect(() => {
     if (!editor) {
@@ -111,6 +146,11 @@ export default function NovelEditor({ onBack, target }: { onBack: () => void; ta
       return;
     }
 
+    clearAutosave();
+    isLoadedRef.current = false;
+    lastSavedHtmlRef.current = "";
+    latestHtmlRef.current = "";
+    onDirtyChange(false);
     setStatus("loading");
     setError(null);
 
@@ -123,6 +163,9 @@ export default function NovelEditor({ onBack, target }: { onBack: () => void; ta
 
         const content = unwrap(response);
         editor.commands.setContent(content.html || "<p></p>", { emitUpdate: false });
+        lastSavedHtmlRef.current = editor.getHTML();
+        latestHtmlRef.current = lastSavedHtmlRef.current;
+        isLoadedRef.current = true;
         setStatus("ready");
       })
       .catch((loadError) => {
@@ -134,30 +177,93 @@ export default function NovelEditor({ onBack, target }: { onBack: () => void; ta
 
     return () => {
       isMounted = false;
+      clearAutosave();
+      isLoadedRef.current = false;
+      onDirtyChange(false);
     };
-  }, [editor, target.categoryId, target.chapterId, target.seriesId, target.volumeId]);
+  }, [editor, onDirtyChange, target.categoryId, target.chapterId, target.seriesId, target.volumeId]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent): void {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void save();
+      }
+    }
+
+    function handleBeforeUnload(event: BeforeUnloadEvent): void {
+      if (latestHtmlRef.current === lastSavedHtmlRef.current) {
+        return;
+      }
+
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  });
 
   async function save(): Promise<void> {
     const api = getApi();
 
-    if (!api || !editor || status === "loading" || status === "saving") {
+    if (!api || !editor || !isLoadedRef.current) {
       return;
     }
 
+    clearAutosave();
+    latestHtmlRef.current = editor.getHTML();
+
+    if (saveInFlightRef.current) {
+      saveAgainRef.current = true;
+      return;
+    }
+
+    if (latestHtmlRef.current === lastSavedHtmlRef.current) {
+      onDirtyChange(false);
+      setStatus("saved");
+      return;
+    }
+
+    const html = latestHtmlRef.current;
+    saveInFlightRef.current = true;
+    saveAgainRef.current = false;
     setStatus("saving");
     setError(null);
 
     try {
-      const html = editor.getHTML();
       unwrap(
         await api.chapters.saveContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId, {
           html
         })
       );
-      setStatus(editor.getHTML() === html ? "saved" : "dirty");
+      lastSavedHtmlRef.current = html;
+      latestHtmlRef.current = editor.getHTML();
+
+      if (latestHtmlRef.current !== html || saveAgainRef.current) {
+        onDirtyChange(true);
+        saveAgainRef.current = true;
+        setStatus("dirty");
+      } else {
+        onDirtyChange(false);
+        setStatus("saved");
+      }
     } catch (saveError) {
+      onDirtyChange(true);
       setStatus("error");
       setError(String(saveError));
+    } finally {
+      saveInFlightRef.current = false;
+
+      if (saveAgainRef.current) {
+        saveAgainRef.current = false;
+        void save();
+      }
     }
   }
 

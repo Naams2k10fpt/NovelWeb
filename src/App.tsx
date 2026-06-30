@@ -45,6 +45,7 @@ const modes: Record<Mode, { label: string; eyebrow: string; title: string }> = {
 };
 
 export default function App() {
+  const [chapterDirty, setChapterDirty] = useState(false);
   const [mode, setMode] = useState<Mode>("library");
   const [selectedChapter, setSelectedChapter] = useState<ChapterTarget | null>(null);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null);
@@ -120,30 +121,59 @@ export default function App() {
   }
 
   function openMode(nextMode: Mode): void {
+    if (!confirmLeaveChapter()) {
+      return;
+    }
+
     setMode(nextMode);
+    setChapterDirty(false);
     setSelectedChapter(null);
     setSelectedSeriesId(null);
   }
 
   function openSeries(seriesId: string): void {
+    if (!confirmLeaveChapter()) {
+      return;
+    }
+
+    setChapterDirty(false);
     setSelectedChapter(null);
     setSelectedSeriesId(seriesId);
+  }
+
+  function openChapter(target: ChapterTarget): void {
+    setChapterDirty(false);
+    setSelectedChapter(target);
+  }
+
+  function closeChapter(): void {
+    if (!confirmLeaveChapter()) {
+      return;
+    }
+
+    setChapterDirty(false);
+    setSelectedChapter(null);
+  }
+
+  function confirmLeaveChapter(): boolean {
+    return !selectedChapter || !chapterDirty || window.confirm("Chapter has unsaved changes. Leave anyway?");
   }
 
   function renderWorkspaceContent() {
     if (mode === "library") {
       if (selectedChapter) {
-        return <NovelEditor onBack={() => setSelectedChapter(null)} target={selectedChapter} />;
+        return <NovelEditor onBack={closeChapter} onDirtyChange={setChapterDirty} target={selectedChapter} />;
       }
 
       if (selectedSeriesId) {
         return (
           <SeriesDetail
             onBack={() => {
+              setChapterDirty(false);
               setSelectedChapter(null);
               setSelectedSeriesId(null);
             }}
-            onOpenChapter={setSelectedChapter}
+            onOpenChapter={openChapter}
             seriesId={selectedSeriesId}
           />
         );
