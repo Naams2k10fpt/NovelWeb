@@ -123,7 +123,7 @@ Ghi chú: Import source guard được defer sang Phase 6 vì cần Import Wizar
 
 ## Phase 3 - Data model core
 
-**Trạng thái:** `[~]`
+**Trạng thái:** `[x]`
 
 **Mục tiêu:** Tạo mô hình dữ liệu cốt lõi cho series, category, volume và chapter LN/WN trong MVP đầu.
 
@@ -147,14 +147,16 @@ Ghi chú: Import source guard được defer sang Phase 6 vì cần Import Wizar
 - [x] Đảm bảo index cập nhật đồng bộ khi create/update/delete.
 - [x] Có command repair index từ metadata thật.
 
+Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/category/volume/chapter LN, list series, repair series index, move series vào `.trash`, và xác nhận list series rỗng sau xóa mềm.
+
 ### Tiêu chí hoàn thành
 
-- [ ] Có thể tạo thư viện truyện thủ công.
-- [ ] Đóng app mở lại không mất metadata.
-- [ ] Series có thể chứa nhiều category.
-- [ ] LN/WN hỗ trợ volume/chapter.
-- [ ] Manga có hướng schema rõ ràng nhưng chưa cần CRUD/UI đầy đủ ở MVP đầu.
-- [ ] Xóa mềm không làm mất dữ liệu vĩnh viễn.
+- [x] Có thể tạo thư viện truyện thủ công.
+- [x] Đóng app mở lại không mất metadata.
+- [x] Series có thể chứa nhiều category.
+- [x] LN/WN hỗ trợ volume/chapter.
+- [x] Manga có hướng schema rõ ràng nhưng chưa cần CRUD/UI đầy đủ ở MVP đầu.
+- [x] Xóa mềm không làm mất dữ liệu vĩnh viễn.
 
 ---
 
