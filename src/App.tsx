@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Library from "./pages/Library";
 import Manager from "./pages/Manager";
+import NovelEditor, { type ChapterTarget } from "./pages/NovelEditor";
 import SeriesDetail from "./pages/SeriesDetail";
 
 type Mode = "library" | "manager" | "settings";
@@ -45,6 +46,7 @@ const modes: Record<Mode, { label: string; eyebrow: string; title: string }> = {
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("library");
+  const [selectedChapter, setSelectedChapter] = useState<ChapterTarget | null>(null);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null);
   const [library, setLibrary] = useState<LibraryState>({
     loading: true,
@@ -119,19 +121,38 @@ export default function App() {
 
   function openMode(nextMode: Mode): void {
     setMode(nextMode);
+    setSelectedChapter(null);
     setSelectedSeriesId(null);
+  }
+
+  function openSeries(seriesId: string): void {
+    setSelectedChapter(null);
+    setSelectedSeriesId(seriesId);
   }
 
   function renderWorkspaceContent() {
     if (mode === "library") {
+      if (selectedChapter) {
+        return <NovelEditor onBack={() => setSelectedChapter(null)} target={selectedChapter} />;
+      }
+
       if (selectedSeriesId) {
-        return <SeriesDetail onBack={() => setSelectedSeriesId(null)} seriesId={selectedSeriesId} />;
+        return (
+          <SeriesDetail
+            onBack={() => {
+              setSelectedChapter(null);
+              setSelectedSeriesId(null);
+            }}
+            onOpenChapter={setSelectedChapter}
+            seriesId={selectedSeriesId}
+          />
+        );
       }
 
       return (
         <Library
           library={library}
-          onOpenSeries={setSelectedSeriesId}
+          onOpenSeries={openSeries}
           onOpenSettings={() => openMode("settings")}
         />
       );

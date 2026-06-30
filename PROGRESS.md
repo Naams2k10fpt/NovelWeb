@@ -200,8 +200,8 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 
 ### Checklist
 
-- [ ] Tích hợp TipTap editor.
-- [ ] Tạo toolbar format cơ bản: bold, italic, heading, quote, list.
+- [x] Tích hợp TipTap editor.
+- [x] Tạo toolbar format cơ bản: bold, italic, heading, quote, list.
 - [x] Lưu nội dung chapter vào `content.html`.
 - [x] Sinh và lưu `content.txt` để phục vụ search.
 - [ ] Autosave debounce sau khi chỉnh sửa.
@@ -210,9 +210,9 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 - [ ] Không cho 2 thao tác save cùng chapter chạy song song.
 - [ ] Không cho save cũ ghi đè save mới.
 - [ ] Cảnh báo khi rời chapter còn nội dung chưa lưu.
-- [ ] Hiển thị trạng thái `Đang lưu`.
-- [ ] Hiển thị trạng thái `Đã lưu`.
-- [ ] Hiển thị trạng thái `Lỗi lưu`.
+- [x] Hiển thị trạng thái `Đang lưu`.
+- [x] Hiển thị trạng thái `Đã lưu`.
+- [x] Hiển thị trạng thái `Lỗi lưu`.
 - [ ] Cho phép insert ảnh inline.
 - [ ] Copy ảnh inline vào thư mục chapter assets.
 - [ ] Sanitize HTML trước khi lưu hoặc render.
@@ -223,6 +223,7 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 - [ ] Lưu tiến độ đọc theo scroll position.
 
 Ghi chú: Đã thêm API nền `chapters.getContent`/`chapters.saveContent`; editor UI và autosave làm ở task sau.
+Ghi chú: Đã thêm editor TipTap tối thiểu mở từ Series Detail, toolbar format cơ bản và nút Save thủ công; autosave/Ctrl+S làm ở task sau.
 
 ### Tiêu chí hoàn thành
 

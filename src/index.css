@@ -315,10 +315,127 @@ body {
   background: #fffaf2;
 }
 
-.chapter-group li span + span {
+.chapter-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chapter-row:hover span:first-child {
+  color: #2f6f73;
+}
+
+.chapter-row span + span {
   margin-left: 8px;
   color: #66707a;
   font-size: 13px;
+}
+
+.novel-editor {
+  display: grid;
+  gap: 16px;
+  max-width: 920px;
+}
+
+.novel-editor-header {
+  display: grid;
+  gap: 6px;
+}
+
+.novel-editor-header h2,
+.novel-editor-header p {
+  margin: 0;
+}
+
+.novel-editor-header h2 {
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.novel-editor-header span,
+.editor-status {
+  color: #66707a;
+}
+
+.editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-toolbar button:not(.primary-action) {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #cdbfaf;
+  border-radius: 6px;
+  background: #fffaf2;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.editor-toolbar button[aria-pressed="true"] {
+  border-color: #2f6f73;
+  background: #e9ded0;
+}
+
+.editor-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.editor-status {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.editor-status-error {
+  color: #b42318;
+}
+
+.editor-surface {
+  min-height: 520px;
+  border: 1px solid #ddd4c7;
+  border-radius: 8px;
+  background: #fffaf2;
+}
+
+.novel-editor-content {
+  min-height: 520px;
+  padding: 24px;
+  outline: none;
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.novel-editor-content > *:first-child {
+  margin-top: 0;
+}
+
+.novel-editor-content > *:last-child {
+  margin-bottom: 0;
+}
+
+.novel-editor-content blockquote {
+  margin-left: 0;
+  padding-left: 16px;
+  border-left: 3px solid #9fb4b2;
+  color: #4e5963;
+}
+
+.novel-editor-content ul,
+.novel-editor-content ol {
+  padding-left: 24px;
 }
 
 .manager-layout {
