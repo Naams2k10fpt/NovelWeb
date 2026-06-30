@@ -104,6 +104,14 @@ type SearchIndex = {
   documents: [];
 };
 
+type ChapterContent = {
+  html: string;
+  text: string;
+  wordCount: number;
+  characterCount: number;
+  updatedAt: string;
+};
+
 type JsonRecord = Record<string, unknown>;
 
 function ok<T>(data: T): ApiResponse<T> {
@@ -155,6 +163,20 @@ async function writeJsonFile(filePath: string, data: unknown, options: { backup?
     }
 
     await writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+    await rename(tmpPath, filePath);
+  });
+}
+
+async function writeTextFile(filePath: string, content: string, options: { backup?: boolean } = {}): Promise<void> {
+  await withResourceWriteLock(filePath, async () => {
+    const tmpPath = `${filePath}.tmp`;
+
+    await mkdir(dirname(filePath), { recursive: true });
+    if (options.backup) {
+      await backupExistingFile(filePath);
+    }
+
+    await writeFile(tmpPath, content, "utf8");
     await rename(tmpPath, filePath);
   });
 }
@@ -226,6 +248,16 @@ function assertRecord(input: unknown): JsonRecord {
   }
 
   return input as JsonRecord;
+}
+
+function readRequiredText(record: JsonRecord, fieldName: string): string {
+  const value = record[fieldName];
+
+  if (typeof value !== "string") {
+    throw new Error(`${fieldName} must be a string.`);
+  }
+
+  return value;
 }
 
 function assertId(value: unknown, fieldName: string): string {
@@ -506,6 +538,17 @@ function chapterMetaPath(
     chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId),
     "meta.json"
   );
+}
+
+function chapterContentPath(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  fileName: string
+): string {
+  return libraryChildPath(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), basename(fileName));
 }
 
 async function ensureLibraryDirectory(libraryPath: string, directoryName: string): Promise<void> {
@@ -1229,6 +1272,111 @@ async function updateNovelChapterMetadata(
   return metadata;
 }
 
+function htmlToPlainText(html: string): string {
+  // ponytail: simple HTML-to-text for MVP search text; use a parser when formatting edge cases matter.
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h[1-6]|li|blockquote)>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function countWords(text: string): number {
+  const words = text.trim().match(/\S+/g);
+  return words ? words.length : 0;
+}
+
+async function readOptionalTextFile(filePath: string): Promise<string> {
+  try {
+    return await readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return "";
+    }
+
+    throw error;
+  }
+}
+
+async function readNovelChapterContent(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<ChapterContent> {
+  const metadata = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  const html = await readOptionalTextFile(
+    chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.contentFile)
+  );
+  const text = await readOptionalTextFile(
+    chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.plainTextFile)
+  );
+
+  return {
+    html,
+    text,
+    wordCount: metadata.wordCount,
+    characterCount: metadata.characterCount,
+    updatedAt: metadata.updatedAt
+  };
+}
+
+async function saveNovelChapterContent(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  input: unknown
+): Promise<ChapterContent> {
+  return withResourceWriteLock(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), async () => {
+    const record = assertRecord(input);
+    const html = readRequiredText(record, "html");
+    const metadata = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+    const text = htmlToPlainText(html);
+    const now = new Date().toISOString();
+    const nextMetadata: NovelChapterMetadata = {
+      ...metadata,
+      wordCount: countWords(text),
+      characterCount: text.length,
+      updatedAt: now
+    };
+
+    await writeTextFile(
+      chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.contentFile),
+      html,
+      { backup: true }
+    );
+    await writeTextFile(
+      chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.plainTextFile),
+      text,
+      { backup: true }
+    );
+    await writeJsonFile(chapterMetaPath(libraryPath, seriesId, categoryId, volumeId, chapterId), nextMetadata, {
+      backup: true
+    });
+
+    return {
+      html,
+      text,
+      wordCount: nextMetadata.wordCount,
+      characterCount: nextMetadata.characterCount,
+      updatedAt: nextMetadata.updatedAt
+    };
+  });
+}
+
 async function moveNovelChapterToTrash(
   libraryPath: string,
   seriesId: string,
@@ -1641,6 +1789,58 @@ function registerChapterIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not update chapter.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:getContent",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown
+    ): Promise<ApiResponse<ChapterContent>> => {
+      try {
+        return ok(
+          await readNovelChapterContent(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not load chapter content.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:saveContent",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<ChapterContent>> => {
+      try {
+        return ok(
+          await saveNovelChapterContent(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId"),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not save chapter content.", String(error));
       }
     }
   );

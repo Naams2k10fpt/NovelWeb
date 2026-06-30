@@ -194,7 +194,7 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 
 ## Phase 5 - Novel editor và reader
 
-**Trạng thái:** `[ ]`
+**Trạng thái:** `[~]`
 
 **Mục tiêu:** Cho phép viết, chỉnh sửa và đọc nội dung LN/WN.
 
@@ -202,8 +202,8 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 
 - [ ] Tích hợp TipTap editor.
 - [ ] Tạo toolbar format cơ bản: bold, italic, heading, quote, list.
-- [ ] Lưu nội dung chapter vào `content.html`.
-- [ ] Sinh và lưu `content.txt` để phục vụ search.
+- [x] Lưu nội dung chapter vào `content.html`.
+- [x] Sinh và lưu `content.txt` để phục vụ search.
 - [ ] Autosave debounce sau khi chỉnh sửa.
 - [ ] Ctrl+S để save ngay.
 - [ ] Chống race condition giữa autosave và Ctrl+S.
@@ -221,6 +221,8 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 - [ ] Tùy chỉnh reading width.
 - [ ] Tùy chỉnh theme đọc.
 - [ ] Lưu tiến độ đọc theo scroll position.
+
+Ghi chú: Đã thêm API nền `chapters.getContent`/`chapters.saveContent`; editor UI và autosave làm ở task sau.
 
 ### Tiêu chí hoàn thành
 
