@@ -112,6 +112,16 @@ type ChapterContent = {
   updatedAt: string;
 };
 
+type ChapterReadingProgress = {
+  scrollTop: number;
+  updatedAt: string | null;
+};
+
+type SeriesProgress = {
+  schemaVersion: SupportedSchemaVersion;
+  chapters: Record<string, ChapterReadingProgress>;
+};
+
 type JsonRecord = Record<string, unknown>;
 
 function ok<T>(data: T): ApiResponse<T> {
@@ -442,6 +452,10 @@ function seriesDirectoryPath(libraryPath: string, seriesId: string): string {
 
 function seriesMetaPath(libraryPath: string, seriesId: string): string {
   return libraryChildPath(libraryPath, "series", assertId(seriesId, "seriesId"), "meta.json");
+}
+
+function seriesProgressPath(libraryPath: string, seriesId: string): string {
+  return libraryChildPath(seriesDirectoryPath(libraryPath, seriesId), "progress.json");
 }
 
 function seriesIndexPath(libraryPath: string): string {
@@ -1291,6 +1305,18 @@ function htmlToPlainText(html: string): string {
     .trim();
 }
 
+function sanitizeNovelHtml(html: string): string {
+  // ponytail: allowlist sanitizer for TipTap MVP HTML; use DOMPurify if import/paste HTML gets broader.
+  return html
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<script\b[\s\S]*?<\/script>/gi, "")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, "")
+    .replace(/<\/?(iframe|object|embed|form|input|button|select|textarea|svg|math|meta|link|base)\b[^>]*>/gi, "")
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+(href|src)\s*=\s*(["'])\s*(?:javascript:|data:text\/html)[\s\S]*?\2/gi, "")
+    .replace(/\s+(href|src)\s*=\s*(?:javascript:|data:text\/html)[^\s>]*/gi, "");
+}
+
 function countWords(text: string): number {
   const words = text.trim().match(/\S+/g);
   return words ? words.length : 0;
@@ -1316,8 +1342,8 @@ async function readNovelChapterContent(
   chapterId: string
 ): Promise<ChapterContent> {
   const metadata = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
-  const html = await readOptionalTextFile(
-    chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.contentFile)
+  const html = sanitizeNovelHtml(
+    await readOptionalTextFile(chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.contentFile))
   );
   const text = await readOptionalTextFile(
     chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.plainTextFile)
@@ -1342,7 +1368,7 @@ async function saveNovelChapterContent(
 ): Promise<ChapterContent> {
   return withResourceWriteLock(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), async () => {
     const record = assertRecord(input);
-    const html = readRequiredText(record, "html");
+    const html = sanitizeNovelHtml(readRequiredText(record, "html"));
     const metadata = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
     const text = htmlToPlainText(html);
     const now = new Date().toISOString();
@@ -1375,6 +1401,59 @@ async function saveNovelChapterContent(
       updatedAt: nextMetadata.updatedAt
     };
   });
+}
+
+function chapterProgressKey(categoryId: string, volumeId: string | null, chapterId: string): string {
+  return `${assertId(categoryId, "categoryId")}/${volumeId ? assertId(volumeId, "volumeId") : "direct"}/${assertId(chapterId, "chapterId")}`;
+}
+
+async function readSeriesProgress(libraryPath: string, seriesId: string): Promise<SeriesProgress> {
+  try {
+    const progress = await readJsonFile<SeriesProgress>(seriesProgressPath(libraryPath, seriesId));
+    assertSupportedSchemaVersion("progress.json", progress);
+    return { schemaVersion: SUPPORTED_SCHEMA_VERSION, chapters: progress.chapters ?? {} };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { schemaVersion: SUPPORTED_SCHEMA_VERSION, chapters: {} };
+    }
+
+    throw error;
+  }
+}
+
+async function readChapterReadingProgress(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<ChapterReadingProgress> {
+  await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  const progress = await readSeriesProgress(libraryPath, seriesId);
+  return progress.chapters[chapterProgressKey(categoryId, volumeId, chapterId)] ?? { scrollTop: 0, updatedAt: null };
+}
+
+async function saveChapterReadingProgress(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  input: unknown
+): Promise<ChapterReadingProgress> {
+  await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  const record = assertRecord(input);
+  const scrollTop = Number(record.scrollTop);
+
+  if (!Number.isFinite(scrollTop) || scrollTop < 0) {
+    throw new Error("scrollTop must be a non-negative number.");
+  }
+
+  const progress = await readSeriesProgress(libraryPath, seriesId);
+  const next: ChapterReadingProgress = { scrollTop, updatedAt: new Date().toISOString() };
+  progress.chapters[chapterProgressKey(categoryId, volumeId, chapterId)] = next;
+  await writeJsonFile(seriesProgressPath(libraryPath, seriesId), progress, { backup: true });
+  return next;
 }
 
 async function moveNovelChapterToTrash(
@@ -1841,6 +1920,58 @@ function registerChapterIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not save chapter content.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:getProgress",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown
+    ): Promise<ApiResponse<ChapterReadingProgress>> => {
+      try {
+        return ok(
+          await readChapterReadingProgress(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not load chapter progress.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:saveProgress",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<ChapterReadingProgress>> => {
+      try {
+        return ok(
+          await saveChapterReadingProgress(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId"),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not save chapter progress.", String(error));
       }
     }
   );

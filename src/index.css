@@ -309,6 +309,9 @@ body {
 }
 
 .chapter-group li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 8px 10px;
   border: 1px solid #ddd4c7;
   border-radius: 6px;
@@ -338,6 +341,18 @@ body {
   margin-left: 8px;
   color: #66707a;
   font-size: 13px;
+}
+
+.chapter-edit-action {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid #cdbfaf;
+  border-radius: 6px;
+  background: #ffffff;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
 
 .novel-editor {
@@ -436,6 +451,78 @@ body {
 .novel-editor-content ul,
 .novel-editor-content ol {
   padding-left: 24px;
+}
+
+.novel-reader {
+  min-height: 100vh;
+  margin: -32px;
+  padding: 24px 32px 56px;
+}
+
+.novel-reader-light {
+  background: #f6f1e8;
+  color: #23272f;
+}
+
+.novel-reader-dark {
+  background: #151b1f;
+  color: #edf2f7;
+}
+
+.reader-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0 18px;
+  background: inherit;
+}
+
+.reader-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+  font-size: 13px;
+}
+
+.reader-toolbar button:not(.plain-action) {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #cdbfaf;
+  border-radius: 6px;
+  background: #fffaf2;
+  color: #23272f;
+  font: inherit;
+  cursor: pointer;
+}
+
+.reader-page {
+  margin: 0 auto;
+  padding: 32px 0;
+}
+
+.reader-page h2 {
+  margin: 0 0 28px;
+  font-size: 28px;
+  line-height: 1.25;
+}
+
+.reader-content {
+  line-height: 1.8;
+}
+
+.reader-content > *:first-child {
+  margin-top: 0;
+}
+
+.reader-content blockquote {
+  margin-left: 0;
+  padding-left: 16px;
+  border-left: 3px solid #9fb4b2;
 }
 
 .manager-layout {

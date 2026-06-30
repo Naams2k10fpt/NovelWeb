@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import Library from "./pages/Library";
 import Manager from "./pages/Manager";
 import NovelEditor, { type ChapterTarget } from "./pages/NovelEditor";
+import NovelReader from "./pages/NovelReader";
 import SeriesDetail from "./pages/SeriesDetail";
 
 type Mode = "library" | "manager" | "settings";
+type ChapterMode = "edit" | "read";
 type ApiResponse<T> =
   | { ok: true; data: T }
   | { ok: false; error: { code: string; message: string; details?: unknown } };
@@ -46,6 +48,7 @@ const modes: Record<Mode, { label: string; eyebrow: string; title: string }> = {
 
 export default function App() {
   const [chapterDirty, setChapterDirty] = useState(false);
+  const [chapterMode, setChapterMode] = useState<ChapterMode>("read");
   const [mode, setMode] = useState<Mode>("library");
   const [selectedChapter, setSelectedChapter] = useState<ChapterTarget | null>(null);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null);
@@ -127,6 +130,7 @@ export default function App() {
 
     setMode(nextMode);
     setChapterDirty(false);
+    setChapterMode("read");
     setSelectedChapter(null);
     setSelectedSeriesId(null);
   }
@@ -137,12 +141,18 @@ export default function App() {
     }
 
     setChapterDirty(false);
+    setChapterMode("read");
     setSelectedChapter(null);
     setSelectedSeriesId(seriesId);
   }
 
-  function openChapter(target: ChapterTarget): void {
+  function openChapter(target: ChapterTarget, nextMode: ChapterMode): void {
+    if (!confirmLeaveChapter()) {
+      return;
+    }
+
     setChapterDirty(false);
+    setChapterMode(nextMode);
     setSelectedChapter(target);
   }
 
@@ -152,6 +162,7 @@ export default function App() {
     }
 
     setChapterDirty(false);
+    setChapterMode("read");
     setSelectedChapter(null);
   }
 
@@ -162,7 +173,24 @@ export default function App() {
   function renderWorkspaceContent() {
     if (mode === "library") {
       if (selectedChapter) {
-        return <NovelEditor onBack={closeChapter} onDirtyChange={setChapterDirty} target={selectedChapter} />;
+        if (chapterMode === "edit") {
+          return (
+            <NovelEditor
+              onBack={closeChapter}
+              onDirtyChange={setChapterDirty}
+              onRead={() => openChapter(selectedChapter, "read")}
+              target={selectedChapter}
+            />
+          );
+        }
+
+        return (
+          <NovelReader
+            onBack={closeChapter}
+            onEdit={() => openChapter(selectedChapter, "edit")}
+            target={selectedChapter}
+          />
+        );
       }
 
       if (selectedSeriesId) {
@@ -173,7 +201,8 @@ export default function App() {
               setSelectedChapter(null);
               setSelectedSeriesId(null);
             }}
-            onOpenChapter={openChapter}
+            onEditChapter={(target) => openChapter(target, "edit")}
+            onReadChapter={(target) => openChapter(target, "read")}
             seriesId={selectedSeriesId}
           />
         );

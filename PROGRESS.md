@@ -215,23 +215,24 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 - [x] Hiển thị trạng thái `Lỗi lưu`.
 - [ ] Cho phép insert ảnh inline.
 - [ ] Copy ảnh inline vào thư mục chapter assets.
-- [ ] Sanitize HTML trước khi lưu hoặc render.
-- [ ] Tạo NovelReader đọc từ `content.html`.
-- [ ] Tùy chỉnh font size.
-- [ ] Tùy chỉnh reading width.
-- [ ] Tùy chỉnh theme đọc.
-- [ ] Lưu tiến độ đọc theo scroll position.
+- [x] Sanitize HTML trước khi lưu hoặc render.
+- [x] Tạo NovelReader đọc từ `content.html`.
+- [x] Tùy chỉnh font size.
+- [x] Tùy chỉnh reading width.
+- [x] Tùy chỉnh theme đọc.
+- [x] Lưu tiến độ đọc theo scroll position.
 
 Ghi chú: Đã thêm API nền `chapters.getContent`/`chapters.saveContent`; editor UI và autosave làm ở task sau.
 Ghi chú: Đã thêm editor TipTap tối thiểu mở từ Series Detail, toolbar format cơ bản và nút Save thủ công; autosave/Ctrl+S làm ở task sau.
 Ghi chú: Đã thêm autosave debounce, Ctrl+S, serialize save trong editor và cảnh báo khi rời chapter còn thay đổi chưa lưu.
+Ghi chú: Đã thêm sanitize HTML tối thiểu, NovelReader đọc từ `content.html`, tùy chỉnh font/width/theme và lưu scroll progress vào `progress.json`.
 
 ### Tiêu chí hoàn thành
 
-- [ ] User có thể tạo chapter LN/WN và viết nội dung.
-- [ ] Nội dung lưu được, mở lại đúng.
-- [ ] Reader hiển thị nội dung dễ đọc.
-- [ ] Autosave không làm mất dữ liệu khi thao tác bình thường.
+- [x] User có thể tạo chapter LN/WN và viết nội dung.
+- [x] Nội dung lưu được, mở lại đúng.
+- [x] Reader hiển thị nội dung dễ đọc.
+- [x] Autosave không làm mất dữ liệu khi thao tác bình thường.
 
 ---
 

@@ -8,7 +8,8 @@ type ApiResponse<T> =
 type SeriesDetailProps = {
   seriesId: string;
   onBack: () => void;
-  onOpenChapter: (target: ChapterTarget) => void;
+  onEditChapter: (target: ChapterTarget) => void;
+  onReadChapter: (target: ChapterTarget) => void;
 };
 
 type SeriesMetadata = {
@@ -105,7 +106,7 @@ async function loadCategory(api: RendererApi, seriesId: string, category: Catego
   return { ...category, volumes: volumeDetails, directChapters };
 }
 
-export default function SeriesDetail({ seriesId, onBack, onOpenChapter }: SeriesDetailProps) {
+export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadChapter }: SeriesDetailProps) {
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailState>({
     loading: true,
@@ -211,7 +212,12 @@ export default function SeriesDetail({ seriesId, onBack, onOpenChapter }: Series
           </nav>
 
           {activeCategory ? (
-            <CategoryPanel category={activeCategory} onOpenChapter={onOpenChapter} seriesId={seriesId} />
+            <CategoryPanel
+              category={activeCategory}
+              onEditChapter={onEditChapter}
+              onReadChapter={onReadChapter}
+              seriesId={seriesId}
+            />
           ) : null}
         </>
       )}
@@ -221,11 +227,13 @@ export default function SeriesDetail({ seriesId, onBack, onOpenChapter }: Series
 
 function CategoryPanel({
   category,
-  onOpenChapter,
+  onEditChapter,
+  onReadChapter,
   seriesId
 }: {
   category: CategoryDetail;
-  onOpenChapter: (target: ChapterTarget) => void;
+  onEditChapter: (target: ChapterTarget) => void;
+  onReadChapter: (target: ChapterTarget) => void;
   seriesId: string;
 }) {
   if (category.type === "manga") {
@@ -254,7 +262,8 @@ function CategoryPanel({
             <ChapterList
               categoryId={category.id}
               chapters={category.directChapters}
-              onOpenChapter={onOpenChapter}
+              onEditChapter={onEditChapter}
+              onReadChapter={onReadChapter}
               seriesId={seriesId}
               title="Chapters"
               volumeId={null}
@@ -266,7 +275,8 @@ function CategoryPanel({
               categoryId={category.id}
               chapters={chapters}
               key={volume.id}
-              onOpenChapter={onOpenChapter}
+              onEditChapter={onEditChapter}
+              onReadChapter={onReadChapter}
               seriesId={seriesId}
               title={volume.title}
               volumeId={volume.id}
@@ -281,18 +291,30 @@ function CategoryPanel({
 function ChapterList({
   categoryId,
   chapters,
-  onOpenChapter,
+  onEditChapter,
+  onReadChapter,
   seriesId,
   title,
   volumeId
 }: {
   categoryId: string;
   chapters: NovelChapterMetadata[];
-  onOpenChapter: (target: ChapterTarget) => void;
+  onEditChapter: (target: ChapterTarget) => void;
+  onReadChapter: (target: ChapterTarget) => void;
   seriesId: string;
   title: string;
   volumeId: string | null;
 }) {
+  function targetFor(chapter: NovelChapterMetadata): ChapterTarget {
+    return {
+      categoryId,
+      chapterId: chapter.id,
+      seriesId,
+      title: chapter.title,
+      volumeId
+    };
+  }
+
   return (
     <section className="chapter-group">
       <h4>{title}</h4>
@@ -304,19 +326,14 @@ function ChapterList({
             <li key={chapter.id}>
               <button
                 className="chapter-row"
-                onClick={() =>
-                  onOpenChapter({
-                    categoryId,
-                    chapterId: chapter.id,
-                    seriesId,
-                    title: chapter.title,
-                    volumeId
-                  })
-                }
+                onClick={() => onReadChapter(targetFor(chapter))}
                 type="button"
               >
                 <span>{chapter.title}</span>
                 <span>{formatLabel(chapter.translationStatus)}</span>
+              </button>
+              <button className="chapter-edit-action" onClick={() => onEditChapter(targetFor(chapter))} type="button">
+                Edit
               </button>
             </li>
           ))}

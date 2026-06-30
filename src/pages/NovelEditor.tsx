@@ -83,10 +83,12 @@ function statusText(status: EditorStatus): string {
 export default function NovelEditor({
   onBack,
   onDirtyChange,
+  onRead,
   target
 }: {
   onBack: () => void;
   onDirtyChange: (dirty: boolean) => void;
+  onRead: () => void;
   target: ChapterTarget;
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -322,6 +324,9 @@ export default function NovelEditor({
           type="button"
         >
           Save
+        </button>
+        <button onClick={onRead} type="button">
+          Read
         </button>
         <span className={status === "error" ? "editor-status editor-status-error" : "editor-status"}>
           {statusText(status)}

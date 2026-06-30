@@ -46,6 +46,10 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("chapters:getContent", seriesId, categoryId, volumeId, chapterId),
     saveContent: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>
       ipcRenderer.invoke("chapters:saveContent", seriesId, categoryId, volumeId, chapterId, input),
+    getProgress: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
+      ipcRenderer.invoke("chapters:getProgress", seriesId, categoryId, volumeId, chapterId),
+    saveProgress: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>
+      ipcRenderer.invoke("chapters:saveProgress", seriesId, categoryId, volumeId, chapterId, input),
     moveToTrash: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
       ipcRenderer.invoke("chapters:moveToTrash", seriesId, categoryId, volumeId, chapterId)
   }
