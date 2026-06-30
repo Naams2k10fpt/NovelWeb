@@ -9,7 +9,8 @@ contextBridge.exposeInMainWorld("api", {
     list: () => ipcRenderer.invoke("series:list"),
     get: (seriesId: string) => ipcRenderer.invoke("series:get", seriesId),
     create: (input: unknown) => ipcRenderer.invoke("series:create", input),
-    update: (seriesId: string, input: unknown) => ipcRenderer.invoke("series:update", seriesId, input)
+    update: (seriesId: string, input: unknown) => ipcRenderer.invoke("series:update", seriesId, input),
+    moveToTrash: (seriesId: string) => ipcRenderer.invoke("series:moveToTrash", seriesId)
   },
   categories: {
     list: (seriesId: string) => ipcRenderer.invoke("categories:list", seriesId),

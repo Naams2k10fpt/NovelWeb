@@ -405,6 +405,11 @@ function seriesIndexPath(libraryPath: string): string {
   return libraryChildPath(libraryPath, "index", "series-index.json");
 }
 
+function trashSeriesDirectoryPath(libraryPath: string, seriesId: string): string {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return libraryChildPath(libraryPath, ".trash", `series-${assertId(seriesId, "seriesId")}-${timestamp}`);
+}
+
 function categoryDirectoryPath(libraryPath: string, seriesId: string, categoryId: string): string {
   return libraryChildPath(
     libraryPath,
@@ -727,6 +732,18 @@ async function updateSeriesMetadata(libraryPath: string, seriesId: string, input
   await writeJsonFile(seriesMetaPath(libraryPath, seriesId), metadata, { backup: true });
   await rebuildSeriesIndex(libraryPath);
   return metadata;
+}
+
+async function moveSeriesToTrash(libraryPath: string, seriesId: string): Promise<{ id: string; trashPath: string }> {
+  const id = assertId(seriesId, "seriesId");
+  await readSeriesMetadata(libraryPath, id);
+
+  const trashPath = trashSeriesDirectoryPath(libraryPath, id);
+  await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
+  await rename(seriesDirectoryPath(libraryPath, id), trashPath);
+  await rebuildSeriesIndex(libraryPath);
+
+  return { id, trashPath };
 }
 
 function parseCategoryCreateInput(input: unknown): CategoryMetadata {
@@ -1182,6 +1199,17 @@ function registerSeriesIpc(): void {
         return ok(await updateSeriesMetadata(await currentLibraryPathOrThrow(), assertId(seriesId, "seriesId"), input));
       } catch (error) {
         return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not update series.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "series:moveToTrash",
+    async (_event, seriesId: unknown): Promise<ApiResponse<{ id: string; trashPath: string }>> => {
+      try {
+        return ok(await moveSeriesToTrash(await currentLibraryPathOrThrow(), assertId(seriesId, "seriesId")));
+      } catch (error) {
+        return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not move series to trash.", String(error));
       }
     }
   );
