@@ -421,6 +421,11 @@ function trashSeriesDirectoryPath(libraryPath: string, seriesId: string): string
   return libraryChildPath(libraryPath, ".trash", `series-${assertId(seriesId, "seriesId")}-${timestamp}`);
 }
 
+function trashItemDirectoryPath(libraryPath: string, itemType: string, itemId: string): string {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return libraryChildPath(libraryPath, ".trash", `${itemType}-${assertId(itemId, "itemId")}-${timestamp}`);
+}
+
 function categoryDirectoryPath(libraryPath: string, seriesId: string, categoryId: string): string {
   return libraryChildPath(
     libraryPath,
@@ -901,6 +906,28 @@ async function updateCategoryMetadata(
   return metadata;
 }
 
+async function moveCategoryToTrash(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string
+): Promise<{ id: string; trashPath: string }> {
+  const series = await readSeriesMetadata(libraryPath, seriesId);
+  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  const trashPath = trashItemDirectoryPath(libraryPath, "category", category.id);
+  const now = new Date().toISOString();
+
+  await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
+  await rename(categoryDirectoryPath(libraryPath, series.id, category.id), trashPath);
+  await writeJsonFile(
+    seriesMetaPath(libraryPath, series.id),
+    { ...series, categoryOrder: series.categoryOrder.filter((id) => id !== category.id), updatedAt: now } satisfies SeriesMetadata,
+    { backup: true }
+  );
+  await rebuildSeriesIndex(libraryPath);
+
+  return { id: category.id, trashPath };
+}
+
 function assertNovelCategory(category: CategoryMetadata): void {
   if (category.type === "manga") {
     throw new Error("Manga categories do not support novel volumes.");
@@ -1017,6 +1044,29 @@ async function updateVolumeMetadata(
   const metadata = parseVolumeUpdateInput(input, current);
   await writeJsonFile(volumeMetaPath(libraryPath, seriesId, categoryId, volumeId), metadata, { backup: true });
   return metadata;
+}
+
+async function moveVolumeToTrash(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string
+): Promise<{ id: string; trashPath: string }> {
+  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  assertNovelCategory(category);
+  const volume = await readVolumeMetadata(libraryPath, seriesId, categoryId, volumeId);
+  const trashPath = trashItemDirectoryPath(libraryPath, "volume", volume.id);
+  const now = new Date().toISOString();
+
+  await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
+  await rename(volumeDirectoryPath(libraryPath, seriesId, categoryId, volume.id), trashPath);
+  await writeJsonFile(
+    categoryMetaPath(libraryPath, seriesId, categoryId),
+    { ...category, volumeOrder: category.volumeOrder.filter((id) => id !== volume.id), updatedAt: now } satisfies CategoryMetadata,
+    { backup: true }
+  );
+
+  return { id: volume.id, trashPath };
 }
 
 async function assertNovelChapterScope(
@@ -1179,6 +1229,38 @@ async function updateNovelChapterMetadata(
   return metadata;
 }
 
+async function moveNovelChapterToTrash(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<{ id: string; trashPath: string }> {
+  const { category, volume } = await assertNovelChapterScope(libraryPath, seriesId, categoryId, volumeId);
+  const chapter = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  const trashPath = trashItemDirectoryPath(libraryPath, "chapter", chapter.id);
+  const now = new Date().toISOString();
+
+  await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
+  await rename(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapter.id), trashPath);
+
+  if (volume) {
+    await writeJsonFile(
+      volumeMetaPath(libraryPath, seriesId, categoryId, volume.id),
+      { ...volume, chapterOrder: volume.chapterOrder.filter((id) => id !== chapter.id), updatedAt: now } satisfies VolumeMetadata,
+      { backup: true }
+    );
+  } else {
+    await writeJsonFile(
+      categoryMetaPath(libraryPath, seriesId, categoryId),
+      { ...category, chapterOrder: category.chapterOrder.filter((id) => id !== chapter.id), updatedAt: now } satisfies CategoryMetadata,
+      { backup: true }
+    );
+  }
+
+  return { id: chapter.id, trashPath };
+}
+
 function registerLibraryIpc(): void {
   ipcMain.handle("library:getCurrent", async (): Promise<ApiResponse<{ path: string | null }>> => {
     try {
@@ -1335,6 +1417,23 @@ function registerCategoryIpc(): void {
       }
     }
   );
+
+  ipcMain.handle(
+    "categories:moveToTrash",
+    async (_event, seriesId: unknown, categoryId: unknown): Promise<ApiResponse<{ id: string; trashPath: string }>> => {
+      try {
+        return ok(
+          await moveCategoryToTrash(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CATEGORY_CRUD_FAILED, "Could not move category to trash.", String(error));
+      }
+    }
+  );
 }
 
 function registerVolumeIpc(): void {
@@ -1422,6 +1521,29 @@ function registerVolumeIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.VOLUME_CRUD_FAILED, "Could not update volume.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "volumes:moveToTrash",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown
+    ): Promise<ApiResponse<{ id: string; trashPath: string }>> => {
+      try {
+        return ok(
+          await moveVolumeToTrash(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(volumeId, "volumeId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.VOLUME_CRUD_FAILED, "Could not move volume to trash.", String(error));
       }
     }
   );
@@ -1519,6 +1641,31 @@ function registerChapterIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not update chapter.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:moveToTrash",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown
+    ): Promise<ApiResponse<{ id: string; trashPath: string }>> => {
+      try {
+        return ok(
+          await moveNovelChapterToTrash(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not move chapter to trash.", String(error));
       }
     }
   );

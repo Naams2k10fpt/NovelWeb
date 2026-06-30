@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Library from "./pages/Library";
+import Manager from "./pages/Manager";
 import SeriesDetail from "./pages/SeriesDetail";
 
 type Mode = "library" | "manager" | "settings";
@@ -150,6 +151,10 @@ export default function App() {
       );
     }
 
+    if (mode === "manager") {
+      return <Manager library={library} onOpenSettings={() => openMode("settings")} />;
+    }
+
     if (library.loading) {
       return (
         <section className="empty-state">
@@ -167,15 +172,6 @@ export default function App() {
           <button className="primary-action" onClick={() => openMode("settings")} type="button">
             Open Settings
           </button>
-        </section>
-      );
-    }
-
-    if (mode === "manager") {
-      return (
-        <section className="empty-state">
-          <h2>Nothing to manage yet</h2>
-          <p>Series, categories, volumes, and chapters come after storage.</p>
         </section>
       );
     }

@@ -162,7 +162,7 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 
 ## Phase 4 - Giao diện Library và Manager cơ bản
 
-**Trạng thái:** `[~]`
+**Trạng thái:** `[x]`
 
 **Mục tiêu:** Tạo giao diện quản lý và duyệt thư viện ở mức dùng được.
 
@@ -176,19 +176,19 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 - [x] Series Detail có tab theo category.
 - [x] Tab LN/WN hiển thị volume và chapter.
 - [x] Tab Manga có placeholder hoặc trạng thái `Sẽ làm sau`.
-- [ ] Tạo trang Manager.
-- [ ] Manager có split layout trái/phải.
-- [ ] Tree view hiển thị series/category/volume/chapter.
-- [ ] Context menu cơ bản: thêm, sửa tên, xóa mềm bằng `.trash` tối thiểu.
-- [ ] Hiển thị trạng thái loading.
-- [ ] Hiển thị trạng thái empty.
-- [ ] Hiển thị trạng thái error.
+- [x] Tạo trang Manager.
+- [x] Manager có split layout trái/phải.
+- [x] Tree view hiển thị series/category/volume/chapter.
+- [x] Context menu cơ bản: thêm, sửa tên, xóa mềm bằng `.trash` tối thiểu.
+- [x] Hiển thị trạng thái loading.
+- [x] Hiển thị trạng thái empty.
+- [x] Hiển thị trạng thái error.
 
 ### Tiêu chí hoàn thành
 
-- [ ] User có thể xem thư viện ở Library.
-- [ ] User có thể quản lý cấu trúc truyện ở Manager.
-- [ ] UI không bị rối giữa chế độ đọc và chế độ quản lý.
+- [x] User có thể xem thư viện ở Library.
+- [x] User có thể quản lý cấu trúc truyện ở Manager.
+- [x] UI không bị rối giữa chế độ đọc và chế độ quản lý.
 
 ---
 

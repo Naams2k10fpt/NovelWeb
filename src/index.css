@@ -320,3 +320,136 @@ body {
   color: #66707a;
   font-size: 13px;
 }
+
+.manager-layout {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(280px, 38%) 1fr;
+  gap: 20px;
+  min-height: 520px;
+}
+
+.manager-tree-panel,
+.manager-detail-panel {
+  min-width: 0;
+  border: 1px solid #ddd4c7;
+  border-radius: 8px;
+  background: #fffaf2;
+}
+
+.manager-tree-panel {
+  overflow: auto;
+  padding: 14px;
+}
+
+.manager-detail-panel {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 18px;
+}
+
+.manager-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.manager-panel-header h2,
+.manager-detail-panel h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.manager-detail-panel p,
+.manager-empty {
+  margin: 0;
+}
+
+.manager-tree,
+.tree-group,
+.tree-children {
+  display: grid;
+  gap: 4px;
+}
+
+.tree-children {
+  margin-left: 16px;
+  padding-left: 10px;
+  border-left: 1px solid #ddd4c7;
+}
+
+.tree-node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tree-node:hover,
+.tree-node-active {
+  background: #e9ded0;
+}
+
+.tree-node span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-node small {
+  flex: 0 0 auto;
+  color: #66707a;
+  font-size: 11px;
+}
+
+.manager-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.manager-actions button,
+.context-menu button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #cdbfaf;
+  border-radius: 6px;
+  background: #ffffff;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.manager-actions button:hover,
+.context-menu button:hover {
+  border-color: #2f6f73;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 10;
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  padding: 6px;
+  border: 1px solid #cdbfaf;
+  border-radius: 8px;
+  background: #fffaf2;
+  box-shadow: 0 10px 24px rgb(35 39 47 / 16%);
+}
+
+.error-text {
+  color: #b42318;
+}

@@ -18,7 +18,9 @@ contextBridge.exposeInMainWorld("api", {
     get: (seriesId: string, categoryId: string) => ipcRenderer.invoke("categories:get", seriesId, categoryId),
     create: (seriesId: string, input: unknown) => ipcRenderer.invoke("categories:create", seriesId, input),
     update: (seriesId: string, categoryId: string, input: unknown) =>
-      ipcRenderer.invoke("categories:update", seriesId, categoryId, input)
+      ipcRenderer.invoke("categories:update", seriesId, categoryId, input),
+    moveToTrash: (seriesId: string, categoryId: string) =>
+      ipcRenderer.invoke("categories:moveToTrash", seriesId, categoryId)
   },
   volumes: {
     list: (seriesId: string, categoryId: string) => ipcRenderer.invoke("volumes:list", seriesId, categoryId),
@@ -27,7 +29,9 @@ contextBridge.exposeInMainWorld("api", {
     create: (seriesId: string, categoryId: string, input: unknown) =>
       ipcRenderer.invoke("volumes:create", seriesId, categoryId, input),
     update: (seriesId: string, categoryId: string, volumeId: string, input: unknown) =>
-      ipcRenderer.invoke("volumes:update", seriesId, categoryId, volumeId, input)
+      ipcRenderer.invoke("volumes:update", seriesId, categoryId, volumeId, input),
+    moveToTrash: (seriesId: string, categoryId: string, volumeId: string) =>
+      ipcRenderer.invoke("volumes:moveToTrash", seriesId, categoryId, volumeId)
   },
   chapters: {
     list: (seriesId: string, categoryId: string, volumeId: string | null = null) =>
@@ -37,6 +41,8 @@ contextBridge.exposeInMainWorld("api", {
     create: (seriesId: string, categoryId: string, volumeId: string | null, input: unknown) =>
       ipcRenderer.invoke("chapters:create", seriesId, categoryId, volumeId, input),
     update: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>
-      ipcRenderer.invoke("chapters:update", seriesId, categoryId, volumeId, chapterId, input)
+      ipcRenderer.invoke("chapters:update", seriesId, categoryId, volumeId, chapterId, input),
+    moveToTrash: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
+      ipcRenderer.invoke("chapters:moveToTrash", seriesId, categoryId, volumeId, chapterId)
   }
 });
