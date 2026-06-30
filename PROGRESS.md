@@ -145,7 +145,7 @@ Ghi chú: Import source guard được defer sang Phase 6 vì cần Import Wizar
 - [x] Validate input IPC bằng schema.
 - [x] Thêm `deletedAt` hoặc move-to-trash tối thiểu cho xóa mềm.
 - [x] Đảm bảo index cập nhật đồng bộ khi create/update/delete.
-- [ ] Có command repair index từ metadata thật.
+- [x] Có command repair index từ metadata thật.
 
 ### Tiêu chí hoàn thành
 

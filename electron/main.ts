@@ -31,6 +31,7 @@ type ApiResponse<T> =
 const ErrorCode = {
   LIBRARY_FOLDER_LOAD_FAILED: "LIBRARY_FOLDER_LOAD_FAILED",
   LIBRARY_FOLDER_CHOOSE_FAILED: "LIBRARY_FOLDER_CHOOSE_FAILED",
+  LIBRARY_REPAIR_FAILED: "LIBRARY_REPAIR_FAILED",
   SERIES_CRUD_FAILED: "SERIES_CRUD_FAILED",
   CATEGORY_CRUD_FAILED: "CATEGORY_CRUD_FAILED",
   VOLUME_CRUD_FAILED: "VOLUME_CRUD_FAILED",
@@ -691,6 +692,11 @@ async function readSeriesIndex(libraryPath: string): Promise<SeriesIndex> {
   }
 }
 
+async function repairSeriesIndex(libraryPath: string): Promise<SeriesIndex> {
+  await rebuildSeriesIndex(libraryPath);
+  return readSeriesIndex(libraryPath);
+}
+
 async function listSeriesIndex(libraryPath: string): Promise<SeriesIndexEntry[]> {
   return (await readSeriesIndex(libraryPath)).series;
 }
@@ -1163,6 +1169,14 @@ function registerLibraryIpc(): void {
       return ok({ path: currentLibraryPath });
     } catch (error) {
       return fail(ErrorCode.LIBRARY_FOLDER_CHOOSE_FAILED, "Could not choose Library folder.", String(error));
+    }
+  });
+
+  ipcMain.handle("library:repairSeriesIndex", async (): Promise<ApiResponse<SeriesIndex>> => {
+    try {
+      return ok(await repairSeriesIndex(await currentLibraryPathOrThrow({ ensureFiles: false })));
+    } catch (error) {
+      return fail(ErrorCode.LIBRARY_REPAIR_FAILED, "Could not repair series index.", String(error));
     }
   });
 }
