@@ -141,7 +141,7 @@ Ghi chú: Import source guard được defer sang Phase 6 vì cần Import Wizar
 - [x] CRUD Chapter cho LN/WN.
 - [x] Hoãn CRUD Chapter Manga sang Phase 7.
 - [x] Tạo `series-index.json` để load nhanh danh sách series.
-- [ ] Update index khi tạo/sửa/xóa series.
+- [x] Update index khi tạo/sửa/xóa series.
 - [x] Validate input IPC bằng schema.
 - [x] Thêm `deletedAt` hoặc move-to-trash tối thiểu cho xóa mềm.
 - [ ] Đảm bảo index cập nhật đồng bộ khi create/update/delete.
