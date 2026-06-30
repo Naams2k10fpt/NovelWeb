@@ -85,6 +85,8 @@ type SeriesIndex = {
   }>;
 };
 
+type SeriesIndexEntry = SeriesIndex["series"][number];
+
 type SearchIndex = {
   schemaVersion: SupportedSchemaVersion;
   generatedAt: string;
@@ -177,14 +179,17 @@ async function writeAppSettings(settings: AppSettings): Promise<void> {
   await writeJsonFile(appSettingsPath(), settings, { backup: true });
 }
 
-async function currentLibraryPathOrThrow(): Promise<string> {
+async function currentLibraryPathOrThrow(options: { ensureFiles?: boolean } = {}): Promise<string> {
   const settings = await readAppSettings();
 
   if (!settings.currentLibraryPath) {
     throw new Error("No Library folder selected.");
   }
 
-  await ensureLibraryFiles(settings.currentLibraryPath);
+  if (options.ensureFiles ?? true) {
+    await ensureLibraryFiles(settings.currentLibraryPath);
+  }
+
   return settings.currentLibraryPath;
 }
 
@@ -396,6 +401,10 @@ function seriesMetaPath(libraryPath: string, seriesId: string): string {
   return libraryChildPath(libraryPath, "series", assertId(seriesId, "seriesId"), "meta.json");
 }
 
+function seriesIndexPath(libraryPath: string): string {
+  return libraryChildPath(libraryPath, "index", "series-index.json");
+}
+
 function categoryDirectoryPath(libraryPath: string, seriesId: string, categoryId: string): string {
   return libraryChildPath(
     libraryPath,
@@ -591,10 +600,10 @@ async function rebuildSeriesIndex(libraryPath: string): Promise<void> {
     }
   }
 
-  await writeJsonFile(libraryChildPath(libraryPath, "index", "series-index.json"), {
+  await writeJsonFile(seriesIndexPath(libraryPath), {
     schemaVersion: SUPPORTED_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
-    series
+    series: series.sort((left, right) => left.title.localeCompare(right.title))
   } satisfies SeriesIndex);
 }
 
@@ -660,6 +669,25 @@ async function readSeriesMetadata(libraryPath: string, seriesId: string): Promis
   const metadata = await readJsonFile<SeriesMetadata>(seriesMetaPath(libraryPath, seriesId));
   assertSupportedSchemaVersion(`series/${seriesId}/meta.json`, metadata);
   return metadata;
+}
+
+async function readSeriesIndex(libraryPath: string): Promise<SeriesIndex> {
+  try {
+    const index = await readJsonFile<SeriesIndex>(seriesIndexPath(libraryPath));
+    assertSupportedSchemaVersion("series-index.json", index);
+    return index;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+
+    await rebuildSeriesIndex(libraryPath);
+    return readJsonFile<SeriesIndex>(seriesIndexPath(libraryPath));
+  }
+}
+
+async function listSeriesIndex(libraryPath: string): Promise<SeriesIndexEntry[]> {
+  return (await readSeriesIndex(libraryPath)).series;
 }
 
 async function listSeriesMetadata(libraryPath: string): Promise<SeriesMetadata[]> {
@@ -1123,9 +1151,9 @@ function registerLibraryIpc(): void {
 }
 
 function registerSeriesIpc(): void {
-  ipcMain.handle("series:list", async (): Promise<ApiResponse<SeriesMetadata[]>> => {
+  ipcMain.handle("series:list", async (): Promise<ApiResponse<SeriesIndexEntry[]>> => {
     try {
-      return ok(await listSeriesMetadata(await currentLibraryPathOrThrow()));
+      return ok(await listSeriesIndex(await currentLibraryPathOrThrow({ ensureFiles: false })));
     } catch (error) {
       return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not list series.", String(error));
     }
