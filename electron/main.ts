@@ -82,11 +82,21 @@ type SeriesIndex = {
   series: Array<{
     id: string;
     title: string;
+    author?: string | null;
+    status?: SeriesStatus;
+    coverImage?: string | null;
     updatedAt?: string;
   }>;
 };
 
 type SeriesIndexEntry = SeriesIndex["series"][number];
+type SeriesCard = {
+  id: string;
+  title: string;
+  author: string | null;
+  status: SeriesStatus;
+  coverDataUrl: string | null;
+};
 
 type SearchIndex = {
   schemaVersion: SupportedSchemaVersion;
@@ -596,6 +606,17 @@ async function rebuildSeriesIndex(libraryPath: string): Promise<void> {
         series.push({
           id: metadata.id,
           title: metadata.title,
+          author:
+            typeof metadata.originalAuthor === "string"
+              ? metadata.originalAuthor
+              : typeof metadata.translator === "string"
+                ? metadata.translator
+                : null,
+          status:
+            typeof metadata.status === "string" && (SERIES_STATUSES as readonly string[]).includes(metadata.status)
+              ? (metadata.status as SeriesStatus)
+              : "planning",
+          coverImage: typeof metadata.coverImage === "string" ? metadata.coverImage : null,
           updatedAt: typeof metadata.updatedAt === "string" ? metadata.updatedAt : undefined
         });
       }
@@ -697,30 +718,56 @@ async function repairSeriesIndex(libraryPath: string): Promise<SeriesIndex> {
   return readSeriesIndex(libraryPath);
 }
 
-async function listSeriesIndex(libraryPath: string): Promise<SeriesIndexEntry[]> {
-  return (await readSeriesIndex(libraryPath)).series;
-}
+function imageMimeType(fileName: string): string {
+  const lowerFileName = fileName.toLowerCase();
 
-async function listSeriesMetadata(libraryPath: string): Promise<SeriesMetadata[]> {
-  const seriesDirectory = libraryChildPath(libraryPath, "series");
-  const entries = await readdir(seriesDirectory, { withFileTypes: true });
-  const series: SeriesMetadata[] = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-
-    try {
-      series.push(await readSeriesMetadata(libraryPath, entry.name));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw error;
-      }
-    }
+  if (lowerFileName.endsWith(".png")) {
+    return "image/png";
   }
 
-  return series.sort((left, right) => left.title.localeCompare(right.title));
+  if (lowerFileName.endsWith(".webp")) {
+    return "image/webp";
+  }
+
+  if (lowerFileName.endsWith(".gif")) {
+    return "image/gif";
+  }
+
+  return "image/jpeg";
+}
+
+async function readSeriesCoverDataUrl(libraryPath: string, entry: SeriesIndexEntry): Promise<string | null> {
+  if (!entry.coverImage) {
+    return null;
+  }
+
+  try {
+    const fileName = basename(entry.coverImage);
+    const cover = await readFile(libraryChildPath(libraryPath, "series", entry.id, fileName));
+    // ponytail: data URLs are enough for MVP; add thumbnails/protocol if cover loading gets slow.
+    return `data:${imageMimeType(fileName)};base64,${cover.toString("base64")}`;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+async function toSeriesCard(libraryPath: string, entry: SeriesIndexEntry): Promise<SeriesCard> {
+  return {
+    id: entry.id,
+    title: entry.title,
+    author: entry.author ?? null,
+    status: entry.status ?? "planning",
+    coverDataUrl: await readSeriesCoverDataUrl(libraryPath, entry)
+  };
+}
+
+async function listSeriesCards(libraryPath: string): Promise<SeriesCard[]> {
+  const index = await readSeriesIndex(libraryPath);
+  return Promise.all(index.series.map((entry) => toSeriesCard(libraryPath, entry)));
 }
 
 async function createSeriesMetadata(libraryPath: string, input: unknown): Promise<SeriesMetadata> {
@@ -1182,9 +1229,9 @@ function registerLibraryIpc(): void {
 }
 
 function registerSeriesIpc(): void {
-  ipcMain.handle("series:list", async (): Promise<ApiResponse<SeriesIndexEntry[]>> => {
+  ipcMain.handle("series:list", async (): Promise<ApiResponse<SeriesCard[]>> => {
     try {
-      return ok(await listSeriesIndex(await currentLibraryPathOrThrow({ ensureFiles: false })));
+      return ok(await listSeriesCards(await currentLibraryPathOrThrow({ ensureFiles: false })));
     } catch (error) {
       return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not list series.", String(error));
     }

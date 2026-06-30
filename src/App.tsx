@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import Library from "./pages/Library";
+import SeriesDetail from "./pages/SeriesDetail";
 
 type Mode = "library" | "manager" | "settings";
 type ApiResponse<T> =
@@ -42,6 +44,7 @@ const modes: Record<Mode, { label: string; eyebrow: string; title: string }> = {
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("library");
+  const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null);
   const [library, setLibrary] = useState<LibraryState>({
     loading: true,
     path: null,
@@ -113,19 +116,29 @@ export default function App() {
     }
   }
 
+  function openMode(nextMode: Mode): void {
+    setMode(nextMode);
+    setSelectedSeriesId(null);
+  }
+
   function renderWorkspaceContent() {
-    if (library.loading) {
+    if (mode === "library") {
+      if (selectedSeriesId) {
+        return <SeriesDetail onBack={() => setSelectedSeriesId(null)} seriesId={selectedSeriesId} />;
+      }
+
       return (
-        <>
-          <h2>Checking library</h2>
-          <p>Loading the current Library folder.</p>
-        </>
+        <Library
+          library={library}
+          onOpenSeries={setSelectedSeriesId}
+          onOpenSettings={() => openMode("settings")}
+        />
       );
     }
 
     if (mode === "settings") {
       return (
-        <>
+        <section className="empty-state">
           <h2>Library folder</h2>
           <p>{library.path ? "Current Library folder." : library.error ?? "No Library folder selected."}</p>
           {library.path ? <p className="library-path">{library.path}</p> : null}
@@ -133,37 +146,41 @@ export default function App() {
           <button className="primary-action" onClick={chooseLibraryFolder} type="button">
             {library.path ? "Change Library folder" : "Choose Library folder"}
           </button>
-        </>
+        </section>
+      );
+    }
+
+    if (library.loading) {
+      return (
+        <section className="empty-state">
+          <h2>Checking library</h2>
+          <p>Loading the current Library folder.</p>
+        </section>
       );
     }
 
     if (!library.path) {
       return (
-        <>
+        <section className="empty-state">
           <h2>No library selected</h2>
           <p>{library.error ?? "Choose a Library folder in Settings."}</p>
-          <button className="primary-action" onClick={() => setMode("settings")} type="button">
+          <button className="primary-action" onClick={() => openMode("settings")} type="button">
             Open Settings
           </button>
-        </>
+        </section>
       );
     }
 
     if (mode === "manager") {
       return (
-        <>
+        <section className="empty-state">
           <h2>Nothing to manage yet</h2>
           <p>Series, categories, volumes, and chapters come after storage.</p>
-        </>
+        </section>
       );
     }
 
-    return (
-      <>
-        <h2>Library ready</h2>
-        <p>Series cards come after the storage foundation is complete.</p>
-      </>
-    );
+    return null;
   }
 
   return (
@@ -180,7 +197,7 @@ export default function App() {
               aria-current={mode === modeId ? "page" : undefined}
               className={mode === modeId ? "nav-item nav-item-active" : "nav-item"}
               key={modeId}
-              onClick={() => setMode(modeId as Mode)}
+              onClick={() => openMode(modeId as Mode)}
               type="button"
             >
               {item.label}
@@ -195,7 +212,7 @@ export default function App() {
           <h1>{currentMode.title}</h1>
         </header>
 
-        <section className="empty-state">{renderWorkspaceContent()}</section>
+        {renderWorkspaceContent()}
       </main>
     </div>
   );

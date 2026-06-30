@@ -162,20 +162,20 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 
 ## Phase 4 - Giao diện Library và Manager cơ bản
 
-**Trạng thái:** `[ ]`
+**Trạng thái:** `[~]`
 
 **Mục tiêu:** Tạo giao diện quản lý và duyệt thư viện ở mức dùng được.
 
 ### Checklist
 
-- [ ] Tạo trang Library.
-- [ ] Hiển thị series card.
-- [ ] Hiển thị cover, title, author, status.
-- [ ] Thêm filter/search nhẹ ở Library.
-- [ ] Tạo trang Series Detail.
-- [ ] Series Detail có tab theo category.
-- [ ] Tab LN/WN hiển thị volume và chapter.
-- [ ] Tab Manga có placeholder hoặc trạng thái `Sẽ làm sau`.
+- [x] Tạo trang Library.
+- [x] Hiển thị series card.
+- [x] Hiển thị cover, title, author, status.
+- [x] Thêm filter/search nhẹ ở Library.
+- [x] Tạo trang Series Detail.
+- [x] Series Detail có tab theo category.
+- [x] Tab LN/WN hiển thị volume và chapter.
+- [x] Tab Manga có placeholder hoặc trạng thái `Sẽ làm sau`.
 - [ ] Tạo trang Manager.
 - [ ] Manager có split layout trái/phải.
 - [ ] Tree view hiển thị series/category/volume/chapter.
