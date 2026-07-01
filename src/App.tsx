@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
+import ImportWizard from "./pages/ImportWizard";
 import Library from "./pages/Library";
 import Manager from "./pages/Manager";
 import NovelEditor, { type ChapterTarget } from "./pages/NovelEditor";
 import NovelReader from "./pages/NovelReader";
 import SeriesDetail from "./pages/SeriesDetail";
 
-type Mode = "library" | "manager" | "settings";
+type Mode = "library" | "manager" | "import" | "settings";
 type ChapterMode = "edit" | "read";
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -38,6 +39,11 @@ const modes: Record<Mode, { label: string; eyebrow: string; title: string }> = {
     label: "Manager",
     eyebrow: "Manager",
     title: "Manage structure"
+  },
+  import: {
+    label: "Import",
+    eyebrow: "Import",
+    title: "Import content"
   },
   settings: {
     label: "Settings",
@@ -233,6 +239,10 @@ export default function App() {
 
     if (mode === "manager") {
       return <Manager library={library} onOpenSettings={() => openMode("settings")} />;
+    }
+
+    if (mode === "import") {
+      return <ImportWizard library={library} onOpenSettings={() => openMode("settings")} />;
     }
 
     if (library.loading) {

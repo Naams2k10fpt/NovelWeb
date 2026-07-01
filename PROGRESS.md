@@ -245,7 +245,7 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 
 ### Checklist
 
-- [ ] Tạo Import Wizard.
+- [x] Tạo Import Wizard.
 - [x] Chọn folder bằng Electron dialog.
 - [x] Scan folder và trả về preview tree.
 - [x] Detect volume folder.
@@ -253,8 +253,8 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 - [x] Detect chapter file MD.
 - [x] Detect chapter file DOCX.
 - [x] Detect chapter file PDF.
-- [ ] Cho rename item trước khi import.
-- [ ] Cho bỏ chọn item không muốn import.
+- [x] Cho rename item trước khi import.
+- [x] Cho bỏ chọn item không muốn import.
 - [ ] Import TXT.
 - [ ] Import MD.
 - [ ] Import DOCX bằng mammoth.
@@ -272,6 +272,7 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 - [ ] Hiển thị report sau import.
 
 Ghi chú: Đã thêm API nền `import.chooseSourceFolder`/`import.scan`; main process giữ import session từ Electron dialog và chỉ scan source qua `importSessionId`.
+Ghi chú: Đã thêm Import Wizard 3 bước ở renderer: chọn source, preview/rename/bỏ chọn, confirm plan; chưa ghi dữ liệu import.
 
 ### Tiêu chí hoàn thành
 
