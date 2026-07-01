@@ -54,5 +54,9 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("chapters:saveProgress", seriesId, categoryId, volumeId, chapterId, input),
     moveToTrash: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
       ipcRenderer.invoke("chapters:moveToTrash", seriesId, categoryId, volumeId, chapterId)
+  },
+  import: {
+    chooseSourceFolder: () => ipcRenderer.invoke("import:chooseSourceFolder"),
+    scan: (importSessionId: string) => ipcRenderer.invoke("import:scan", importSessionId)
   }
 });

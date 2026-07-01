@@ -98,7 +98,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Implement ghi JSON an toàn bằng `.tmp` rồi rename.
 - [x] Tạo backup gần nhất trước khi ghi đè file quan trọng.
 - [x] Implement path safety để mọi thao tác nằm trong library root.
-- [~] Cho phép đọc source import ngoài Library chỉ khi path đến từ Electron dialog/import session hợp lệ.
+- [x] Cho phép đọc source import ngoài Library chỉ khi path đến từ Electron dialog/import session hợp lệ.
 - [x] Chuẩn hóa response IPC dạng `{ ok, data, error }`.
 - [x] Chuẩn hóa error code cơ bản.
 - [x] Implement library health check cơ bản.
@@ -109,7 +109,7 @@ Ghi chú: Đã xác nhận `npm run dev` mở app và chuyển được giữa L
 - [x] Implement per-resource write lock hoặc save queue nền tảng.
 
 Ghi chú: Đã có Settings tab cơ bản để xem/đổi Library folder; các setting khác thêm khi có task tương ứng.
-Ghi chú: Import source guard được defer sang Phase 6 vì cần Import Wizard/import session; hiện chưa expose API đọc source ngoài Library.
+Ghi chú: Import source guard đã có ở API nền Phase 6: main process tạo import session từ Electron dialog và renderer chỉ scan bằng `importSessionId`.
 
 ### Tiêu chí hoàn thành
 
@@ -239,20 +239,20 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 
 ## Phase 6 - Import nội dung text và PDF
 
-**Trạng thái:** `[ ]`
+**Trạng thái:** `[~]`
 
 **Mục tiêu:** Đưa dữ liệu thật từ folder và file ngoài vào NovelWeb.
 
 ### Checklist
 
 - [ ] Tạo Import Wizard.
-- [ ] Chọn folder bằng Electron dialog.
-- [ ] Scan folder và trả về preview tree.
-- [ ] Detect volume folder.
-- [ ] Detect chapter file TXT.
-- [ ] Detect chapter file MD.
-- [ ] Detect chapter file DOCX.
-- [ ] Detect chapter file PDF.
+- [x] Chọn folder bằng Electron dialog.
+- [x] Scan folder và trả về preview tree.
+- [x] Detect volume folder.
+- [x] Detect chapter file TXT.
+- [x] Detect chapter file MD.
+- [x] Detect chapter file DOCX.
+- [x] Detect chapter file PDF.
 - [ ] Cho rename item trước khi import.
 - [ ] Cho bỏ chọn item không muốn import.
 - [ ] Import TXT.
@@ -261,7 +261,7 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 - [ ] Import PDF bằng parser.
 - [ ] Nếu `pdf-parse` lỗi, thử fallback extractor.
 - [ ] Nếu PDF không có text, đánh dấu là scanned/unsupported.
-- [ ] Import source path phải đến từ dialog hoặc import session hợp lệ.
+- [x] Import source path phải đến từ dialog hoặc import session hợp lệ.
 - [ ] Lưu PDF gốc vào library.
 - [ ] Tạo PDF Split View.
 - [ ] PDF Split View hiển thị PDF gốc bên trái.
@@ -270,6 +270,8 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 - [ ] Hiển thị progress bar khi import.
 - [ ] Ghi import log.
 - [ ] Hiển thị report sau import.
+
+Ghi chú: Đã thêm API nền `import.chooseSourceFolder`/`import.scan`; main process giữ import session từ Electron dialog và chỉ scan source qua `importSessionId`.
 
 ### Tiêu chí hoàn thành
 

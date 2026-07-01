@@ -35,12 +35,20 @@ const ErrorCode = {
   SERIES_CRUD_FAILED: "SERIES_CRUD_FAILED",
   CATEGORY_CRUD_FAILED: "CATEGORY_CRUD_FAILED",
   VOLUME_CRUD_FAILED: "VOLUME_CRUD_FAILED",
-  CHAPTER_CRUD_FAILED: "CHAPTER_CRUD_FAILED"
+  CHAPTER_CRUD_FAILED: "CHAPTER_CRUD_FAILED",
+  IMPORT_FAILED: "IMPORT_FAILED"
 } as const;
 
 const REQUIRED_LIBRARY_DIRECTORIES = ["index", "series", "backups", ".trash"] as const;
 const IMAGE_FILE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
+const IMPORT_FILE_TYPES = {
+  ".txt": "txt",
+  ".md": "md",
+  ".docx": "docx",
+  ".pdf": "pdf"
+} as const;
 const SUPPORTED_SCHEMA_VERSION = 1;
+const importSessions = new Map<string, ImportSession>();
 const writeQueues = new Map<string, Promise<unknown>>();
 
 type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -75,6 +83,39 @@ type LibrarySettings = {
     keepOriginalFiles: boolean;
   };
   updatedAt: string;
+};
+
+type ImportSession = {
+  id: string;
+  sourceFolderPath: string;
+  createdAt: string;
+};
+
+type ImportFileType = (typeof IMPORT_FILE_TYPES)[keyof typeof IMPORT_FILE_TYPES];
+
+type ImportPreviewNode = {
+  id: string;
+  name: string;
+  relativePath: string;
+  kind: "volume" | "folder" | "chapter";
+  fileType?: ImportFileType;
+  sizeBytes?: number;
+  children?: ImportPreviewNode[];
+};
+
+type ImportPreview = {
+  importSessionId: string;
+  sourceFolderName: string;
+  generatedAt: string;
+  nodes: ImportPreviewNode[];
+  counts: {
+    volumes: number;
+    chapters: number;
+    txt: number;
+    md: number;
+    docx: number;
+    pdf: number;
+  };
 };
 
 type SeriesIndex = {
@@ -633,6 +674,162 @@ async function assertDirectory(directoryPath: string): Promise<void> {
   if (!directoryStat.isDirectory()) {
     throw new Error(`Expected directory: ${directoryPath}`);
   }
+}
+
+function sourceChildPath(sourceRootPath: string, ...parts: string[]): string {
+  const sourceRoot = resolve(sourceRootPath);
+  const targetPath = resolve(sourceRoot, ...parts);
+  const relativePath = relative(sourceRoot, targetPath);
+
+  if (relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath))) {
+    return targetPath;
+  }
+
+  throw new Error(`Refusing to access path outside import source: ${targetPath}`);
+}
+
+function importFileType(fileName: string): ImportFileType | null {
+  return IMPORT_FILE_TYPES[extname(fileName).toLowerCase() as keyof typeof IMPORT_FILE_TYPES] ?? null;
+}
+
+function importFileId(relativeFilePath: string): string {
+  return Buffer.from(relativeFilePath, "utf8").toString("base64url");
+}
+
+function toImportRelativePath(parts: string[]): string {
+  return parts.join("/");
+}
+
+function hasChapterNode(node: ImportPreviewNode): boolean {
+  return node.kind === "chapter" || (node.children?.some(hasChapterNode) ?? false);
+}
+
+function countImportPreview(nodes: ImportPreviewNode[]): ImportPreview["counts"] {
+  const counts: ImportPreview["counts"] = { volumes: 0, chapters: 0, txt: 0, md: 0, docx: 0, pdf: 0 };
+
+  for (const node of nodes) {
+    if (node.kind === "volume") {
+      counts.volumes += 1;
+    }
+
+    if (node.kind === "chapter" && node.fileType) {
+      counts.chapters += 1;
+      counts[node.fileType] += 1;
+    }
+
+    if (node.children) {
+      const childCounts = countImportPreview(node.children);
+      counts.volumes += childCounts.volumes;
+      counts.chapters += childCounts.chapters;
+      counts.txt += childCounts.txt;
+      counts.md += childCounts.md;
+      counts.docx += childCounts.docx;
+      counts.pdf += childCounts.pdf;
+    }
+  }
+
+  return counts;
+}
+
+async function scanImportDirectory(sourceRootPath: string, parts: string[] = []): Promise<ImportPreviewNode[]> {
+  const directoryPath = sourceChildPath(sourceRootPath, ...parts);
+  const entries = (await readdir(directoryPath, { withFileTypes: true })).sort((left, right) =>
+    left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
+  );
+  const nodes: ImportPreviewNode[] = [];
+
+  for (const entry of entries) {
+    const childParts = [...parts, entry.name];
+    const relativePath = toImportRelativePath(childParts);
+
+    if (entry.isDirectory()) {
+      const children = await scanImportDirectory(sourceRootPath, childParts);
+
+      if (children.length > 0) {
+        nodes.push({
+          id: importFileId(relativePath),
+          name: entry.name,
+          relativePath,
+          kind: children.some((child) => child.kind === "chapter") ? "volume" : "folder",
+          children
+        });
+      }
+
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const fileType = importFileType(entry.name);
+
+    if (!fileType) {
+      continue;
+    }
+
+    nodes.push({
+      id: importFileId(relativePath),
+      name: entry.name,
+      relativePath,
+      kind: "chapter",
+      fileType,
+      sizeBytes: (await stat(sourceChildPath(sourceRootPath, ...childParts))).size
+    });
+  }
+
+  return nodes.filter(hasChapterNode);
+}
+
+function readImportSession(importSessionId: unknown): ImportSession {
+  const session = importSessions.get(assertId(importSessionId, "importSessionId"));
+
+  if (!session) {
+    throw new Error("Import session not found.");
+  }
+
+  return session;
+}
+
+async function chooseImportSourceFolder(window: BrowserWindow | null): Promise<{ importSessionId: string; path: string; name: string } | null> {
+  const options: OpenDialogOptions = {
+    title: "Choose import source folder",
+    properties: ["openDirectory"]
+  };
+  const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+
+  if (result.canceled || !result.filePaths[0]) {
+    return null;
+  }
+
+  const sourceFolderPath = resolve(result.filePaths[0]);
+  await assertDirectory(sourceFolderPath);
+
+  const session: ImportSession = {
+    id: randomUUID(),
+    sourceFolderPath,
+    createdAt: new Date().toISOString()
+  };
+  importSessions.set(session.id, session);
+
+  return {
+    importSessionId: session.id,
+    path: session.sourceFolderPath,
+    name: basename(session.sourceFolderPath)
+  };
+}
+
+async function scanImportSession(importSessionId: unknown): Promise<ImportPreview> {
+  const session = readImportSession(importSessionId);
+  const nodes = await scanImportDirectory(session.sourceFolderPath);
+
+  return {
+    importSessionId: session.id,
+    sourceFolderName: basename(session.sourceFolderPath),
+    generatedAt: new Date().toISOString(),
+    nodes,
+    counts: countImportPreview(nodes)
+  };
 }
 
 async function ensureJsonFile(filePath: string, createData: () => unknown): Promise<void> {
@@ -2230,6 +2427,27 @@ function registerChapterIpc(): void {
   );
 }
 
+function registerImportIpc(): void {
+  ipcMain.handle(
+    "import:chooseSourceFolder",
+    async (event): Promise<ApiResponse<{ importSessionId: string; path: string; name: string } | null>> => {
+      try {
+        return ok(await chooseImportSourceFolder(BrowserWindow.fromWebContents(event.sender)));
+      } catch (error) {
+        return fail(ErrorCode.IMPORT_FAILED, "Could not choose import source folder.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle("import:scan", async (_event, importSessionId: unknown): Promise<ApiResponse<ImportPreview>> => {
+    try {
+      return ok(await scanImportSession(importSessionId));
+    } catch (error) {
+      return fail(ErrorCode.IMPORT_FAILED, "Could not scan import source folder.", String(error));
+    }
+  });
+}
+
 function createWindow(): void {
   const window = new BrowserWindow({
     width: 1200,
@@ -2255,6 +2473,7 @@ void app.whenReady().then(() => {
   registerCategoryIpc();
   registerVolumeIpc();
   registerChapterIpc();
+  registerImportIpc();
   createWindow();
 
   app.on("activate", () => {
