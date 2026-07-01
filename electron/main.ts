@@ -142,7 +142,7 @@ type ImportPlanChapter = {
 };
 
 type ImportLogEntry = {
-  status: "imported" | "skipped" | "failed";
+  status: "imported" | "unsupported" | "skipped" | "failed";
   fileId: string;
   title: string;
   message: string;
@@ -153,6 +153,7 @@ type ImportReport = {
   seriesTitle: string;
   categoryId: string;
   imported: number;
+  unsupported: number;
   skipped: number;
   failed: number;
   logs: ImportLogEntry[];
@@ -758,6 +759,10 @@ function isImportTextFileType(fileType: ImportFileType | null): fileType is Impo
   return fileType === "txt" || fileType === "md";
 }
 
+function isImportableFileType(fileType: ImportFileType | null): fileType is ImportTextFileType | "pdf" {
+  return isImportTextFileType(fileType) || fileType === "pdf";
+}
+
 function toImportRelativePath(parts: string[]): string {
   return parts.join("/");
 }
@@ -975,7 +980,22 @@ function readImportPlan(input: unknown): { seriesTitle: string; chapters: Import
   };
 }
 
-async function executeTextImport(libraryPath: string, importSessionId: unknown, input: unknown): Promise<ImportReport> {
+async function copyImportedPdf(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string,
+  chapterId: string,
+  sourcePath: string
+): Promise<void> {
+  const targetPath = chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, "original.pdf");
+  const tmpPath = `${targetPath}.tmp`;
+
+  await copyFile(sourcePath, tmpPath);
+  await rename(tmpPath, targetPath);
+}
+
+async function executeImport(libraryPath: string, importSessionId: unknown, input: unknown): Promise<ImportReport> {
   const session = readImportSession(importSessionId);
   const plan = readImportPlan(input);
   const logs: ImportLogEntry[] = [];
@@ -985,7 +1005,7 @@ async function executeTextImport(libraryPath: string, importSessionId: unknown, 
     try {
       const sourceFile = await readImportSourceFile(session, chapter.fileId);
 
-      if (!isImportTextFileType(sourceFile.fileType)) {
+      if (!isImportableFileType(sourceFile.fileType)) {
         logs.push({
           status: "skipped",
           fileId: chapter.fileId,
@@ -1007,7 +1027,7 @@ async function executeTextImport(libraryPath: string, importSessionId: unknown, 
   }
 
   if (importableChapters.length === 0) {
-    throw new Error("No TXT or MD chapters could be imported.");
+    throw new Error("No TXT, MD, or PDF chapters could be imported.");
   }
 
   const series = await createSeriesMetadata(libraryPath, { title: plan.seriesTitle });
@@ -1026,17 +1046,27 @@ async function executeTextImport(libraryPath: string, importSessionId: unknown, 
 
       const metadata = await createNovelChapterMetadata(libraryPath, series.id, category.id, volume.id, {
         title: chapter.title,
-        translationStatus: "draft"
+        translationStatus: "draft",
+        hasOriginalPdf: chapter.sourceFile.fileType === "pdf",
+        originalFileName: chapter.sourceFile.fileType === "pdf" ? basename(chapter.sourceFile.relativePath) : null
       });
+
+      if (chapter.sourceFile.fileType === "pdf") {
+        await copyImportedPdf(libraryPath, series.id, category.id, volume.id, metadata.id, chapter.sourceFile.sourcePath);
+      }
+
       await saveNovelChapterContent(libraryPath, series.id, category.id, volume.id, metadata.id, {
         html: importTextToHtml(chapter.text)
       });
       imported += 1;
       logs.push({
-        status: "imported",
+        status: chapter.sourceFile.fileType === "pdf" ? "unsupported" : "imported",
         fileId: chapter.fileId,
         title: chapter.title,
-        message: `Imported ${chapter.sourceFile.relativePath}.`
+        message:
+          chapter.sourceFile.fileType === "pdf"
+            ? `Saved original PDF ${chapter.sourceFile.relativePath}; text extraction is pending.`
+            : `Imported ${chapter.sourceFile.relativePath}.`
       });
     } catch (error) {
       logs.push({
@@ -1053,6 +1083,7 @@ async function executeTextImport(libraryPath: string, importSessionId: unknown, 
     seriesTitle: series.title,
     categoryId: category.id,
     imported,
+    unsupported: logs.filter((entry) => entry.status === "unsupported").length,
     skipped: logs.filter((entry) => entry.status === "skipped").length,
     failed: logs.filter((entry) => entry.status === "failed").length,
     logs
@@ -2689,7 +2720,7 @@ function registerImportIpc(): void {
     "import:execute",
     async (_event, importSessionId: unknown, input: unknown): Promise<ApiResponse<ImportReport>> => {
       try {
-        return ok(await executeTextImport(await currentLibraryPathOrThrow(), importSessionId, input));
+        return ok(await executeImport(await currentLibraryPathOrThrow(), importSessionId, input));
       } catch (error) {
         return fail(ErrorCode.IMPORT_FAILED, "Could not import selected chapters.", String(error));
       }

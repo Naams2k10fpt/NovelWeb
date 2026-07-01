@@ -260,9 +260,9 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 - [ ] Import DOCX bằng mammoth.
 - [ ] Import PDF bằng parser.
 - [ ] Nếu `pdf-parse` lỗi, thử fallback extractor.
-- [ ] Nếu PDF không có text, đánh dấu là scanned/unsupported.
+- [x] Nếu PDF không có text, đánh dấu là scanned/unsupported.
 - [x] Import source path phải đến từ dialog hoặc import session hợp lệ.
-- [ ] Lưu PDF gốc vào library.
+- [x] Lưu PDF gốc vào library.
 - [ ] Tạo PDF Split View.
 - [ ] PDF Split View hiển thị PDF gốc bên trái.
 - [ ] PDF Split View hiển thị text trích xuất/editor bên phải.
@@ -274,6 +274,7 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 Ghi chú: Đã thêm API nền `import.chooseSourceFolder`/`import.scan`; main process giữ import session từ Electron dialog và chỉ scan source qua `importSessionId`.
 Ghi chú: Đã thêm Import Wizard 3 bước ở renderer: chọn source, preview/rename/bỏ chọn, confirm plan; chưa ghi dữ liệu import.
 Ghi chú: Đã thêm import TXT/MD tối thiểu: bước confirm đọc text qua import session, cho sửa bằng textarea, tạo series LN mới, lưu `content.html`/`content.txt`, hiển thị progress và report/log. DOCX/PDF vẫn được scan nhưng sẽ bị skip ở nhóm này.
+Ghi chú: Đã thêm import PDF tối thiểu không parser: tạo chapter, copy file gốc vào `original.pdf`, đặt `hasOriginalPdf`, ghi report trạng thái `unsupported` để biết text extraction/split view sẽ làm sau.
 
 ### Tiêu chí hoàn thành
 

@@ -51,7 +51,7 @@ type ImportTextPreview = {
 };
 
 type ImportReportLogEntry = {
-  status: "imported" | "skipped" | "failed";
+  status: "imported" | "unsupported" | "skipped" | "failed";
   fileId: string;
   title: string;
   message: string;
@@ -62,6 +62,7 @@ type ImportReport = {
   seriesTitle: string;
   categoryId: string;
   imported: number;
+  unsupported: number;
   skipped: number;
   failed: number;
   logs: ImportReportLogEntry[];
@@ -183,6 +184,10 @@ function isTextChapter(node: ImportPlanNode): boolean {
   return node.fileType === "txt" || node.fileType === "md";
 }
 
+function isImportableChapter(node: ImportPlanNode): boolean {
+  return isTextChapter(node) || node.fileType === "pdf";
+}
+
 function fallbackChapterTitle(chapter: ImportPlanNode): string {
   return chapter.title.trim() || chapter.name.replace(/\.[^.]+$/, "");
 }
@@ -212,8 +217,12 @@ export default function ImportWizard({
   const selectedCount = selectedChapterCount(nodes);
   const selectedTypes = useMemo(() => selectedTypeCounts(nodes), [nodes]);
   const selectedChapters = useMemo(() => collectSelectedChapters(nodes), [nodes]);
+  const selectedImportableChapters = useMemo(
+    () => selectedChapters.filter((chapter) => isImportableChapter(chapter)),
+    [selectedChapters]
+  );
   const selectedTextChapters = useMemo(() => selectedChapters.filter((chapter) => isTextChapter(chapter)), [selectedChapters]);
-  const unsupportedSelectedCount = selectedCount - selectedTextChapters.length;
+  const skippedSelectedCount = selectedCount - selectedImportableChapters.length;
   const textReady = selectedTextChapters.every((chapter) => typeof editedTexts[chapter.id] === "string");
 
   async function chooseSourceFolder(): Promise<void> {
@@ -304,8 +313,8 @@ export default function ImportWizard({
       return;
     }
 
-    if (selectedTextChapters.length === 0) {
-      setError("Select at least one TXT or MD chapter.");
+    if (selectedImportableChapters.length === 0) {
+      setError("Select at least one TXT, MD, or PDF chapter.");
       return;
     }
 
@@ -428,7 +437,7 @@ export default function ImportWizard({
             </div>
             <button
               className="primary-action"
-              disabled={importing || textLoading || selectedTextChapters.length === 0 || !textReady}
+              disabled={importing || textLoading || selectedImportableChapters.length === 0 || !textReady}
               onClick={() => void executeImport()}
               type="button"
             >
@@ -437,8 +446,11 @@ export default function ImportWizard({
           </div>
 
           {textLoading ? <p className="muted-text">Loading text preview.</p> : null}
-          {unsupportedSelectedCount > 0 ? (
-            <p className="muted-text">{unsupportedSelectedCount} selected DOCX/PDF chapters will be skipped in this step.</p>
+          {selectedTypes.pdf > 0 ? (
+            <p className="muted-text">Selected PDFs will be imported with the original file saved; text extraction comes later.</p>
+          ) : null}
+          {skippedSelectedCount > 0 ? (
+            <p className="muted-text">{skippedSelectedCount} selected DOCX chapters will be skipped in this step.</p>
           ) : null}
           {importing ? <progress className="import-progress" aria-label="Import progress" /> : null}
 
@@ -474,7 +486,7 @@ export default function ImportWizard({
             <div className="import-report">
               <h3>{report.seriesTitle}</h3>
               <p className="muted-text">
-                Imported {report.imported} - skipped {report.skipped} - failed {report.failed}
+                Imported {report.imported} - unsupported {report.unsupported} - skipped {report.skipped} - failed {report.failed}
               </p>
               <ol className="import-summary">
                 {report.logs.map((entry, index) => (
