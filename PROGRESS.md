@@ -255,8 +255,8 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 - [x] Detect chapter file PDF.
 - [x] Cho rename item trước khi import.
 - [x] Cho bỏ chọn item không muốn import.
-- [ ] Import TXT.
-- [ ] Import MD.
+- [x] Import TXT.
+- [x] Import MD.
 - [ ] Import DOCX bằng mammoth.
 - [ ] Import PDF bằng parser.
 - [ ] Nếu `pdf-parse` lỗi, thử fallback extractor.
@@ -266,20 +266,21 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 - [ ] Tạo PDF Split View.
 - [ ] PDF Split View hiển thị PDF gốc bên trái.
 - [ ] PDF Split View hiển thị text trích xuất/editor bên phải.
-- [ ] Cho sửa text trước khi import chính thức.
-- [ ] Hiển thị progress bar khi import.
-- [ ] Ghi import log.
-- [ ] Hiển thị report sau import.
+- [x] Cho sửa text trước khi import chính thức.
+- [x] Hiển thị progress bar khi import.
+- [x] Ghi import log.
+- [x] Hiển thị report sau import.
 
 Ghi chú: Đã thêm API nền `import.chooseSourceFolder`/`import.scan`; main process giữ import session từ Electron dialog và chỉ scan source qua `importSessionId`.
 Ghi chú: Đã thêm Import Wizard 3 bước ở renderer: chọn source, preview/rename/bỏ chọn, confirm plan; chưa ghi dữ liệu import.
+Ghi chú: Đã thêm import TXT/MD tối thiểu: bước confirm đọc text qua import session, cho sửa bằng textarea, tạo series LN mới, lưu `content.html`/`content.txt`, hiển thị progress và report/log. DOCX/PDF vẫn được scan nhưng sẽ bị skip ở nhóm này.
 
 ### Tiêu chí hoàn thành
 
-- [ ] User có thể import folder truyện thật.
-- [ ] Import không ghi dữ liệu khi user chưa confirm.
+- [x] User có thể import folder truyện thật bằng TXT/MD.
+- [x] Import không ghi dữ liệu khi user chưa confirm.
 - [ ] PDF gốc luôn có thể mở lại để đối chiếu.
-- [ ] Import lỗi có log đủ rõ để biết file nào hỏng.
+- [x] Import lỗi có log đủ rõ để biết file nào hỏng trong luồng TXT/MD.
 
 ---
 

@@ -118,6 +118,46 @@ type ImportPreview = {
   };
 };
 
+type ImportTextFileType = Extract<ImportFileType, "txt" | "md">;
+
+type ImportSourceFile = {
+  fileId: string;
+  relativePath: string;
+  sourcePath: string;
+  fileType: ImportFileType | null;
+};
+
+type ImportTextPreview = {
+  fileId: string;
+  sourceName: string;
+  fileType: ImportTextFileType;
+  text: string;
+};
+
+type ImportPlanChapter = {
+  fileId: string;
+  title: string;
+  volumeTitle: string;
+  text: string;
+};
+
+type ImportLogEntry = {
+  status: "imported" | "skipped" | "failed";
+  fileId: string;
+  title: string;
+  message: string;
+};
+
+type ImportReport = {
+  seriesId: string;
+  seriesTitle: string;
+  categoryId: string;
+  imported: number;
+  skipped: number;
+  failed: number;
+  logs: ImportLogEntry[];
+};
+
 type SeriesIndex = {
   schemaVersion: SupportedSchemaVersion;
   generatedAt: string;
@@ -696,6 +736,28 @@ function importFileId(relativeFilePath: string): string {
   return Buffer.from(relativeFilePath, "utf8").toString("base64url");
 }
 
+function importRelativePathFromId(fileId: unknown): string {
+  const safeFileId = assertId(fileId, "fileId");
+  const relativeFilePath = Buffer.from(safeFileId, "base64url").toString("utf8");
+  const parts = relativeFilePath.split("/");
+
+  if (
+    !relativeFilePath ||
+    relativeFilePath.includes("\\") ||
+    relativeFilePath.includes("\0") ||
+    isAbsolute(relativeFilePath) ||
+    parts.some((part) => part === "" || part === "." || part === "..")
+  ) {
+    throw new Error("Import file id is invalid.");
+  }
+
+  return relativeFilePath;
+}
+
+function isImportTextFileType(fileType: ImportFileType | null): fileType is ImportTextFileType {
+  return fileType === "txt" || fileType === "md";
+}
+
 function toImportRelativePath(parts: string[]): string {
   return parts.join("/");
 }
@@ -829,6 +891,171 @@ async function scanImportSession(importSessionId: unknown): Promise<ImportPrevie
     generatedAt: new Date().toISOString(),
     nodes,
     counts: countImportPreview(nodes)
+  };
+}
+
+async function readImportSourceFile(session: ImportSession, fileId: unknown): Promise<ImportSourceFile> {
+  const safeFileId = assertId(fileId, "fileId");
+  const relativePath = importRelativePathFromId(safeFileId);
+  const sourcePath = sourceChildPath(session.sourceFolderPath, ...relativePath.split("/"));
+  const sourceStat = await stat(sourcePath);
+
+  if (!sourceStat.isFile()) {
+    throw new Error("Import source is not a file.");
+  }
+
+  return {
+    fileId: safeFileId,
+    relativePath,
+    sourcePath,
+    fileType: importFileType(relativePath)
+  };
+}
+
+function normalizeImportText(text: string): string {
+  return text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+}
+
+async function readImportTextPreview(importSessionId: unknown, fileId: unknown): Promise<ImportTextPreview> {
+  const sourceFile = await readImportSourceFile(readImportSession(importSessionId), fileId);
+
+  if (!isImportTextFileType(sourceFile.fileType)) {
+    throw new Error("Only TXT and MD files can be edited in this import step.");
+  }
+
+  return {
+    fileId: sourceFile.fileId,
+    sourceName: basename(sourceFile.relativePath),
+    fileType: sourceFile.fileType,
+    text: normalizeImportText(await readFile(sourceFile.sourcePath, "utf8"))
+  };
+}
+
+function escapeImportText(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function importTextToHtml(text: string): string {
+  const normalized = normalizeImportText(text).trim();
+
+  if (!normalized) {
+    return "<p></p>";
+  }
+
+  return normalized
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${escapeImportText(paragraph.trim()).replace(/\n/g, "<br>")}</p>`)
+    .join("\n");
+}
+
+function readImportPlanChapter(input: unknown): ImportPlanChapter {
+  const record = assertRecord(input);
+  const fileId = assertId(record.fileId, "fileId");
+  const fallbackTitle = basename(importRelativePathFromId(fileId)).replace(/\.[^.]+$/, "");
+
+  return {
+    fileId,
+    title: readRequiredText(record, "title").trim() || fallbackTitle,
+    volumeTitle: readRequiredText(record, "volumeTitle").trim() || "Imported",
+    text: readRequiredText(record, "text")
+  };
+}
+
+function readImportPlan(input: unknown): { seriesTitle: string; chapters: ImportPlanChapter[] } {
+  const record = assertRecord(input);
+  const chapters = record.chapters;
+
+  if (!Array.isArray(chapters)) {
+    throw new Error("chapters must be an array.");
+  }
+
+  return {
+    seriesTitle: readRequiredString(record, "seriesTitle"),
+    chapters: chapters.map(readImportPlanChapter)
+  };
+}
+
+async function executeTextImport(libraryPath: string, importSessionId: unknown, input: unknown): Promise<ImportReport> {
+  const session = readImportSession(importSessionId);
+  const plan = readImportPlan(input);
+  const logs: ImportLogEntry[] = [];
+  const importableChapters: Array<ImportPlanChapter & { sourceFile: ImportSourceFile }> = [];
+
+  for (const chapter of plan.chapters) {
+    try {
+      const sourceFile = await readImportSourceFile(session, chapter.fileId);
+
+      if (!isImportTextFileType(sourceFile.fileType)) {
+        logs.push({
+          status: "skipped",
+          fileId: chapter.fileId,
+          title: chapter.title,
+          message: `${sourceFile.relativePath} is not supported in this step.`
+        });
+        continue;
+      }
+
+      importableChapters.push({ ...chapter, sourceFile });
+    } catch (error) {
+      logs.push({
+        status: "failed",
+        fileId: chapter.fileId,
+        title: chapter.title,
+        message: String(error)
+      });
+    }
+  }
+
+  if (importableChapters.length === 0) {
+    throw new Error("No TXT or MD chapters could be imported.");
+  }
+
+  const series = await createSeriesMetadata(libraryPath, { title: plan.seriesTitle });
+  const category = await createCategoryMetadata(libraryPath, series.id, { type: "light-novel", title: "Light Novel" });
+  const volumes = new Map<string, VolumeMetadata>();
+  let imported = 0;
+
+  for (const chapter of importableChapters) {
+    try {
+      let volume = volumes.get(chapter.volumeTitle);
+
+      if (!volume) {
+        volume = await createVolumeMetadata(libraryPath, series.id, category.id, { title: chapter.volumeTitle });
+        volumes.set(chapter.volumeTitle, volume);
+      }
+
+      const metadata = await createNovelChapterMetadata(libraryPath, series.id, category.id, volume.id, {
+        title: chapter.title,
+        translationStatus: "draft"
+      });
+      await saveNovelChapterContent(libraryPath, series.id, category.id, volume.id, metadata.id, {
+        html: importTextToHtml(chapter.text)
+      });
+      imported += 1;
+      logs.push({
+        status: "imported",
+        fileId: chapter.fileId,
+        title: chapter.title,
+        message: `Imported ${chapter.sourceFile.relativePath}.`
+      });
+    } catch (error) {
+      logs.push({
+        status: "failed",
+        fileId: chapter.fileId,
+        title: chapter.title,
+        message: String(error)
+      });
+    }
+  }
+
+  return {
+    seriesId: series.id,
+    seriesTitle: series.title,
+    categoryId: category.id,
+    imported,
+    skipped: logs.filter((entry) => entry.status === "skipped").length,
+    failed: logs.filter((entry) => entry.status === "failed").length,
+    logs
   };
 }
 
@@ -2446,6 +2673,28 @@ function registerImportIpc(): void {
       return fail(ErrorCode.IMPORT_FAILED, "Could not scan import source folder.", String(error));
     }
   });
+
+  ipcMain.handle(
+    "import:readText",
+    async (_event, importSessionId: unknown, fileId: unknown): Promise<ApiResponse<ImportTextPreview>> => {
+      try {
+        return ok(await readImportTextPreview(importSessionId, fileId));
+      } catch (error) {
+        return fail(ErrorCode.IMPORT_FAILED, "Could not read import text.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "import:execute",
+    async (_event, importSessionId: unknown, input: unknown): Promise<ApiResponse<ImportReport>> => {
+      try {
+        return ok(await executeTextImport(await currentLibraryPathOrThrow(), importSessionId, input));
+      } catch (error) {
+        return fail(ErrorCode.IMPORT_FAILED, "Could not import selected chapters.", String(error));
+      }
+    }
+  );
 }
 
 function createWindow(): void {

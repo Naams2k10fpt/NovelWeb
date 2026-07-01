@@ -43,16 +43,46 @@ type ImportSource = {
   name: string;
 };
 
+type ImportTextPreview = {
+  fileId: string;
+  sourceName: string;
+  fileType: "txt" | "md";
+  text: string;
+};
+
+type ImportReportLogEntry = {
+  status: "imported" | "skipped" | "failed";
+  fileId: string;
+  title: string;
+  message: string;
+};
+
+type ImportReport = {
+  seriesId: string;
+  seriesTitle: string;
+  categoryId: string;
+  imported: number;
+  skipped: number;
+  failed: number;
+  logs: ImportReportLogEntry[];
+};
+
 type ImportPlanNode = Omit<ImportPreviewNode, "children"> & {
   title: string;
   selected: boolean;
   children?: ImportPlanNode[];
 };
 
+type SelectedImportChapter = ImportPlanNode & {
+  volumeTitle: string;
+};
+
 type RendererApi = {
   import: {
     chooseSourceFolder: () => Promise<ApiResponse<ImportSource | null>>;
     scan: (importSessionId: string) => Promise<ApiResponse<ImportPreview>>;
+    readText: (importSessionId: string, fileId: string) => Promise<ApiResponse<ImportTextPreview>>;
+    execute: (importSessionId: string, input: unknown) => Promise<ApiResponse<ImportReport>>;
   };
 };
 
@@ -138,11 +168,23 @@ function updateNodeTitle(nodes: ImportPlanNode[], nodeId: string, title: string)
   );
 }
 
-function collectSelectedChapters(nodes: ImportPlanNode[]): ImportPlanNode[] {
-  return nodes.flatMap((node) => [
-    ...(node.kind === "chapter" && node.selected ? [node] : []),
-    ...(node.children ? collectSelectedChapters(node.children) : [])
-  ]);
+function collectSelectedChapters(nodes: ImportPlanNode[], volumeTitle = "Imported"): SelectedImportChapter[] {
+  return nodes.flatMap((node) => {
+    const nextVolumeTitle = node.kind === "volume" ? node.title.trim() || node.name : volumeTitle;
+
+    return [
+      ...(node.kind === "chapter" && node.selected ? [{ ...node, volumeTitle }] : []),
+      ...(node.children ? collectSelectedChapters(node.children, nextVolumeTitle) : [])
+    ];
+  });
+}
+
+function isTextChapter(node: ImportPlanNode): boolean {
+  return node.fileType === "txt" || node.fileType === "md";
+}
+
+function fallbackChapterTitle(chapter: ImportPlanNode): string {
+  return chapter.title.trim() || chapter.name.replace(/\.[^.]+$/, "");
 }
 
 function formatFileType(fileType?: ImportFileType): string {
@@ -156,16 +198,23 @@ export default function ImportWizard({
   library: LibraryState;
   onOpenSettings: () => void;
 }) {
-  const [confirmed, setConfirmed] = useState(false);
+  const [editedTexts, setEditedTexts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [nodes, setNodes] = useState<ImportPlanNode[]>([]);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [report, setReport] = useState<ImportReport | null>(null);
   const [source, setSource] = useState<ImportSource | null>(null);
   const [step, setStep] = useState<Step>("source");
+  const [textLoading, setTextLoading] = useState(false);
+  const [textPreviews, setTextPreviews] = useState<Record<string, ImportTextPreview>>({});
   const selectedCount = selectedChapterCount(nodes);
   const selectedTypes = useMemo(() => selectedTypeCounts(nodes), [nodes]);
   const selectedChapters = useMemo(() => collectSelectedChapters(nodes), [nodes]);
+  const selectedTextChapters = useMemo(() => selectedChapters.filter((chapter) => isTextChapter(chapter)), [selectedChapters]);
+  const unsupportedSelectedCount = selectedCount - selectedTextChapters.length;
+  const textReady = selectedTextChapters.every((chapter) => typeof editedTexts[chapter.id] === "string");
 
   async function chooseSourceFolder(): Promise<void> {
     const api = getApi();
@@ -175,9 +224,11 @@ export default function ImportWizard({
       return;
     }
 
-    setConfirmed(false);
+    setEditedTexts({});
     setError(null);
     setLoading(true);
+    setReport(null);
+    setTextPreviews({});
 
     try {
       const nextSource = unwrap(await api.import.chooseSourceFolder());
@@ -195,6 +246,90 @@ export default function ImportWizard({
       setError(String(chooseError));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadTextPreviews(chapters: SelectedImportChapter[]): Promise<void> {
+    const api = getApi();
+
+    if (!api || !source) {
+      setError("App API is unavailable. Restart the app or check the preload script.");
+      return;
+    }
+
+    const missingChapters = chapters.filter((chapter) => !textPreviews[chapter.id]);
+
+    if (missingChapters.length === 0) {
+      return;
+    }
+
+    setError(null);
+    setTextLoading(true);
+
+    try {
+      const previews = await Promise.all(
+        missingChapters.map((chapter) => api.import.readText(source.importSessionId, chapter.id).then(unwrap))
+      );
+
+      setTextPreviews((current) => ({
+        ...current,
+        ...Object.fromEntries(previews.map((textPreview) => [textPreview.fileId, textPreview]))
+      }));
+      setEditedTexts((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          previews
+            .filter((textPreview) => current[textPreview.fileId] === undefined)
+            .map((textPreview) => [textPreview.fileId, textPreview.text])
+        )
+      }));
+    } catch (textError) {
+      setError(String(textError));
+    } finally {
+      setTextLoading(false);
+    }
+  }
+
+  async function openConfirmStep(): Promise<void> {
+    setReport(null);
+    setStep("confirm");
+    await loadTextPreviews(selectedTextChapters);
+  }
+
+  async function executeImport(): Promise<void> {
+    const api = getApi();
+
+    if (!api || !source) {
+      setError("App API is unavailable. Restart the app or check the preload script.");
+      return;
+    }
+
+    if (selectedTextChapters.length === 0) {
+      setError("Select at least one TXT or MD chapter.");
+      return;
+    }
+
+    setError(null);
+    setImporting(true);
+    setReport(null);
+
+    try {
+      const nextReport = unwrap(
+        await api.import.execute(source.importSessionId, {
+          seriesTitle: source.name,
+          chapters: selectedChapters.map((chapter) => ({
+            fileId: chapter.id,
+            title: fallbackChapterTitle(chapter),
+            volumeTitle: chapter.volumeTitle || source.name,
+            text: editedTexts[chapter.id] ?? ""
+          }))
+        })
+      );
+      setReport(nextReport);
+    } catch (importError) {
+      setError(String(importError));
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -228,7 +363,7 @@ export default function ImportWizard({
           current={step === "confirm"}
           disabled={!preview || selectedCount === 0}
           label="Confirm"
-          onClick={() => setStep("confirm")}
+          onClick={() => void openConfirmStep()}
         />
       </div>
 
@@ -257,8 +392,7 @@ export default function ImportWizard({
               className="primary-action"
               disabled={selectedCount === 0}
               onClick={() => {
-                setConfirmed(false);
-                setStep("confirm");
+                void openConfirmStep();
               }}
               type="button"
             >
@@ -292,21 +426,68 @@ export default function ImportWizard({
                 {selectedCount} chapters - TXT {selectedTypes.txt} - MD {selectedTypes.md} - DOCX {selectedTypes.docx} - PDF {selectedTypes.pdf}
               </p>
             </div>
-            <button className="primary-action" disabled={selectedCount === 0} onClick={() => setConfirmed(true)} type="button">
-              Confirm plan
+            <button
+              className="primary-action"
+              disabled={importing || textLoading || selectedTextChapters.length === 0 || !textReady}
+              onClick={() => void executeImport()}
+              type="button"
+            >
+              {importing ? "Importing" : "Import selected"}
             </button>
           </div>
 
-          {confirmed ? <p className="muted-text">Plan confirmed.</p> : null}
+          {textLoading ? <p className="muted-text">Loading text preview.</p> : null}
+          {unsupportedSelectedCount > 0 ? (
+            <p className="muted-text">{unsupportedSelectedCount} selected DOCX/PDF chapters will be skipped in this step.</p>
+          ) : null}
+          {importing ? <progress className="import-progress" aria-label="Import progress" /> : null}
 
           <ol className="import-summary">
             {selectedChapters.map((chapter) => (
               <li key={chapter.id}>
-                <span>{chapter.title.trim() || chapter.name}</span>
+                <span>{fallbackChapterTitle(chapter)}</span>
                 <small>{formatFileType(chapter.fileType)}</small>
               </li>
             ))}
           </ol>
+
+          {selectedTextChapters.length > 0 ? (
+            <div className="import-text-editors">
+              {selectedTextChapters.map((chapter) => (
+                <label className="import-text-editor" key={chapter.id}>
+                  <span>{fallbackChapterTitle(chapter)}</span>
+                  <small>
+                    {formatFileType(chapter.fileType)} - {chapter.volumeTitle}
+                  </small>
+                  <textarea
+                    onChange={(event) =>
+                      setEditedTexts((current) => ({ ...current, [chapter.id]: event.target.value }))
+                    }
+                    value={editedTexts[chapter.id] ?? ""}
+                  />
+                </label>
+              ))}
+            </div>
+          ) : null}
+
+          {report ? (
+            <div className="import-report">
+              <h3>{report.seriesTitle}</h3>
+              <p className="muted-text">
+                Imported {report.imported} - skipped {report.skipped} - failed {report.failed}
+              </p>
+              <ol className="import-summary">
+                {report.logs.map((entry, index) => (
+                  <li key={`${entry.fileId}-${index}`}>
+                    <span>{entry.title}</span>
+                    <small>
+                      {entry.status.toUpperCase()} - {entry.message}
+                    </small>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
