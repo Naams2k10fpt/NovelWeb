@@ -1,3 +1,4 @@
+import { mergeAttributes, Node as TiptapNode } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useState } from "react";
@@ -22,6 +23,12 @@ type ChapterContent = {
   updatedAt: string;
 };
 
+type ChapterImageAsset = {
+  src: string;
+  dataUrl: string;
+  fileName: string;
+};
+
 type RendererApi = {
   chapters: {
     getContent: (
@@ -37,12 +44,46 @@ type RendererApi = {
       chapterId: string,
       input: unknown
     ) => Promise<ApiResponse<ChapterContent>>;
+    chooseImage: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string
+    ) => Promise<ApiResponse<ChapterImageAsset | null>>;
   };
 };
 
 type EditorStatus = "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
 
 const AUTOSAVE_DELAY_MS = 1200;
+
+const InlineImage = TiptapNode.create({
+  name: "image",
+  group: "block",
+  atom: true,
+  draggable: true,
+  addAttributes() {
+    return {
+      src: { default: null },
+      alt: { default: null },
+      title: { default: null },
+      assetSrc: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("data-asset-src"),
+        renderHTML: (attributes) => {
+          const assetSrc = attributes.assetSrc;
+          return typeof assetSrc === "string" && assetSrc ? { "data-asset-src": assetSrc } : {};
+        }
+      }
+    };
+  },
+  parseHTML() {
+    return [{ tag: "img[src]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["img", mergeAttributes(HTMLAttributes)];
+  }
+});
 
 function getApi(): RendererApi | null {
   return (window as unknown as { api?: RendererApi }).api ?? null;
@@ -100,7 +141,7 @@ export default function NovelEditor({
   const saveInFlightRef = useRef(false);
   const saveAgainRef = useRef(false);
   const editor = useEditor({
-    extensions: [StarterKit],
+    extensions: [StarterKit, InlineImage],
     content: "",
     shouldRerenderOnTransaction: true,
     editorProps: {
@@ -269,6 +310,33 @@ export default function NovelEditor({
     }
   }
 
+  async function insertImage(): Promise<void> {
+    const api = getApi();
+
+    if (!api || !editor || !isLoadedRef.current) {
+      return;
+    }
+
+    try {
+      const asset = unwrap(
+        await api.chapters.chooseImage(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
+      );
+
+      if (!asset) {
+        return;
+      }
+
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: "image", attrs: { src: asset.dataUrl, assetSrc: asset.src, alt: asset.fileName } })
+        .run();
+    } catch (insertError) {
+      setStatus("error");
+      setError(String(insertError));
+    }
+  }
+
   return (
     <section className="novel-editor">
       <button className="plain-action" onClick={onBack} type="button">
@@ -315,6 +383,13 @@ export default function NovelEditor({
           label="List"
           onClick={() => editor?.chain().focus().toggleBulletList().run()}
           title="List"
+        />
+        <ToolbarButton
+          active={false}
+          disabled={!editor || status === "loading"}
+          label="Image"
+          onClick={() => void insertImage()}
+          title="Insert image"
         />
 
         <button

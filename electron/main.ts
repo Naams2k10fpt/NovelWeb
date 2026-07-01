@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
 import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   SERIES_METADATA_SCHEMA_VERSION,
   SERIES_STATUSES,
@@ -39,6 +39,7 @@ const ErrorCode = {
 } as const;
 
 const REQUIRED_LIBRARY_DIRECTORIES = ["index", "series", "backups", ".trash"] as const;
+const IMAGE_FILE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 const SUPPORTED_SCHEMA_VERSION = 1;
 const writeQueues = new Map<string, Promise<unknown>>();
 
@@ -110,6 +111,12 @@ type ChapterContent = {
   wordCount: number;
   characterCount: number;
   updatedAt: string;
+};
+
+type ChapterImageAsset = {
+  src: string;
+  dataUrl: string;
+  fileName: string;
 };
 
 type ChapterReadingProgress = {
@@ -563,6 +570,58 @@ function chapterContentPath(
   fileName: string
 ): string {
   return libraryChildPath(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), basename(fileName));
+}
+
+function chapterAssetsDirectoryPath(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): string {
+  return libraryChildPath(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), "assets");
+}
+
+function chapterAssetPath(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  fileName: string
+): string {
+  return libraryChildPath(
+    chapterAssetsDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId),
+    basename(fileName)
+  );
+}
+
+function isSafeImageFileName(fileName: string): boolean {
+  return /^[a-zA-Z0-9._-]+$/.test(fileName) && IMAGE_FILE_EXTENSIONS.has(extname(fileName).toLowerCase());
+}
+
+function chapterAssetSource(fileName: string): string {
+  if (!isSafeImageFileName(fileName)) {
+    throw new Error("Image file name is invalid.");
+  }
+
+  return `assets/${fileName}`;
+}
+
+function imageFileNameFromAssetSource(source: string | null): string | null {
+  if (!source) {
+    return null;
+  }
+
+  const normalizedSource = source.replace(/\\/g, "/");
+  const prefix = "assets/";
+
+  if (!normalizedSource.startsWith(prefix)) {
+    return null;
+  }
+
+  const fileName = normalizedSource.slice(prefix.length);
+  return fileName === basename(fileName) && isSafeImageFileName(fileName) ? fileName : null;
 }
 
 async function ensureLibraryDirectory(libraryPath: string, directoryName: string): Promise<void> {
@@ -1317,6 +1376,96 @@ function sanitizeNovelHtml(html: string): string {
     .replace(/\s+(href|src)\s*=\s*(?:javascript:|data:text\/html)[^\s>]*/gi, "");
 }
 
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+function readHtmlAttribute(tag: string, attributeName: string): string | null {
+  const match = tag.match(new RegExp(`\\s${attributeName}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
+}
+
+function removeHtmlAttribute(tag: string, attributeName: string): string {
+  return tag.replace(new RegExp(`\\s${attributeName}\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+)`, "i"), "");
+}
+
+function setHtmlAttribute(tag: string, attributeName: string, value: string): string {
+  const escapedValue = escapeHtmlAttribute(value);
+  const pattern = new RegExp(`(\\s${attributeName}\\s*=\\s*)(?:"[^"]*"|'[^']*'|[^\\s>]+)`, "i");
+
+  if (pattern.test(tag)) {
+    return tag.replace(pattern, (_match, prefix: string) => `${prefix}"${escapedValue}"`);
+  }
+
+  return tag.replace(/\s*\/?>$/, (ending) => ` ${attributeName}="${escapedValue}"${ending.trimStart()}`);
+}
+
+async function readChapterAssetDataUrl(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  fileName: string
+): Promise<string> {
+  const image = await readFile(chapterAssetPath(libraryPath, seriesId, categoryId, volumeId, chapterId, fileName));
+  return `data:${imageMimeType(fileName)};base64,${image.toString("base64")}`;
+}
+
+async function hydrateNovelImageTag(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  tag: string
+): Promise<string> {
+  const fileName = imageFileNameFromAssetSource(readHtmlAttribute(tag, "src"));
+
+  if (!fileName) {
+    return tag;
+  }
+
+  try {
+    const dataUrl = await readChapterAssetDataUrl(libraryPath, seriesId, categoryId, volumeId, chapterId, fileName);
+    return setHtmlAttribute(setHtmlAttribute(tag, "src", dataUrl), "data-asset-src", chapterAssetSource(fileName));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return tag;
+    }
+
+    throw error;
+  }
+}
+
+async function hydrateNovelAssetImages(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  html: string
+): Promise<string> {
+  let result = "";
+  let cursor = 0;
+
+  for (const match of html.matchAll(/<img\b[^>]*>/gi)) {
+    const index = match.index ?? cursor;
+    result += html.slice(cursor, index);
+    result += await hydrateNovelImageTag(libraryPath, seriesId, categoryId, volumeId, chapterId, match[0]);
+    cursor = index + match[0].length;
+  }
+
+  return result + html.slice(cursor);
+}
+
+function persistNovelAssetImages(html: string): string {
+  return html.replace(/<img\b[^>]*>/gi, (tag) => {
+    const fileName = imageFileNameFromAssetSource(readHtmlAttribute(tag, "data-asset-src"));
+    return fileName ? setHtmlAttribute(removeHtmlAttribute(tag, "data-asset-src"), "src", chapterAssetSource(fileName)) : tag;
+  });
+}
+
 function countWords(text: string): number {
   const words = text.trim().match(/\S+/g);
   return words ? words.length : 0;
@@ -1342,9 +1491,10 @@ async function readNovelChapterContent(
   chapterId: string
 ): Promise<ChapterContent> {
   const metadata = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
-  const html = sanitizeNovelHtml(
+  const storedHtml = sanitizeNovelHtml(
     await readOptionalTextFile(chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.contentFile))
   );
+  const html = await hydrateNovelAssetImages(libraryPath, seriesId, categoryId, volumeId, chapterId, storedHtml);
   const text = await readOptionalTextFile(
     chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.plainTextFile)
   );
@@ -1368,7 +1518,7 @@ async function saveNovelChapterContent(
 ): Promise<ChapterContent> {
   return withResourceWriteLock(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), async () => {
     const record = assertRecord(input);
-    const html = sanitizeNovelHtml(readRequiredText(record, "html"));
+    const html = sanitizeNovelHtml(persistNovelAssetImages(readRequiredText(record, "html")));
     const metadata = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
     const text = htmlToPlainText(html);
     const now = new Date().toISOString();
@@ -1399,6 +1549,58 @@ async function saveNovelChapterContent(
       wordCount: nextMetadata.wordCount,
       characterCount: nextMetadata.characterCount,
       updatedAt: nextMetadata.updatedAt
+    };
+  });
+}
+
+async function chooseNovelChapterImage(
+  window: BrowserWindow | null,
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<ChapterImageAsset | null> {
+  await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+
+  const options: OpenDialogOptions = {
+    title: "Choose inline image",
+    properties: ["openFile"],
+    filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png", "webp", "gif"] }]
+  };
+  const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+
+  if (result.canceled || !result.filePaths[0]) {
+    return null;
+  }
+
+  const sourcePath = result.filePaths[0];
+  const sourceStat = await stat(sourcePath);
+
+  if (!sourceStat.isFile()) {
+    throw new Error("Selected image is not a file.");
+  }
+
+  const extension = extname(sourcePath).toLowerCase();
+
+  if (!IMAGE_FILE_EXTENSIONS.has(extension)) {
+    throw new Error("Selected file type is not supported.");
+  }
+
+  return withResourceWriteLock(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), async () => {
+    const fileName = `${randomUUID()}${extension}`;
+    const src = chapterAssetSource(fileName);
+    const targetPath = chapterAssetPath(libraryPath, seriesId, categoryId, volumeId, chapterId, fileName);
+    const tmpPath = `${targetPath}.tmp`;
+
+    await mkdir(chapterAssetsDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), { recursive: true });
+    await copyFile(sourcePath, tmpPath);
+    await rename(tmpPath, targetPath);
+
+    return {
+      src,
+      dataUrl: await readChapterAssetDataUrl(libraryPath, seriesId, categoryId, volumeId, chapterId, fileName),
+      fileName
     };
   });
 }
@@ -1920,6 +2122,32 @@ function registerChapterIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not save chapter content.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:chooseImage",
+    async (
+      event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown
+    ): Promise<ApiResponse<ChapterImageAsset | null>> => {
+      try {
+        return ok(
+          await chooseNovelChapterImage(
+            BrowserWindow.fromWebContents(event.sender),
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not insert chapter image.", String(error));
       }
     }
   );

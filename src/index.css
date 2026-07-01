@@ -453,6 +453,15 @@ body {
   padding-left: 24px;
 }
 
+.novel-editor-content img,
+.reader-content img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 20px auto;
+  border-radius: 4px;
+}
+
 .novel-reader {
   min-height: 100vh;
   margin: -32px;

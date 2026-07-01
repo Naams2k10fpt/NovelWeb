@@ -194,7 +194,7 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 
 ## Phase 5 - Novel editor và reader
 
-**Trạng thái:** `[~]`
+**Trạng thái:** `[x]`
 
 **Mục tiêu:** Cho phép viết, chỉnh sửa và đọc nội dung LN/WN.
 
@@ -213,8 +213,8 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 - [x] Hiển thị trạng thái `Đang lưu`.
 - [x] Hiển thị trạng thái `Đã lưu`.
 - [x] Hiển thị trạng thái `Lỗi lưu`.
-- [ ] Cho phép insert ảnh inline.
-- [ ] Copy ảnh inline vào thư mục chapter assets.
+- [x] Cho phép insert ảnh inline.
+- [x] Copy ảnh inline vào thư mục chapter assets.
 - [x] Sanitize HTML trước khi lưu hoặc render.
 - [x] Tạo NovelReader đọc từ `content.html`.
 - [x] Tùy chỉnh font size.
@@ -226,6 +226,7 @@ Ghi chú: Đã thêm API nền `chapters.getContent`/`chapters.saveContent`; edi
 Ghi chú: Đã thêm editor TipTap tối thiểu mở từ Series Detail, toolbar format cơ bản và nút Save thủ công; autosave/Ctrl+S làm ở task sau.
 Ghi chú: Đã thêm autosave debounce, Ctrl+S, serialize save trong editor và cảnh báo khi rời chapter còn thay đổi chưa lưu.
 Ghi chú: Đã thêm sanitize HTML tối thiểu, NovelReader đọc từ `content.html`, tùy chỉnh font/width/theme và lưu scroll progress vào `progress.json`.
+Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/assets`, lưu `content.html` với đường dẫn asset và hydrate ảnh khi mở editor/reader.
 
 ### Tiêu chí hoàn thành
 
