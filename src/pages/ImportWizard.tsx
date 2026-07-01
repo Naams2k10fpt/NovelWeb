@@ -46,7 +46,7 @@ type ImportSource = {
 type ImportTextPreview = {
   fileId: string;
   sourceName: string;
-  fileType: "txt" | "md";
+  fileType: ImportFileType;
   text: string;
 };
 
@@ -181,11 +181,7 @@ function collectSelectedChapters(nodes: ImportPlanNode[], volumeTitle = "Importe
 }
 
 function isTextChapter(node: ImportPlanNode): boolean {
-  return node.fileType === "txt" || node.fileType === "md";
-}
-
-function isImportableChapter(node: ImportPlanNode): boolean {
-  return isTextChapter(node) || node.fileType === "pdf";
+  return node.fileType === "txt" || node.fileType === "md" || node.fileType === "docx" || node.fileType === "pdf";
 }
 
 function fallbackChapterTitle(chapter: ImportPlanNode): string {
@@ -217,12 +213,8 @@ export default function ImportWizard({
   const selectedCount = selectedChapterCount(nodes);
   const selectedTypes = useMemo(() => selectedTypeCounts(nodes), [nodes]);
   const selectedChapters = useMemo(() => collectSelectedChapters(nodes), [nodes]);
-  const selectedImportableChapters = useMemo(
-    () => selectedChapters.filter((chapter) => isImportableChapter(chapter)),
-    [selectedChapters]
-  );
   const selectedTextChapters = useMemo(() => selectedChapters.filter((chapter) => isTextChapter(chapter)), [selectedChapters]);
-  const skippedSelectedCount = selectedCount - selectedImportableChapters.length;
+  const skippedSelectedCount = selectedCount - selectedTextChapters.length;
   const textReady = selectedTextChapters.every((chapter) => typeof editedTexts[chapter.id] === "string");
 
   async function chooseSourceFolder(): Promise<void> {
@@ -313,8 +305,8 @@ export default function ImportWizard({
       return;
     }
 
-    if (selectedImportableChapters.length === 0) {
-      setError("Select at least one TXT, MD, or PDF chapter.");
+    if (selectedTextChapters.length === 0) {
+      setError("Select at least one TXT, MD, DOCX, or PDF chapter.");
       return;
     }
 
@@ -437,7 +429,7 @@ export default function ImportWizard({
             </div>
             <button
               className="primary-action"
-              disabled={importing || textLoading || selectedImportableChapters.length === 0 || !textReady}
+              disabled={importing || textLoading || selectedTextChapters.length === 0 || !textReady}
               onClick={() => void executeImport()}
               type="button"
             >
@@ -447,10 +439,10 @@ export default function ImportWizard({
 
           {textLoading ? <p className="muted-text">Loading text preview.</p> : null}
           {selectedTypes.pdf > 0 ? (
-            <p className="muted-text">Selected PDFs will be imported with the original file saved; text extraction comes later.</p>
+            <p className="muted-text">Selected PDFs will import extracted text and keep the original file.</p>
           ) : null}
           {skippedSelectedCount > 0 ? (
-            <p className="muted-text">{skippedSelectedCount} selected DOCX chapters will be skipped in this step.</p>
+            <p className="muted-text">{skippedSelectedCount} selected chapters cannot be imported in this step.</p>
           ) : null}
           {importing ? <progress className="import-progress" aria-label="Import progress" /> : null}
 

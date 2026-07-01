@@ -1,7 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
+import mammoth from "mammoth";
 import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { PDFParse } from "pdf-parse";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
   SERIES_METADATA_SCHEMA_VERSION,
   SERIES_STATUSES,
@@ -118,7 +121,7 @@ type ImportPreview = {
   };
 };
 
-type ImportTextFileType = Extract<ImportFileType, "txt" | "md">;
+type ImportTextFileType = ImportFileType;
 
 type ImportSourceFile = {
   fileId: string;
@@ -756,11 +759,11 @@ function importRelativePathFromId(fileId: unknown): string {
 }
 
 function isImportTextFileType(fileType: ImportFileType | null): fileType is ImportTextFileType {
-  return fileType === "txt" || fileType === "md";
+  return fileType === "txt" || fileType === "md" || fileType === "docx" || fileType === "pdf";
 }
 
-function isImportableFileType(fileType: ImportFileType | null): fileType is ImportTextFileType | "pdf" {
-  return isImportTextFileType(fileType) || fileType === "pdf";
+function isImportableFileType(fileType: ImportFileType | null): fileType is ImportTextFileType {
+  return isImportTextFileType(fileType);
 }
 
 function toImportRelativePath(parts: string[]): string {
@@ -921,18 +924,83 @@ function normalizeImportText(text: string): string {
   return text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
 }
 
+async function extractPdfTextWithPdfParse(sourcePath: string): Promise<string> {
+  const parser = new PDFParse({ data: new Uint8Array(await readFile(sourcePath)) });
+
+  try {
+    return (await parser.getText()).text;
+  } finally {
+    await parser.destroy();
+  }
+}
+
+function isPdfTextItem(item: unknown): item is { str: string } {
+  return !!item && typeof item === "object" && typeof (item as { str?: unknown }).str === "string";
+}
+
+async function extractPdfTextWithPdfjs(sourcePath: string): Promise<string> {
+  const loadingTask = getDocument({ data: new Uint8Array(await readFile(sourcePath)) });
+  const pdf = await loadingTask.promise;
+
+  try {
+    const pages: string[] = [];
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const textContent = await page.getTextContent();
+      const pageText = (textContent.items.filter(isPdfTextItem) as Array<{ str: string }>)
+        .map((item) => item.str)
+        .join(" ")
+        .trim();
+
+      if (pageText) {
+        pages.push(pageText);
+      }
+    }
+
+    return pages.join("\n\n");
+  } finally {
+    await loadingTask.destroy();
+  }
+}
+
+async function extractPdfText(sourcePath: string): Promise<string> {
+  try {
+    return await extractPdfTextWithPdfParse(sourcePath);
+  } catch {
+    // ponytail: fallback only when the primary parser throws; richer diagnostics can wait for import history.
+    return extractPdfTextWithPdfjs(sourcePath);
+  }
+}
+
+async function readImportSourceText(sourceFile: ImportSourceFile): Promise<string> {
+  if (sourceFile.fileType === "txt" || sourceFile.fileType === "md") {
+    return readFile(sourceFile.sourcePath, "utf8");
+  }
+
+  if (sourceFile.fileType === "docx") {
+    return (await mammoth.extractRawText({ path: sourceFile.sourcePath })).value;
+  }
+
+  if (sourceFile.fileType === "pdf") {
+    return extractPdfText(sourceFile.sourcePath);
+  }
+
+  throw new Error("Import file type is not supported.");
+}
+
 async function readImportTextPreview(importSessionId: unknown, fileId: unknown): Promise<ImportTextPreview> {
   const sourceFile = await readImportSourceFile(readImportSession(importSessionId), fileId);
 
   if (!isImportTextFileType(sourceFile.fileType)) {
-    throw new Error("Only TXT and MD files can be edited in this import step.");
+    throw new Error("Only TXT, MD, DOCX, and PDF files can be edited in this import step.");
   }
 
   return {
     fileId: sourceFile.fileId,
     sourceName: basename(sourceFile.relativePath),
     fileType: sourceFile.fileType,
-    text: normalizeImportText(await readFile(sourceFile.sourcePath, "utf8"))
+    text: normalizeImportText(await readImportSourceText(sourceFile))
   };
 }
 
@@ -1059,13 +1127,16 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
         html: importTextToHtml(chapter.text)
       });
       imported += 1;
+      const unsupportedPdf = chapter.sourceFile.fileType === "pdf" && normalizeImportText(chapter.text).trim() === "";
       logs.push({
-        status: chapter.sourceFile.fileType === "pdf" ? "unsupported" : "imported",
+        status: unsupportedPdf ? "unsupported" : "imported",
         fileId: chapter.fileId,
         title: chapter.title,
         message:
           chapter.sourceFile.fileType === "pdf"
-            ? `Saved original PDF ${chapter.sourceFile.relativePath}; text extraction is pending.`
+            ? unsupportedPdf
+              ? `Saved original PDF ${chapter.sourceFile.relativePath}; no extractable text was found.`
+              : `Imported ${chapter.sourceFile.relativePath} and saved original PDF.`
             : `Imported ${chapter.sourceFile.relativePath}.`
       });
     } catch (error) {

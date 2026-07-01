@@ -257,9 +257,9 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 - [x] Cho bỏ chọn item không muốn import.
 - [x] Import TXT.
 - [x] Import MD.
-- [ ] Import DOCX bằng mammoth.
-- [ ] Import PDF bằng parser.
-- [ ] Nếu `pdf-parse` lỗi, thử fallback extractor.
+- [x] Import DOCX bằng mammoth.
+- [x] Import PDF bằng parser.
+- [x] Nếu `pdf-parse` lỗi, thử fallback extractor.
 - [x] Nếu PDF không có text, đánh dấu là scanned/unsupported.
 - [x] Import source path phải đến từ dialog hoặc import session hợp lệ.
 - [x] Lưu PDF gốc vào library.
@@ -275,6 +275,7 @@ Ghi chú: Đã thêm API nền `import.chooseSourceFolder`/`import.scan`; main p
 Ghi chú: Đã thêm Import Wizard 3 bước ở renderer: chọn source, preview/rename/bỏ chọn, confirm plan; chưa ghi dữ liệu import.
 Ghi chú: Đã thêm import TXT/MD tối thiểu: bước confirm đọc text qua import session, cho sửa bằng textarea, tạo series LN mới, lưu `content.html`/`content.txt`, hiển thị progress và report/log. DOCX/PDF vẫn được scan nhưng sẽ bị skip ở nhóm này.
 Ghi chú: Đã thêm import PDF tối thiểu không parser: tạo chapter, copy file gốc vào `original.pdf`, đặt `hasOriginalPdf`, ghi report trạng thái `unsupported` để biết text extraction/split view sẽ làm sau.
+Ghi chú: Đã thêm dependency Phase 6 theo `PLAN.md`: `mammoth`, `pdf-parse`, `pdfjs-dist`; Import Wizard đọc preview text cho DOCX/PDF, cho sửa trước import, PDF parser dùng `pdf-parse` và fallback `pdfjs-dist`.
 
 ### Tiêu chí hoàn thành
 
