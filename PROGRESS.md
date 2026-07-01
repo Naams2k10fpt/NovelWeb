@@ -194,40 +194,46 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 
 ## Phase 5 - Novel editor và reader
 
-**Trạng thái:** `[ ]`
+**Trạng thái:** `[x]`
 
 **Mục tiêu:** Cho phép viết, chỉnh sửa và đọc nội dung LN/WN.
 
 ### Checklist
 
-- [ ] Tích hợp TipTap editor.
-- [ ] Tạo toolbar format cơ bản: bold, italic, heading, quote, list.
-- [ ] Lưu nội dung chapter vào `content.html`.
-- [ ] Sinh và lưu `content.txt` để phục vụ search.
-- [ ] Autosave debounce sau khi chỉnh sửa.
-- [ ] Ctrl+S để save ngay.
-- [ ] Chống race condition giữa autosave và Ctrl+S.
-- [ ] Không cho 2 thao tác save cùng chapter chạy song song.
-- [ ] Không cho save cũ ghi đè save mới.
-- [ ] Cảnh báo khi rời chapter còn nội dung chưa lưu.
-- [ ] Hiển thị trạng thái `Đang lưu`.
-- [ ] Hiển thị trạng thái `Đã lưu`.
-- [ ] Hiển thị trạng thái `Lỗi lưu`.
-- [ ] Cho phép insert ảnh inline.
-- [ ] Copy ảnh inline vào thư mục chapter assets.
-- [ ] Sanitize HTML trước khi lưu hoặc render.
-- [ ] Tạo NovelReader đọc từ `content.html`.
-- [ ] Tùy chỉnh font size.
-- [ ] Tùy chỉnh reading width.
-- [ ] Tùy chỉnh theme đọc.
-- [ ] Lưu tiến độ đọc theo scroll position.
+- [x] Tích hợp TipTap editor.
+- [x] Tạo toolbar format cơ bản: bold, italic, heading, quote, list.
+- [x] Lưu nội dung chapter vào `content.html`.
+- [x] Sinh và lưu `content.txt` để phục vụ search.
+- [x] Autosave debounce sau khi chỉnh sửa.
+- [x] Ctrl+S để save ngay.
+- [x] Chống race condition giữa autosave và Ctrl+S.
+- [x] Không cho 2 thao tác save cùng chapter chạy song song.
+- [x] Không cho save cũ ghi đè save mới.
+- [x] Cảnh báo khi rời chapter còn nội dung chưa lưu.
+- [x] Hiển thị trạng thái `Đang lưu`.
+- [x] Hiển thị trạng thái `Đã lưu`.
+- [x] Hiển thị trạng thái `Lỗi lưu`.
+- [x] Cho phép insert ảnh inline.
+- [x] Copy ảnh inline vào thư mục chapter assets.
+- [x] Sanitize HTML trước khi lưu hoặc render.
+- [x] Tạo NovelReader đọc từ `content.html`.
+- [x] Tùy chỉnh font size.
+- [x] Tùy chỉnh reading width.
+- [x] Tùy chỉnh theme đọc.
+- [x] Lưu tiến độ đọc theo scroll position.
+
+Ghi chú: Đã thêm API nền `chapters.getContent`/`chapters.saveContent`; editor UI và autosave làm ở task sau.
+Ghi chú: Đã thêm editor TipTap tối thiểu mở từ Series Detail, toolbar format cơ bản và nút Save thủ công; autosave/Ctrl+S làm ở task sau.
+Ghi chú: Đã thêm autosave debounce, Ctrl+S, serialize save trong editor và cảnh báo khi rời chapter còn thay đổi chưa lưu.
+Ghi chú: Đã thêm sanitize HTML tối thiểu, NovelReader đọc từ `content.html`, tùy chỉnh font/width/theme và lưu scroll progress vào `progress.json`.
+Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/assets`, lưu `content.html` với đường dẫn asset và hydrate ảnh khi mở editor/reader.
 
 ### Tiêu chí hoàn thành
 
-- [ ] User có thể tạo chapter LN/WN và viết nội dung.
-- [ ] Nội dung lưu được, mở lại đúng.
-- [ ] Reader hiển thị nội dung dễ đọc.
-- [ ] Autosave không làm mất dữ liệu khi thao tác bình thường.
+- [x] User có thể tạo chapter LN/WN và viết nội dung.
+- [x] Nội dung lưu được, mở lại đúng.
+- [x] Reader hiển thị nội dung dễ đọc.
+- [x] Autosave không làm mất dữ liệu khi thao tác bình thường.
 
 ---
 

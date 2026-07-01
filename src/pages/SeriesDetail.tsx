@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ChapterTarget } from "./NovelEditor";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -7,6 +8,8 @@ type ApiResponse<T> =
 type SeriesDetailProps = {
   seriesId: string;
   onBack: () => void;
+  onEditChapter: (target: ChapterTarget) => void;
+  onReadChapter: (target: ChapterTarget) => void;
 };
 
 type SeriesMetadata = {
@@ -103,7 +106,7 @@ async function loadCategory(api: RendererApi, seriesId: string, category: Catego
   return { ...category, volumes: volumeDetails, directChapters };
 }
 
-export default function SeriesDetail({ seriesId, onBack }: SeriesDetailProps) {
+export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadChapter }: SeriesDetailProps) {
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailState>({
     loading: true,
@@ -208,14 +211,31 @@ export default function SeriesDetail({ seriesId, onBack }: SeriesDetailProps) {
             ))}
           </nav>
 
-          {activeCategory ? <CategoryPanel category={activeCategory} /> : null}
+          {activeCategory ? (
+            <CategoryPanel
+              category={activeCategory}
+              onEditChapter={onEditChapter}
+              onReadChapter={onReadChapter}
+              seriesId={seriesId}
+            />
+          ) : null}
         </>
       )}
     </section>
   );
 }
 
-function CategoryPanel({ category }: { category: CategoryDetail }) {
+function CategoryPanel({
+  category,
+  onEditChapter,
+  onReadChapter,
+  seriesId
+}: {
+  category: CategoryDetail;
+  onEditChapter: (target: ChapterTarget) => void;
+  onReadChapter: (target: ChapterTarget) => void;
+  seriesId: string;
+}) {
   if (category.type === "manga") {
     return (
       <section className="empty-state">
@@ -239,11 +259,28 @@ function CategoryPanel({ category }: { category: CategoryDetail }) {
       ) : (
         <>
           {category.directChapters.length > 0 ? (
-            <ChapterList chapters={category.directChapters} title="Chapters" />
+            <ChapterList
+              categoryId={category.id}
+              chapters={category.directChapters}
+              onEditChapter={onEditChapter}
+              onReadChapter={onReadChapter}
+              seriesId={seriesId}
+              title="Chapters"
+              volumeId={null}
+            />
           ) : null}
 
           {category.volumes.map(({ volume, chapters }) => (
-            <ChapterList chapters={chapters} key={volume.id} title={volume.title} />
+            <ChapterList
+              categoryId={category.id}
+              chapters={chapters}
+              key={volume.id}
+              onEditChapter={onEditChapter}
+              onReadChapter={onReadChapter}
+              seriesId={seriesId}
+              title={volume.title}
+              volumeId={volume.id}
+            />
           ))}
         </>
       )}
@@ -251,7 +288,33 @@ function CategoryPanel({ category }: { category: CategoryDetail }) {
   );
 }
 
-function ChapterList({ chapters, title }: { chapters: NovelChapterMetadata[]; title: string }) {
+function ChapterList({
+  categoryId,
+  chapters,
+  onEditChapter,
+  onReadChapter,
+  seriesId,
+  title,
+  volumeId
+}: {
+  categoryId: string;
+  chapters: NovelChapterMetadata[];
+  onEditChapter: (target: ChapterTarget) => void;
+  onReadChapter: (target: ChapterTarget) => void;
+  seriesId: string;
+  title: string;
+  volumeId: string | null;
+}) {
+  function targetFor(chapter: NovelChapterMetadata): ChapterTarget {
+    return {
+      categoryId,
+      chapterId: chapter.id,
+      seriesId,
+      title: chapter.title,
+      volumeId
+    };
+  }
+
   return (
     <section className="chapter-group">
       <h4>{title}</h4>
@@ -261,8 +324,17 @@ function ChapterList({ chapters, title }: { chapters: NovelChapterMetadata[]; ti
         <ol>
           {chapters.map((chapter) => (
             <li key={chapter.id}>
-              <span>{chapter.title}</span>
-              <span>{formatLabel(chapter.translationStatus)}</span>
+              <button
+                className="chapter-row"
+                onClick={() => onReadChapter(targetFor(chapter))}
+                type="button"
+              >
+                <span>{chapter.title}</span>
+                <span>{formatLabel(chapter.translationStatus)}</span>
+              </button>
+              <button className="chapter-edit-action" onClick={() => onEditChapter(targetFor(chapter))} type="button">
+                Edit
+              </button>
             </li>
           ))}
         </ol>
