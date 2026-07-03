@@ -14,6 +14,11 @@ type ChapterReadingProgress = {
   updatedAt: string | null;
 };
 
+type BookmarkEntry = {
+  scrollTop: number;
+  updatedAt: string;
+};
+
 type ReaderTheme = "light" | "dark";
 
 type RendererApi = {
@@ -37,6 +42,21 @@ type RendererApi = {
       chapterId: string,
       input: unknown
     ) => Promise<ApiResponse<ChapterReadingProgress>>;
+  };
+  bookmarks?: {
+    get: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string
+    ) => Promise<ApiResponse<BookmarkEntry | null>>;
+    toggle: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string,
+      input: unknown
+    ) => Promise<ApiResponse<BookmarkEntry | null>>;
   };
 };
 
@@ -62,6 +82,9 @@ export default function NovelReader({
   target: ChapterTarget;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const [bookmark, setBookmark] = useState<BookmarkEntry | null>(null);
+  const [bookmarkError, setBookmarkError] = useState<string | null>(null);
+  const [bookmarkSaving, setBookmarkSaving] = useState(false);
   const [fontSize, setFontSize] = useState(18);
   const [html, setHtml] = useState("");
   const [readingWidth, setReadingWidth] = useState(760);
@@ -98,17 +121,20 @@ export default function NovelReader({
 
     void Promise.all([
       api.chapters.getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId),
-      api.chapters.getProgress(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
+      api.chapters.getProgress(target.seriesId, target.categoryId, target.volumeId, target.chapterId),
+      api.bookmarks?.get(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
+        Promise.resolve({ ok: true, data: null } as ApiResponse<BookmarkEntry | null>)
     ])
-      .then(([contentResponse, progressResponse]) => {
+      .then(([contentResponse, progressResponse, bookmarkResponse]) => {
         if (!isMounted) {
           return;
         }
 
         setHtml(unwrap(contentResponse).html || "<p>No content yet.</p>");
+        setBookmark(unwrap(bookmarkResponse));
         loadedRef.current = true;
         setLoading(false);
-        window.setTimeout(() => window.scrollTo({ top: unwrap(progressResponse).scrollTop }), 0);
+        window.setTimeout(() => window.scrollTo({ top: target.scrollTop ?? unwrap(progressResponse).scrollTop }), 0);
       })
       .catch((loadError) => {
         if (isMounted) {
@@ -125,7 +151,7 @@ export default function NovelReader({
         clearTimeout(progressTimerRef.current);
       }
     };
-  }, [target.categoryId, target.chapterId, target.seriesId, target.volumeId]);
+  }, [target.categoryId, target.chapterId, target.scrollTop, target.seriesId, target.volumeId]);
 
   useEffect(() => {
     function handleScroll(): void {
@@ -140,6 +166,32 @@ export default function NovelReader({
 
     return () => window.removeEventListener("scroll", handleScroll);
   });
+
+  async function toggleBookmark(): Promise<void> {
+    const api = getApi();
+
+    if (!api?.bookmarks || !loadedRef.current) {
+      setBookmarkError("Bookmark API is unavailable. Restart the app or check the preload script.");
+      return;
+    }
+
+    setBookmarkError(null);
+    setBookmarkSaving(true);
+
+    try {
+      setBookmark(
+        unwrap(
+          await api.bookmarks.toggle(target.seriesId, target.categoryId, target.volumeId, target.chapterId, {
+            scrollTop: window.scrollY
+          })
+        )
+      );
+    } catch (toggleError) {
+      setBookmarkError(String(toggleError));
+    } finally {
+      setBookmarkSaving(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -189,7 +241,12 @@ export default function NovelReader({
         <button onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))} type="button">
           {theme === "light" ? "Dark" : "Light"}
         </button>
+        <button disabled={bookmarkSaving} onClick={() => void toggleBookmark()} type="button">
+          {bookmark ? "Bookmarked" : "Bookmark"}
+        </button>
       </div>
+
+      {bookmarkError ? <p className="error-text">{bookmarkError}</p> : null}
 
       <article className="reader-page" style={{ maxWidth: readingWidth }}>
         <h2>{target.title}</h2>

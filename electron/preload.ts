@@ -66,5 +66,15 @@ contextBridge.exposeInMainWorld("api", {
   search: {
     query: (query: string) => ipcRenderer.invoke("search:query", query),
     rebuild: () => ipcRenderer.invoke("search:rebuild")
+  },
+  reading: {
+    listRecent: () => ipcRenderer.invoke("reading:listRecent")
+  },
+  bookmarks: {
+    list: () => ipcRenderer.invoke("bookmarks:list"),
+    get: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
+      ipcRenderer.invoke("bookmarks:get", seriesId, categoryId, volumeId, chapterId),
+    toggle: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>
+      ipcRenderer.invoke("bookmarks:toggle", seriesId, categoryId, volumeId, chapterId, input)
   }
 });

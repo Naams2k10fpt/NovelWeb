@@ -40,7 +40,8 @@ const ErrorCode = {
   VOLUME_CRUD_FAILED: "VOLUME_CRUD_FAILED",
   CHAPTER_CRUD_FAILED: "CHAPTER_CRUD_FAILED",
   IMPORT_FAILED: "IMPORT_FAILED",
-  SEARCH_FAILED: "SEARCH_FAILED"
+  SEARCH_FAILED: "SEARCH_FAILED",
+  READING_STATE_FAILED: "READING_STATE_FAILED"
 } as const;
 
 const REQUIRED_LIBRARY_DIRECTORIES = ["index", "series", "backups", ".trash"] as const;
@@ -54,6 +55,7 @@ const IMPORT_FILE_TYPES = {
 const SUPPORTED_SCHEMA_VERSION = 1;
 const MAX_SEARCH_RESULTS = 50;
 const SEARCH_SNIPPET_RADIUS = 90;
+const MAX_RECENT_ENTRIES = 50;
 const importSessions = new Map<string, ImportSession>();
 const writeQueues = new Map<string, Promise<unknown>>();
 
@@ -213,6 +215,37 @@ type SearchResult = Omit<SearchDocument, "text"> & {
 type SearchIndexSummary = {
   documentCount: number;
   generatedAt: string;
+};
+
+type ChapterReference = {
+  seriesId: string;
+  seriesTitle: string;
+  categoryId: string;
+  categoryTitle: string;
+  volumeId: string | null;
+  volumeTitle: string | null;
+  chapterId: string;
+  chapterTitle: string;
+};
+
+type ReadingListEntry = ChapterReference & {
+  scrollTop: number;
+  updatedAt: string;
+};
+
+type RecentIndex = {
+  schemaVersion: SupportedSchemaVersion;
+  generatedAt: string;
+  entries: ReadingListEntry[];
+};
+
+type BookmarkEntry = ReadingListEntry & {
+  createdAt: string;
+};
+
+type SeriesBookmarks = {
+  schemaVersion: SupportedSchemaVersion;
+  entries: BookmarkEntry[];
 };
 
 type ChapterContent = {
@@ -580,12 +613,20 @@ function seriesProgressPath(libraryPath: string, seriesId: string): string {
   return libraryChildPath(seriesDirectoryPath(libraryPath, seriesId), "progress.json");
 }
 
+function seriesBookmarksPath(libraryPath: string, seriesId: string): string {
+  return libraryChildPath(seriesDirectoryPath(libraryPath, seriesId), "bookmarks.json");
+}
+
 function seriesIndexPath(libraryPath: string): string {
   return libraryChildPath(libraryPath, "index", "series-index.json");
 }
 
 function searchIndexPath(libraryPath: string): string {
   return libraryChildPath(libraryPath, "index", "search-index.json");
+}
+
+function recentIndexPath(libraryPath: string): string {
+  return libraryChildPath(libraryPath, "index", "recent-index.json");
 }
 
 function trashSeriesDirectoryPath(libraryPath: string, seriesId: string): string {
@@ -1253,6 +1294,7 @@ async function ensureLibraryFiles(libraryPath: string): Promise<void> {
     await ensureLibraryDirectory(libraryPath, directoryName);
   }
   await ensureSearchIndexJson(libraryPath);
+  await ensureRecentIndexJson(libraryPath);
   await checkLibraryHealth(libraryPath);
   await rebuildSeriesIndex(libraryPath);
 }
@@ -1320,6 +1362,14 @@ async function ensureSearchIndexJson(libraryPath: string): Promise<void> {
     schemaVersion: SUPPORTED_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
     documents: []
+  }));
+}
+
+async function ensureRecentIndexJson(libraryPath: string): Promise<void> {
+  await ensureJsonFile(recentIndexPath(libraryPath), (): RecentIndex => ({
+    schemaVersion: SUPPORTED_SCHEMA_VERSION,
+    generatedAt: new Date().toISOString(),
+    entries: []
   }));
 }
 
@@ -1539,6 +1589,292 @@ async function searchLibrary(libraryPath: string, queryInput: unknown): Promise<
   return results;
 }
 
+function compareReadingListEntries(left: ReadingListEntry, right: ReadingListEntry): number {
+  return right.updatedAt.localeCompare(left.updatedAt);
+}
+
+function sameChapterReference(left: ChapterReference, right: ChapterReference): boolean {
+  return (
+    left.seriesId === right.seriesId &&
+    left.categoryId === right.categoryId &&
+    left.volumeId === right.volumeId &&
+    left.chapterId === right.chapterId
+  );
+}
+
+function parseChapterProgressKey(key: string): { categoryId: string; volumeId: string | null; chapterId: string } | null {
+  const parts = key.split("/");
+
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  const [categoryId, volumePart, chapterId] = parts;
+  const safeId = /^[a-zA-Z0-9_-]+$/;
+
+  if (!safeId.test(categoryId) || !safeId.test(chapterId) || (volumePart !== "direct" && !safeId.test(volumePart))) {
+    return null;
+  }
+
+  return { categoryId, volumeId: volumePart === "direct" ? null : volumePart, chapterId };
+}
+
+async function readChapterReference(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<ChapterReference> {
+  const [series, category, chapter] = await Promise.all([
+    readSeriesMetadata(libraryPath, seriesId),
+    readCategoryMetadata(libraryPath, seriesId, categoryId),
+    readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId)
+  ]);
+  const volume = volumeId ? await readVolumeMetadata(libraryPath, seriesId, categoryId, volumeId) : null;
+
+  return {
+    seriesId: series.id,
+    seriesTitle: series.title,
+    categoryId: category.id,
+    categoryTitle: category.title,
+    volumeId: volume?.id ?? null,
+    volumeTitle: volume?.title ?? null,
+    chapterId: chapter.id,
+    chapterTitle: chapter.title
+  };
+}
+
+async function rebuildRecentIndex(libraryPath: string): Promise<RecentIndex> {
+  const seriesDirectory = libraryChildPath(libraryPath, "series");
+  const entries = await readdir(seriesDirectory, { withFileTypes: true });
+  const recentEntries: ReadingListEntry[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    try {
+      await readSeriesMetadata(libraryPath, entry.name);
+      const progress = await readSeriesProgress(libraryPath, entry.name);
+
+      for (const [key, item] of Object.entries(progress.chapters)) {
+        const target = parseChapterProgressKey(key);
+
+        if (!target || !item.updatedAt) {
+          continue;
+        }
+
+        try {
+          recentEntries.push({
+            ...(await readChapterReference(libraryPath, entry.name, target.categoryId, target.volumeId, target.chapterId)),
+            scrollTop: item.scrollTop,
+            updatedAt: item.updatedAt
+          });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw error;
+          }
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  const index: RecentIndex = {
+    schemaVersion: SUPPORTED_SCHEMA_VERSION,
+    generatedAt: new Date().toISOString(),
+    entries: recentEntries.sort(compareReadingListEntries).slice(0, MAX_RECENT_ENTRIES)
+  };
+
+  await writeJsonFile(recentIndexPath(libraryPath), index, { backup: true });
+  return index;
+}
+
+async function readRecentIndex(libraryPath: string): Promise<RecentIndex> {
+  try {
+    const index = await readJsonFile<RecentIndex>(recentIndexPath(libraryPath));
+    assertSupportedSchemaVersion("recent-index.json", index);
+    return Array.isArray(index.entries) ? index : { ...index, entries: [] };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+
+    return rebuildRecentIndex(libraryPath);
+  }
+}
+
+async function listRecentEntries(libraryPath: string): Promise<ReadingListEntry[]> {
+  let index = await readRecentIndex(libraryPath);
+
+  if (index.entries.length === 0) {
+    index = await rebuildRecentIndex(libraryPath);
+  }
+
+  return index.entries;
+}
+
+async function upsertRecentEntry(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  progress: ChapterReadingProgress
+): Promise<void> {
+  if (!progress.updatedAt) {
+    return;
+  }
+
+  const entry: ReadingListEntry = {
+    ...(await readChapterReference(libraryPath, seriesId, categoryId, volumeId, chapterId)),
+    scrollTop: progress.scrollTop,
+    updatedAt: progress.updatedAt
+  };
+  const filePath = recentIndexPath(libraryPath);
+
+  await ensureRecentIndexJson(libraryPath);
+  await withResourceWriteLock(filePath, async () => {
+    const current = await readJsonFile<RecentIndex>(filePath);
+    assertSupportedSchemaVersion("recent-index.json", current);
+
+    const index: RecentIndex = {
+      schemaVersion: SUPPORTED_SCHEMA_VERSION,
+      generatedAt: new Date().toISOString(),
+      entries: [entry, ...(current.entries ?? []).filter((item) => !sameChapterReference(item, entry))]
+        .sort(compareReadingListEntries)
+        .slice(0, MAX_RECENT_ENTRIES)
+    };
+    const tmpPath = `${filePath}.tmp`;
+
+    await backupExistingFile(filePath);
+    await writeFile(tmpPath, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+    await rename(tmpPath, filePath);
+  });
+}
+
+async function readSeriesBookmarks(libraryPath: string, seriesId: string): Promise<SeriesBookmarks> {
+  try {
+    const bookmarks = await readJsonFile<SeriesBookmarks>(seriesBookmarksPath(libraryPath, seriesId));
+    assertSupportedSchemaVersion("bookmarks.json", bookmarks);
+    return { schemaVersion: SUPPORTED_SCHEMA_VERSION, entries: Array.isArray(bookmarks.entries) ? bookmarks.entries : [] };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { schemaVersion: SUPPORTED_SCHEMA_VERSION, entries: [] };
+    }
+
+    throw error;
+  }
+}
+
+async function getChapterBookmark(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<BookmarkEntry | null> {
+  const reference = await readChapterReference(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  const bookmarks = await readSeriesBookmarks(libraryPath, seriesId);
+  const entry = bookmarks.entries.find((item) => sameChapterReference(item, reference));
+
+  return entry ? { ...entry, ...reference } : null;
+}
+
+async function toggleChapterBookmark(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  input: unknown
+): Promise<BookmarkEntry | null> {
+  const record = assertRecord(input);
+  const scrollTop = Number(record.scrollTop);
+
+  if (!Number.isFinite(scrollTop) || scrollTop < 0) {
+    throw new Error("scrollTop must be a non-negative number.");
+  }
+
+  const reference = await readChapterReference(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  const filePath = seriesBookmarksPath(libraryPath, seriesId);
+
+  return withResourceWriteLock(filePath, async () => {
+    const bookmarks = await readSeriesBookmarks(libraryPath, seriesId);
+    const existing = bookmarks.entries.find((item) => sameChapterReference(item, reference));
+    const now = new Date().toISOString();
+    const createdBookmark: BookmarkEntry | null = existing
+      ? null
+      : {
+          ...reference,
+          scrollTop,
+          createdAt: now,
+          updatedAt: now
+        };
+    const nextEntries = createdBookmark
+      ? [createdBookmark, ...bookmarks.entries]
+      : bookmarks.entries.filter((item) => !sameChapterReference(item, reference));
+    const next: SeriesBookmarks = {
+      schemaVersion: SUPPORTED_SCHEMA_VERSION,
+      entries: nextEntries.sort(compareReadingListEntries)
+    };
+    const tmpPath = `${filePath}.tmp`;
+
+    await mkdir(dirname(filePath), { recursive: true });
+    await backupExistingFile(filePath);
+    await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    await rename(tmpPath, filePath);
+
+    return createdBookmark;
+  });
+}
+
+async function listBookmarks(libraryPath: string): Promise<BookmarkEntry[]> {
+  const seriesDirectory = libraryChildPath(libraryPath, "series");
+  const entries = await readdir(seriesDirectory, { withFileTypes: true });
+  const bookmarks: BookmarkEntry[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    try {
+      const seriesBookmarks = await readSeriesBookmarks(libraryPath, entry.name);
+
+      for (const bookmark of seriesBookmarks.entries) {
+        try {
+          bookmarks.push({
+            ...bookmark,
+            ...(await readChapterReference(
+              libraryPath,
+              bookmark.seriesId,
+              bookmark.categoryId,
+              bookmark.volumeId,
+              bookmark.chapterId
+            ))
+          });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw error;
+          }
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  return bookmarks.sort(compareReadingListEntries);
+}
+
 function parseSeriesCreateInput(input: unknown): SeriesMetadata {
   const record = assertRecord(input);
   const now = new Date().toISOString();
@@ -1682,6 +2018,7 @@ async function updateSeriesMetadata(libraryPath: string, seriesId: string, input
   await writeJsonFile(seriesMetaPath(libraryPath, seriesId), metadata, { backup: true });
   await rebuildSeriesIndex(libraryPath);
   await rebuildSearchIndex(libraryPath);
+  await rebuildRecentIndex(libraryPath);
   return metadata;
 }
 
@@ -1694,6 +2031,7 @@ async function moveSeriesToTrash(libraryPath: string, seriesId: string): Promise
   await rename(seriesDirectoryPath(libraryPath, id), trashPath);
   await rebuildSeriesIndex(libraryPath);
   await rebuildSearchIndex(libraryPath);
+  await rebuildRecentIndex(libraryPath);
 
   return { id, trashPath };
 }
@@ -1798,6 +2136,7 @@ async function updateCategoryMetadata(
   const metadata = parseCategoryUpdateInput(input, current);
   await writeJsonFile(categoryMetaPath(libraryPath, seriesId, categoryId), metadata, { backup: true });
   await rebuildSearchIndex(libraryPath);
+  await rebuildRecentIndex(libraryPath);
   return metadata;
 }
 
@@ -1820,6 +2159,7 @@ async function moveCategoryToTrash(
   );
   await rebuildSeriesIndex(libraryPath);
   await rebuildSearchIndex(libraryPath);
+  await rebuildRecentIndex(libraryPath);
 
   return { id: category.id, trashPath };
 }
@@ -1940,6 +2280,7 @@ async function updateVolumeMetadata(
   const metadata = parseVolumeUpdateInput(input, current);
   await writeJsonFile(volumeMetaPath(libraryPath, seriesId, categoryId, volumeId), metadata, { backup: true });
   await rebuildSearchIndex(libraryPath);
+  await rebuildRecentIndex(libraryPath);
   return metadata;
 }
 
@@ -1963,6 +2304,7 @@ async function moveVolumeToTrash(
     { backup: true }
   );
   await rebuildSearchIndex(libraryPath);
+  await rebuildRecentIndex(libraryPath);
 
   return { id: volume.id, trashPath };
 }
@@ -2125,6 +2467,7 @@ async function updateNovelChapterMetadata(
     backup: true
   });
   await rebuildSearchIndex(libraryPath);
+  await rebuildRecentIndex(libraryPath);
   return metadata;
 }
 
@@ -2461,6 +2804,7 @@ async function saveChapterReadingProgress(
   const next: ChapterReadingProgress = { scrollTop, updatedAt: new Date().toISOString() };
   progress.chapters[chapterProgressKey(categoryId, volumeId, chapterId)] = next;
   await writeJsonFile(seriesProgressPath(libraryPath, seriesId), progress, { backup: true });
+  await upsertRecentEntry(libraryPath, seriesId, categoryId, volumeId, chapterId, next);
   return next;
 }
 
@@ -2493,6 +2837,7 @@ async function moveNovelChapterToTrash(
     );
   }
   await rebuildSearchIndex(libraryPath);
+  await rebuildRecentIndex(libraryPath);
 
   return { id: chapter.id, trashPath };
 }
@@ -3123,6 +3468,76 @@ function registerSearchIpc(): void {
   });
 }
 
+function registerReadingStateIpc(): void {
+  ipcMain.handle("reading:listRecent", async (): Promise<ApiResponse<ReadingListEntry[]>> => {
+    try {
+      return ok(await listRecentEntries(await currentLibraryPathOrThrow({ ensureFiles: false })));
+    } catch (error) {
+      return fail(ErrorCode.READING_STATE_FAILED, "Could not list recent reading.", String(error));
+    }
+  });
+
+  ipcMain.handle("bookmarks:list", async (): Promise<ApiResponse<BookmarkEntry[]>> => {
+    try {
+      return ok(await listBookmarks(await currentLibraryPathOrThrow({ ensureFiles: false })));
+    } catch (error) {
+      return fail(ErrorCode.READING_STATE_FAILED, "Could not list bookmarks.", String(error));
+    }
+  });
+
+  ipcMain.handle(
+    "bookmarks:get",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown
+    ): Promise<ApiResponse<BookmarkEntry | null>> => {
+      try {
+        return ok(
+          await getChapterBookmark(
+            await currentLibraryPathOrThrow({ ensureFiles: false }),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.READING_STATE_FAILED, "Could not load bookmark.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "bookmarks:toggle",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<BookmarkEntry | null>> => {
+      try {
+        return ok(
+          await toggleChapterBookmark(
+            await currentLibraryPathOrThrow({ ensureFiles: false }),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId"),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.READING_STATE_FAILED, "Could not toggle bookmark.", String(error));
+      }
+    }
+  );
+}
+
 function createWindow(): void {
   const window = new BrowserWindow({
     width: 1200,
@@ -3151,6 +3566,7 @@ void app.whenReady().then(() => {
   registerChapterIpc();
   registerImportIpc();
   registerSearchIpc();
+  registerReadingStateIpc();
   createWindow();
 
   app.on("activate", () => {

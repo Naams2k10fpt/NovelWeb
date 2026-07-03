@@ -223,6 +223,7 @@ export default function App() {
       return (
         <Library
           library={library}
+          onOpenChapter={(target) => openChapter(target, "read")}
           onOpenSeries={openSeries}
           onOpenSettings={() => openMode("settings")}
         />

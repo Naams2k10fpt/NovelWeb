@@ -13,6 +13,7 @@ export type ChapterTarget = {
   volumeId: string | null;
   chapterId: string;
   title: string;
+  scrollTop?: number;
 };
 
 type ChapterContent = {

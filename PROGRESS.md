@@ -372,13 +372,15 @@ Ghi chú: Đã polish PDF Split View tối thiểu: ẩn menu bar Electron mặc
 - [x] Search result hiển thị series/volume/chapter.
 - [x] Search result highlight keyword.
 - [x] Click result để mở đúng chapter.
-- [ ] Bookmark chapter.
-- [ ] Bookmark vị trí đọc.
+- [x] Bookmark chapter.
+- [x] Bookmark vị trí đọc.
 - [ ] Highlight đoạn text.
 - [ ] Chọn màu highlight.
 - [ ] Note trên highlight.
 - [ ] Quản lý danh sách highlight/note.
-- [ ] Recent reading.
+- [x] Recent reading.
+
+Ghi chú: Đã thêm nhóm 2 tối thiểu: Reader có nút bookmark tại vị trí cuộn hiện tại; Library hiển thị Recent và Bookmarks để mở lại đúng chapter/vị trí.
 
 ### Tiêu chí hoàn thành
 

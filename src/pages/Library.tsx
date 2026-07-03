@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ChapterTarget } from "./NovelEditor";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -11,6 +12,7 @@ type LibraryPageProps = {
     error: string | null;
   };
   onOpenSettings: () => void;
+  onOpenChapter: (target: ChapterTarget) => void;
   onOpenSeries: (seriesId: string) => void;
 };
 
@@ -22,15 +24,41 @@ type SeriesCard = {
   coverDataUrl: string | null;
 };
 
+type ReadingListEntry = {
+  seriesId: string;
+  seriesTitle: string;
+  categoryId: string;
+  categoryTitle: string;
+  volumeId: string | null;
+  volumeTitle: string | null;
+  chapterId: string;
+  chapterTitle: string;
+  scrollTop: number;
+  updatedAt: string;
+};
+
 type RendererApi = {
   series: {
     list: () => Promise<ApiResponse<SeriesCard[]>>;
+  };
+  reading?: {
+    listRecent: () => Promise<ApiResponse<ReadingListEntry[]>>;
+  };
+  bookmarks?: {
+    list: () => Promise<ApiResponse<ReadingListEntry[]>>;
   };
 };
 
 type SeriesState = {
   loading: boolean;
   items: SeriesCard[];
+  error: string | null;
+};
+
+type ReadingState = {
+  loading: boolean;
+  recent: ReadingListEntry[];
+  bookmarks: ReadingListEntry[];
   error: string | null;
 };
 
@@ -42,8 +70,29 @@ function formatStatus(status: string): string {
   return status.replace(/-/g, " ").replace(/^\w/, (letter) => letter.toUpperCase());
 }
 
-export default function Library({ library, onOpenSettings, onOpenSeries }: LibraryPageProps) {
+function targetFor(entry: ReadingListEntry): ChapterTarget {
+  return {
+    seriesId: entry.seriesId,
+    categoryId: entry.categoryId,
+    volumeId: entry.volumeId,
+    chapterId: entry.chapterId,
+    title: entry.chapterTitle,
+    scrollTop: entry.scrollTop
+  };
+}
+
+function formatDate(value: string): string {
+  return new Date(value).toLocaleString();
+}
+
+export default function Library({ library, onOpenChapter, onOpenSettings, onOpenSeries }: LibraryPageProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [reading, setReading] = useState<ReadingState>({
+    loading: false,
+    recent: [],
+    bookmarks: [],
+    error: null
+  });
   const [series, setSeries] = useState<SeriesState>({
     loading: false,
     items: [],
@@ -55,6 +104,7 @@ export default function Library({ library, onOpenSettings, onOpenSeries }: Libra
 
     if (!library.path) {
       setSeries({ loading: false, items: [], error: null });
+      setReading({ loading: false, recent: [], bookmarks: [], error: null });
       return;
     }
 
@@ -65,27 +115,44 @@ export default function Library({ library, onOpenSettings, onOpenSeries }: Libra
         items: [],
         error: "App API is unavailable. Restart the app or check the preload script."
       });
+      setReading({ loading: false, recent: [], bookmarks: [], error: null });
       return;
     }
 
     setSeries({ loading: true, items: [], error: null });
+    setReading({ loading: true, recent: [], bookmarks: [], error: null });
 
-    void api.series
-      .list()
-      .then((response) => {
+    void Promise.all([
+      api.series.list(),
+      api.reading?.listRecent() ?? Promise.resolve({ ok: true, data: [] } as ApiResponse<ReadingListEntry[]>),
+      api.bookmarks?.list() ?? Promise.resolve({ ok: true, data: [] } as ApiResponse<ReadingListEntry[]>)
+    ])
+      .then(([seriesResponse, recentResponse, bookmarksResponse]) => {
         if (!isMounted) {
           return;
         }
 
-        if (response.ok) {
-          setSeries({ loading: false, items: response.data, error: null });
+        if (seriesResponse.ok) {
+          setSeries({ loading: false, items: seriesResponse.data, error: null });
         } else {
-          setSeries({ loading: false, items: [], error: response.error.message });
+          setSeries({ loading: false, items: [], error: seriesResponse.error.message });
         }
+
+        setReading({
+          loading: false,
+          recent: recentResponse.ok ? recentResponse.data : [],
+          bookmarks: bookmarksResponse.ok ? bookmarksResponse.data : [],
+          error: !recentResponse.ok
+            ? recentResponse.error.message
+            : !bookmarksResponse.ok
+              ? bookmarksResponse.error.message
+              : null
+        });
       })
       .catch((error) => {
         if (isMounted) {
           setSeries({ loading: false, items: [], error: String(error) });
+          setReading({ loading: false, recent: [], bookmarks: [], error: null });
         }
       });
 
@@ -139,18 +206,32 @@ export default function Library({ library, onOpenSettings, onOpenSeries }: Libra
         [item.title, item.author ?? "", item.status].some((value) => value.toLowerCase().includes(query))
       )
     : series.items;
+  const quickSections = (
+    <ReadingQuickSections
+      bookmarks={reading.bookmarks}
+      error={reading.error}
+      loading={reading.loading}
+      onOpenChapter={onOpenChapter}
+      recent={reading.recent}
+    />
+  );
 
   if (series.items.length === 0) {
     return (
-      <section className="empty-state">
-        <h2>No series yet</h2>
-        <p>Library folder is ready.</p>
-      </section>
+      <>
+        {quickSections}
+        <section className="empty-state">
+          <h2>No series yet</h2>
+          <p>Library folder is ready.</p>
+        </section>
+      </>
     );
   }
 
   return (
     <>
+      {quickSections}
+
       <label className="library-search">
         <span>Search</span>
         <input
@@ -189,5 +270,81 @@ export default function Library({ library, onOpenSettings, onOpenSeries }: Libra
         </section>
       )}
     </>
+  );
+}
+
+function ReadingQuickSections({
+  bookmarks,
+  error,
+  loading,
+  onOpenChapter,
+  recent
+}: {
+  bookmarks: ReadingListEntry[];
+  error: string | null;
+  loading: boolean;
+  onOpenChapter: (target: ChapterTarget) => void;
+  recent: ReadingListEntry[];
+}) {
+  if (loading) {
+    return <p className="muted-text">Loading recent reading.</p>;
+  }
+
+  if (error) {
+    return <p className="error-text">{error}</p>;
+  }
+
+  if (recent.length === 0 && bookmarks.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="reading-quick-sections" aria-label="Reading shortcuts">
+      <ReadingQuickList
+        emptyText="No recent reading yet."
+        items={recent.slice(0, 5)}
+        onOpenChapter={onOpenChapter}
+        title="Recent"
+      />
+      <ReadingQuickList
+        emptyText="No bookmarks yet."
+        items={bookmarks.slice(0, 5)}
+        onOpenChapter={onOpenChapter}
+        title="Bookmarks"
+      />
+    </section>
+  );
+}
+
+function ReadingQuickList({
+  emptyText,
+  items,
+  onOpenChapter,
+  title
+}: {
+  emptyText: string;
+  items: ReadingListEntry[];
+  onOpenChapter: (target: ChapterTarget) => void;
+  title: string;
+}) {
+  return (
+    <section className="reading-quick-list">
+      <h2>{title}</h2>
+      {items.length === 0 ? (
+        <p className="muted-text">{emptyText}</p>
+      ) : (
+        <ol>
+          {items.map((item) => (
+            <li key={`${title}-${item.seriesId}-${item.categoryId}-${item.volumeId ?? "direct"}-${item.chapterId}`}>
+              <button onClick={() => onOpenChapter(targetFor(item))} type="button">
+                <strong>{item.chapterTitle}</strong>
+                <span>{[item.seriesTitle, item.volumeTitle].filter(Boolean).join(" / ")}</span>
+                <small>{formatDate(item.updatedAt)}</small>
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
