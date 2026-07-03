@@ -361,6 +361,10 @@ body {
   max-width: 920px;
 }
 
+.novel-editor-split {
+  max-width: 1280px;
+}
+
 .novel-editor-header {
   display: grid;
   gap: 6px;
@@ -423,6 +427,61 @@ body {
   border: 1px solid #ddd4c7;
   border-radius: 8px;
   background: #fffaf2;
+}
+
+.pdf-split-view {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.pdf-pane {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 640px;
+  border: 1px solid #ddd4c7;
+  border-radius: 8px;
+  background: #fffaf2;
+  overflow: hidden;
+}
+
+.pdf-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-bottom: 1px solid #ddd4c7;
+}
+
+.pdf-pane-header span,
+.pdf-pane-header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-pane-header span {
+  color: #66707a;
+  font-size: 13px;
+}
+
+.pdf-pane-header strong {
+  min-width: 0;
+}
+
+.pdf-frame {
+  width: 100%;
+  min-height: 596px;
+  border: 0;
+  background: #ffffff;
+}
+
+.editor-surface-split,
+.editor-surface-split .novel-editor-content {
+  min-height: 640px;
 }
 
 .novel-editor-content {
@@ -826,4 +885,10 @@ body {
 
 .error-text {
   color: #b42318;
+}
+
+@media (max-width: 980px) {
+  .pdf-split-view {
+    grid-template-columns: 1fr;
+  }
 }

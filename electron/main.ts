@@ -204,6 +204,11 @@ type ChapterImageAsset = {
   fileName: string;
 };
 
+type ChapterOriginalPdf = {
+  dataUrl: string;
+  fileName: string;
+};
+
 type ChapterReadingProgress = {
   scrollTop: number;
   updatedAt: string | null;
@@ -2034,6 +2039,28 @@ async function readNovelChapterContent(
   };
 }
 
+async function readNovelChapterOriginalPdf(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<ChapterOriginalPdf | null> {
+  const metadata = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+
+  if (!metadata.hasOriginalPdf) {
+    return null;
+  }
+
+  const pdf = await readFile(chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, "original.pdf"));
+
+  return {
+    // ponytail: data URL keeps the preload API tiny; use a custom protocol if large PDFs get slow.
+    dataUrl: `data:application/pdf;base64,${pdf.toString("base64")}`,
+    fileName: metadata.originalFileName ?? "original.pdf"
+  };
+}
+
 async function saveNovelChapterContent(
   libraryPath: string,
   seriesId: string,
@@ -2648,6 +2675,31 @@ function registerChapterIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not save chapter content.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:getOriginalPdf",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown
+    ): Promise<ApiResponse<ChapterOriginalPdf | null>> => {
+      try {
+        return ok(
+          await readNovelChapterOriginalPdf(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not load chapter PDF.", String(error));
       }
     }
   );

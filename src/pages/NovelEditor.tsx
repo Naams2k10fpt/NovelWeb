@@ -29,6 +29,11 @@ type ChapterImageAsset = {
   fileName: string;
 };
 
+type ChapterOriginalPdf = {
+  dataUrl: string;
+  fileName: string;
+};
+
 type RendererApi = {
   chapters: {
     getContent: (
@@ -44,6 +49,12 @@ type RendererApi = {
       chapterId: string,
       input: unknown
     ) => Promise<ApiResponse<ChapterContent>>;
+    getOriginalPdf: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string
+    ) => Promise<ApiResponse<ChapterOriginalPdf | null>>;
     chooseImage: (
       seriesId: string,
       categoryId: string,
@@ -133,6 +144,8 @@ export default function NovelEditor({
   target: ChapterTarget;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const [originalPdf, setOriginalPdf] = useState<ChapterOriginalPdf | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const [status, setStatus] = useState<EditorStatus>("loading");
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadedRef = useRef(false);
@@ -196,6 +209,8 @@ export default function NovelEditor({
     onDirtyChange(false);
     setStatus("loading");
     setError(null);
+    setOriginalPdf(null);
+    setPdfError(null);
 
     void api.chapters
       .getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
@@ -215,6 +230,19 @@ export default function NovelEditor({
         if (isMounted) {
           setStatus("error");
           setError(String(loadError));
+        }
+      });
+
+    void api.chapters
+      .getOriginalPdf(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
+      .then((response) => {
+        if (isMounted) {
+          setOriginalPdf(unwrap(response));
+        }
+      })
+      .catch((loadPdfError) => {
+        if (isMounted) {
+          setPdfError(String(loadPdfError));
         }
       });
 
@@ -338,7 +366,7 @@ export default function NovelEditor({
   }
 
   return (
-    <section className="novel-editor">
+    <section className={originalPdf ? "novel-editor novel-editor-split" : "novel-editor"}>
       <button className="plain-action" onClick={onBack} type="button">
         Back
       </button>
@@ -409,10 +437,27 @@ export default function NovelEditor({
       </div>
 
       {error ? <p className="error-text">{error}</p> : null}
+      {pdfError ? <p className="error-text">{pdfError}</p> : null}
 
-      <div className="editor-surface">
-        <EditorContent editor={editor} />
-      </div>
+      {originalPdf ? (
+        <div className="pdf-split-view">
+          <section className="pdf-pane" aria-label="Original PDF">
+            <div className="pdf-pane-header">
+              <span>Original PDF</span>
+              <strong>{originalPdf.fileName}</strong>
+            </div>
+            <iframe className="pdf-frame" src={originalPdf.dataUrl} title={originalPdf.fileName} />
+          </section>
+
+          <div className="editor-surface editor-surface-split">
+            <EditorContent editor={editor} />
+          </div>
+        </div>
+      ) : (
+        <div className="editor-surface">
+          <EditorContent editor={editor} />
+        </div>
+      )}
     </section>
   );
 }

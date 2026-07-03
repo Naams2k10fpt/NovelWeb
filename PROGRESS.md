@@ -239,7 +239,7 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 
 ## Phase 6 - Import nội dung text và PDF
 
-**Trạng thái:** `[~]`
+**Trạng thái:** `[x]`
 
 **Mục tiêu:** Đưa dữ liệu thật từ folder và file ngoài vào NovelWeb.
 
@@ -263,9 +263,9 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 - [x] Nếu PDF không có text, đánh dấu là scanned/unsupported.
 - [x] Import source path phải đến từ dialog hoặc import session hợp lệ.
 - [x] Lưu PDF gốc vào library.
-- [ ] Tạo PDF Split View.
-- [ ] PDF Split View hiển thị PDF gốc bên trái.
-- [ ] PDF Split View hiển thị text trích xuất/editor bên phải.
+- [x] Tạo PDF Split View.
+- [x] PDF Split View hiển thị PDF gốc bên trái.
+- [x] PDF Split View hiển thị text trích xuất/editor bên phải.
 - [x] Cho sửa text trước khi import chính thức.
 - [x] Hiển thị progress bar khi import.
 - [x] Ghi import log.
@@ -276,13 +276,14 @@ Ghi chú: Đã thêm Import Wizard 3 bước ở renderer: chọn source, previe
 Ghi chú: Đã thêm import TXT/MD tối thiểu: bước confirm đọc text qua import session, cho sửa bằng textarea, tạo series LN mới, lưu `content.html`/`content.txt`, hiển thị progress và report/log. DOCX/PDF vẫn được scan nhưng sẽ bị skip ở nhóm này.
 Ghi chú: Đã thêm import PDF tối thiểu không parser: tạo chapter, copy file gốc vào `original.pdf`, đặt `hasOriginalPdf`, ghi report trạng thái `unsupported` để biết text extraction/split view sẽ làm sau.
 Ghi chú: Đã thêm dependency Phase 6 theo `PLAN.md`: `mammoth`, `pdf-parse`, `pdfjs-dist`; Import Wizard đọc preview text cho DOCX/PDF, cho sửa trước import, PDF parser dùng `pdf-parse` và fallback `pdfjs-dist`.
+Ghi chú: Đã thêm PDF Split View trong NovelEditor: main process đọc `original.pdf` qua API hẹp, renderer hiển thị PDF gốc bên trái bằng iframe và editor text bên phải.
 
 ### Tiêu chí hoàn thành
 
-- [x] User có thể import folder truyện thật bằng TXT/MD.
+- [x] User có thể import folder truyện thật bằng TXT/MD/DOCX/PDF.
 - [x] Import không ghi dữ liệu khi user chưa confirm.
-- [ ] PDF gốc luôn có thể mở lại để đối chiếu.
-- [x] Import lỗi có log đủ rõ để biết file nào hỏng trong luồng TXT/MD.
+- [x] PDF gốc luôn có thể mở lại để đối chiếu.
+- [x] Import lỗi có log đủ rõ để biết file nào hỏng trong luồng import.
 
 ---
 
