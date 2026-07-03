@@ -168,6 +168,8 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 
 ### Checklist
 
+Ghi chú: Đã thay `window.prompt()` trong Manager bằng form nội bộ vì Electron không hỗ trợ prompt.
+
 - [x] Tạo trang Library.
 - [x] Hiển thị series card.
 - [x] Hiển thị cover, title, author, status.
@@ -227,6 +229,9 @@ Ghi chú: Đã thêm editor TipTap tối thiểu mở từ Series Detail, toolba
 Ghi chú: Đã thêm autosave debounce, Ctrl+S, serialize save trong editor và cảnh báo khi rời chapter còn thay đổi chưa lưu.
 Ghi chú: Đã thêm sanitize HTML tối thiểu, NovelReader đọc từ `content.html`, tùy chỉnh font/width/theme và lưu scroll progress vào `progress.json`.
 Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/assets`, lưu `content.html` với đường dẫn asset và hydrate ảnh khi mở editor/reader.
+Ghi chú: Đã thêm ô title trong editor lưu thành H1 đầu nội dung, truyền tên truyện vào reader và tinh chỉnh header đọc/edit.
+Ghi chú: Đã chỉnh reader chỉ hiện tên truyện căn giữa, giữ sidebar cố định khi cuộn và cho H2 áp dụng cả block đang chọn.
+Ghi chú: Đã đảo cấp chữ giữa tên truyện và title, đồng thời căn giữa title trong editor/reader.
 
 ### Tiêu chí hoàn thành
 

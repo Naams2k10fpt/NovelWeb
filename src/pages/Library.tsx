@@ -91,6 +91,7 @@ function targetFor(entry: ReadingListEntry): ChapterTarget {
     categoryId: entry.categoryId,
     volumeId: entry.volumeId,
     chapterId: entry.chapterId,
+    seriesTitle: entry.seriesTitle,
     title: entry.chapterTitle,
     scrollTop: entry.scrollTop
   };

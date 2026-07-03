@@ -82,6 +82,7 @@ function resultTarget(result: SearchResult): ChapterTarget {
     categoryId: result.categoryId,
     volumeId: result.volumeId,
     chapterId: result.chapterId,
+    seriesTitle: result.seriesTitle,
     title: result.chapterTitle
   };
 }

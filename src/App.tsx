@@ -310,10 +310,12 @@ export default function App() {
       </aside>
 
       <main className="workspace">
-        <header className="workspace-header">
-          <span>{currentMode.eyebrow}</span>
-          <h1>{currentMode.title}</h1>
-        </header>
+        {!selectedChapter ? (
+          <header className="workspace-header">
+            <span>{currentMode.eyebrow}</span>
+            <h1>{currentMode.title}</h1>
+          </header>
+        ) : null}
 
         {renderWorkspaceContent()}
       </main>

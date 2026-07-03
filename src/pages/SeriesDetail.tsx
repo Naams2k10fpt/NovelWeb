@@ -217,6 +217,7 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
               onEditChapter={onEditChapter}
               onReadChapter={onReadChapter}
               seriesId={seriesId}
+              seriesTitle={detail.series.title}
             />
           ) : null}
         </>
@@ -229,12 +230,14 @@ function CategoryPanel({
   category,
   onEditChapter,
   onReadChapter,
-  seriesId
+  seriesId,
+  seriesTitle
 }: {
   category: CategoryDetail;
   onEditChapter: (target: ChapterTarget) => void;
   onReadChapter: (target: ChapterTarget) => void;
   seriesId: string;
+  seriesTitle: string;
 }) {
   if (category.type === "manga") {
     return (
@@ -265,6 +268,7 @@ function CategoryPanel({
               onEditChapter={onEditChapter}
               onReadChapter={onReadChapter}
               seriesId={seriesId}
+              seriesTitle={seriesTitle}
               title="Chapters"
               volumeId={null}
             />
@@ -278,6 +282,7 @@ function CategoryPanel({
               onEditChapter={onEditChapter}
               onReadChapter={onReadChapter}
               seriesId={seriesId}
+              seriesTitle={seriesTitle}
               title={volume.title}
               volumeId={volume.id}
             />
@@ -294,6 +299,7 @@ function ChapterList({
   onEditChapter,
   onReadChapter,
   seriesId,
+  seriesTitle,
   title,
   volumeId
 }: {
@@ -302,6 +308,7 @@ function ChapterList({
   onEditChapter: (target: ChapterTarget) => void;
   onReadChapter: (target: ChapterTarget) => void;
   seriesId: string;
+  seriesTitle: string;
   title: string;
   volumeId: string | null;
 }) {
@@ -310,6 +317,7 @@ function ChapterList({
       categoryId,
       chapterId: chapter.id,
       seriesId,
+      seriesTitle,
       title: chapter.title,
       volumeId
     };

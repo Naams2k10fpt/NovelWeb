@@ -357,6 +357,10 @@ export default function NovelReader({
         </button>
       </div>
 
+      <header className="reader-heading" style={{ maxWidth: readingWidth }}>
+        <span>{target.seriesTitle ?? target.title}</span>
+      </header>
+
       <div className="highlight-toolbar" aria-label="Highlight tools">
         <label>
           Color
@@ -403,7 +407,6 @@ export default function NovelReader({
       ) : null}
 
       <article className="reader-page" style={{ maxWidth: readingWidth }}>
-        <h2>{target.title}</h2>
         <div
           className="reader-content"
           dangerouslySetInnerHTML={{ __html: html }}

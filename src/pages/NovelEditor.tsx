@@ -9,6 +9,7 @@ type ApiResponse<T> =
 
 export type ChapterTarget = {
   seriesId: string;
+  seriesTitle?: string;
   categoryId: string;
   volumeId: string | null;
   chapterId: string;
@@ -133,6 +134,30 @@ function statusText(status: EditorStatus): string {
   return "Sẵn sàng";
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function splitTitleHtml(html: string): { title: string; bodyHtml: string } {
+  const document = new DOMParser().parseFromString(html || "<p></p>", "text/html");
+  const heading = Array.from(document.body.children).find((element) => element.tagName.toLowerCase() === "h1");
+  const title = heading?.textContent?.trim() ?? "";
+
+  heading?.remove();
+
+  return {
+    title,
+    bodyHtml: document.body.innerHTML.trim() || "<p></p>"
+  };
+}
+
+function composeChapterHtml(title: string, bodyHtml: string): string {
+  const heading = title.trim();
+  const body = bodyHtml.trim() || "<p></p>";
+
+  return heading ? `<h1>${escapeHtml(heading)}</h1>\n${body}` : body;
+}
+
 export default function NovelEditor({
   onBack,
   onDirtyChange,
@@ -148,12 +173,14 @@ export default function NovelEditor({
   const [originalPdf, setOriginalPdf] = useState<ChapterOriginalPdf | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [status, setStatus] = useState<EditorStatus>("loading");
+  const [title, setTitle] = useState("");
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadedRef = useRef(false);
   const lastSavedHtmlRef = useRef("");
   const latestHtmlRef = useRef("");
   const saveInFlightRef = useRef(false);
   const saveAgainRef = useRef(false);
+  const titleRef = useRef("");
   const editor = useEditor({
     extensions: [StarterKit, InlineImage],
     content: "",
@@ -170,7 +197,7 @@ export default function NovelEditor({
         return;
       }
 
-      latestHtmlRef.current = currentEditor.getHTML();
+      latestHtmlRef.current = composeChapterHtml(titleRef.current, currentEditor.getHTML());
       onDirtyChange(latestHtmlRef.current !== lastSavedHtmlRef.current);
       setError(null);
       setStatus((current) => (current === "loading" || current === "saving" ? current : "dirty"));
@@ -213,6 +240,8 @@ export default function NovelEditor({
     setError(null);
     setOriginalPdf(null);
     setPdfError(null);
+    setTitle("");
+    titleRef.current = "";
 
     void api.chapters
       .getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
@@ -222,8 +251,11 @@ export default function NovelEditor({
         }
 
         const content = unwrap(response);
-        editor.commands.setContent(content.html || "<p></p>", { emitUpdate: false });
-        lastSavedHtmlRef.current = editor.getHTML();
+        const nextContent = splitTitleHtml(content.html);
+        setTitle(nextContent.title);
+        titleRef.current = nextContent.title;
+        editor.commands.setContent(nextContent.bodyHtml, { emitUpdate: false });
+        lastSavedHtmlRef.current = composeChapterHtml(nextContent.title, editor.getHTML());
         latestHtmlRef.current = lastSavedHtmlRef.current;
         isLoadedRef.current = true;
         setStatus("ready");
@@ -255,6 +287,21 @@ export default function NovelEditor({
       onDirtyChange(false);
     };
   }, [editor, onDirtyChange, target.categoryId, target.chapterId, target.seriesId, target.volumeId]);
+
+  function updateTitle(value: string): void {
+    setTitle(value);
+    titleRef.current = value;
+
+    if (!editor || !isLoadedRef.current) {
+      return;
+    }
+
+    latestHtmlRef.current = composeChapterHtml(value, editor.getHTML());
+    onDirtyChange(latestHtmlRef.current !== lastSavedHtmlRef.current);
+    setError(null);
+    setStatus((current) => (current === "loading" || current === "saving" ? current : "dirty"));
+    scheduleAutosave();
+  }
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
@@ -290,7 +337,7 @@ export default function NovelEditor({
     }
 
     clearAutosave();
-    latestHtmlRef.current = editor.getHTML();
+    latestHtmlRef.current = composeChapterHtml(titleRef.current, editor.getHTML());
 
     if (saveInFlightRef.current) {
       saveAgainRef.current = true;
@@ -316,7 +363,7 @@ export default function NovelEditor({
         })
       );
       lastSavedHtmlRef.current = html;
-      latestHtmlRef.current = editor.getHTML();
+      latestHtmlRef.current = composeChapterHtml(titleRef.current, editor.getHTML());
 
       if (latestHtmlRef.current !== html || saveAgainRef.current) {
         onDirtyChange(true);
@@ -367,6 +414,18 @@ export default function NovelEditor({
     }
   }
 
+  function toggleHeadingBlock(): void {
+    if (!editor) {
+      return;
+    }
+
+    const { doc, selection } = editor.state;
+    const from = doc.resolve(selection.from).start();
+    const to = doc.resolve(selection.to).end();
+
+    editor.chain().focus().setTextSelection({ from, to }).toggleHeading({ level: 2 }).run();
+  }
+
   return (
     <section className={originalPdf ? "novel-editor novel-editor-split" : "novel-editor"}>
       <button className="plain-action" onClick={onBack} type="button">
@@ -374,8 +433,16 @@ export default function NovelEditor({
       </button>
 
       <header className="novel-editor-header">
-        <span>Editor</span>
-        <h2>{target.title}</h2>
+        <span>{target.seriesTitle ?? "Editor"}</span>
+        <input
+          aria-label="Chapter title"
+          className="novel-title-input"
+          onChange={(event) => updateTitle(event.target.value)}
+          placeholder="Chapter title"
+          spellCheck={false}
+          value={title}
+        />
+        <small>{target.title}</small>
       </header>
 
       <div className="editor-toolbar" aria-label="Editor toolbar">
@@ -397,7 +464,7 @@ export default function NovelEditor({
           active={editor?.isActive("heading", { level: 2 }) ?? false}
           disabled={!editor}
           label="H2"
-          onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+          onClick={toggleHeadingBlock}
           title="Heading"
         />
         <ToolbarButton

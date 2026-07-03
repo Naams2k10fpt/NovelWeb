@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState, type FormEvent, type MouseEvent } from "react";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -76,6 +76,14 @@ type ContextMenuState = {
   x: number;
   y: number;
   nodeKey: string | null;
+};
+
+type ManagerFormState = {
+  heading: string;
+  label: string;
+  title: string;
+  categoryType: CategoryType | null;
+  submit: (title: string, categoryType: CategoryType | null) => Promise<void>;
 };
 
 type RendererApi = {
@@ -208,28 +216,12 @@ async function loadTree(api: RendererApi): Promise<SeriesNode[]> {
   );
 }
 
-function promptTitle(label: string, fallback = ""): string | null {
-  const value = window.prompt(label, fallback);
-  const title = value?.trim();
-  return title || null;
-}
-
-function promptCategoryInput(): { title: string; type: CategoryType } | null {
-  const type = window.prompt("Category type: light-novel, web-novel, manga", "light-novel")?.trim();
-
-  if (type !== "light-novel" && type !== "web-novel" && type !== "manga") {
-    return null;
-  }
-
-  const title = promptTitle("Category title", formatLabel(type));
-  return title ? { title, type } : null;
-}
-
 export default function Manager({ library, onOpenSettings }: ManagerProps) {
   const [tree, setTree] = useState<TreeState>({ loading: false, series: [], error: null });
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [form, setForm] = useState<ManagerFormState | null>(null);
   const api = getApi();
   const nodes = allNodes(tree.series);
   const selectedNode = nodes.find((node) => nodeKey(node) === selectedKey) ?? null;
@@ -269,6 +261,34 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     }
   }
 
+  function openForm(
+    heading: string,
+    label: string,
+    title: string,
+    submit: ManagerFormState["submit"],
+    categoryType: CategoryType | null = null
+  ): void {
+    setForm({ heading, label, title, categoryType, submit });
+  }
+
+  async function submitForm(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+
+    if (!form) {
+      return;
+    }
+
+    const title = form.title.trim();
+    if (!title) {
+      return;
+    }
+
+    await runAction(async () => {
+      await form.submit(title, form.categoryType);
+      setForm(null);
+    });
+  }
+
   function actionsFor(node: TreeNode | null): Array<{ label: string; run: () => Promise<void> }> {
     if (!api) {
       return [];
@@ -279,10 +299,9 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
         {
           label: "Add series",
           run: async () => {
-            const title = promptTitle("Series title");
-            if (title) {
+            openForm("Add series", "Series title", "", async (title) => {
               unwrap(await api.series.create({ title }));
-            }
+            });
           }
         }
       ];
@@ -293,19 +312,23 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
         {
           label: "Add category",
           run: async () => {
-            const input = promptCategoryInput();
-            if (input) {
-              unwrap(await api.categories.create(node.id, input));
-            }
+            openForm(
+              "Add category",
+              "Category title",
+              "Light Novel",
+              async (title, categoryType) => {
+                unwrap(await api.categories.create(node.id, { title, type: categoryType ?? "light-novel" }));
+              },
+              "light-novel"
+            );
           }
         },
         {
           label: "Rename",
           run: async () => {
-            const title = promptTitle("Series title", node.title);
-            if (title) {
+            openForm("Rename series", "Series title", node.title, async (title) => {
               unwrap(await api.series.update(node.id, { title }));
-            }
+            });
           }
         },
         {
@@ -314,6 +337,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
             if (window.confirm(`Move "${node.title}" to trash?`)) {
               unwrap(await api.series.moveToTrash(node.id));
               setSelectedKey(null);
+              setForm(null);
             }
           }
         }
@@ -327,10 +351,9 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
         actions.push({
           label: "Add volume",
           run: async () => {
-            const title = promptTitle("Volume title", `Volume ${node.volumes.length + 1}`);
-            if (title) {
+            openForm("Add volume", "Volume title", `Volume ${node.volumes.length + 1}`, async (title) => {
               unwrap(await api.volumes.create(node.seriesId, node.id, { title }));
-            }
+            });
           }
         });
       }
@@ -339,10 +362,9 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
         actions.push({
           label: "Add chapter",
           run: async () => {
-            const title = promptTitle("Chapter title", `Chapter ${node.directChapters.length + 1}`);
-            if (title) {
+            openForm("Add chapter", "Chapter title", `Chapter ${node.directChapters.length + 1}`, async (title) => {
               unwrap(await api.chapters.create(node.seriesId, node.id, null, { title }));
-            }
+            });
           }
         });
       }
@@ -352,10 +374,9 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
         {
           label: "Rename",
           run: async () => {
-            const title = promptTitle("Category title", node.title);
-            if (title) {
+            openForm("Rename category", "Category title", node.title, async (title) => {
               unwrap(await api.categories.update(node.seriesId, node.id, { title }));
-            }
+            });
           }
         },
         {
@@ -364,6 +385,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
             if (window.confirm(`Move "${node.title}" to trash?`)) {
               unwrap(await api.categories.moveToTrash(node.seriesId, node.id));
               setSelectedKey(null);
+              setForm(null);
             }
           }
         }
@@ -375,19 +397,17 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
         {
           label: "Add chapter",
           run: async () => {
-            const title = promptTitle("Chapter title", `Chapter ${node.chapters.length + 1}`);
-            if (title) {
+            openForm("Add chapter", "Chapter title", `Chapter ${node.chapters.length + 1}`, async (title) => {
               unwrap(await api.chapters.create(node.seriesId, node.categoryId, node.id, { title }));
-            }
+            });
           }
         },
         {
           label: "Rename",
           run: async () => {
-            const title = promptTitle("Volume title", node.title);
-            if (title) {
+            openForm("Rename volume", "Volume title", node.title, async (title) => {
               unwrap(await api.volumes.update(node.seriesId, node.categoryId, node.id, { title }));
-            }
+            });
           }
         },
         {
@@ -396,6 +416,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
             if (window.confirm(`Move "${node.title}" to trash?`)) {
               unwrap(await api.volumes.moveToTrash(node.seriesId, node.categoryId, node.id));
               setSelectedKey(null);
+              setForm(null);
             }
           }
         }
@@ -406,10 +427,9 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
       {
         label: "Rename",
         run: async () => {
-          const title = promptTitle("Chapter title", node.title);
-          if (title) {
+          openForm("Rename chapter", "Chapter title", node.title, async (title) => {
             unwrap(await api.chapters.update(node.seriesId, node.categoryId, node.volumeId, node.id, { title }));
-          }
+          });
         }
       },
       {
@@ -418,6 +438,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
           if (window.confirm(`Move "${node.title}" to trash?`)) {
             unwrap(await api.chapters.moveToTrash(node.seriesId, node.categoryId, node.volumeId, node.id));
             setSelectedKey(null);
+            setForm(null);
           }
         }
       }
@@ -515,13 +536,54 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
 
         {actionError ? <p className="error-text">{actionError}</p> : null}
 
-        <div className="manager-actions">
-          {(selectedNode ? selectedActions : actionsFor(null)).map((action) => (
-            <button key={action.label} onClick={() => void runAction(action.run)} type="button">
-              {action.label}
-            </button>
-          ))}
-        </div>
+        {form ? (
+          <form className="manager-form" onSubmit={(event) => void submitForm(event)}>
+            <h3>{form.heading}</h3>
+            {form.categoryType ? (
+              <label>
+                <span>Category type</span>
+                <select
+                  value={form.categoryType}
+                  onChange={(event) =>
+                    setForm((current) =>
+                      current ? { ...current, categoryType: event.target.value as CategoryType } : current
+                    )
+                  }
+                >
+                  <option value="light-novel">Light Novel</option>
+                  <option value="web-novel">Web Novel</option>
+                  <option value="manga">Manga</option>
+                </select>
+              </label>
+            ) : null}
+            <label>
+              <span>{form.label}</span>
+              <input
+                autoFocus
+                value={form.title}
+                onChange={(event) =>
+                  setForm((current) => (current ? { ...current, title: event.target.value } : current))
+                }
+              />
+            </label>
+            <div className="manager-actions">
+              <button className="primary-action" disabled={!form.title.trim()} type="submit">
+                Save
+              </button>
+              <button onClick={() => setForm(null)} type="button">
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="manager-actions">
+            {(selectedNode ? selectedActions : actionsFor(null)).map((action) => (
+              <button key={action.label} onClick={() => void runAction(action.run)} type="button">
+                {action.label}
+              </button>
+            ))}
+          </div>
+        )}
       </section>
 
       {contextMenu ? (
