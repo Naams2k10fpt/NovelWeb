@@ -56,11 +56,13 @@ const SUPPORTED_SCHEMA_VERSION = 1;
 const MAX_SEARCH_RESULTS = 50;
 const SEARCH_SNIPPET_RADIUS = 90;
 const MAX_RECENT_ENTRIES = 50;
+const HIGHLIGHT_COLORS = ["yellow", "green", "pink", "blue"] as const;
 const importSessions = new Map<string, ImportSession>();
 const writeQueues = new Map<string, Promise<unknown>>();
 
 type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 type SupportedSchemaVersion = typeof SUPPORTED_SCHEMA_VERSION;
+type HighlightColor = (typeof HIGHLIGHT_COLORS)[number];
 type VersionedMetadata = {
   schemaVersion: unknown;
 };
@@ -246,6 +248,19 @@ type BookmarkEntry = ReadingListEntry & {
 type SeriesBookmarks = {
   schemaVersion: SupportedSchemaVersion;
   entries: BookmarkEntry[];
+};
+
+type HighlightEntry = ReadingListEntry & {
+  id: string;
+  text: string;
+  color: HighlightColor;
+  note: string;
+  createdAt: string;
+};
+
+type SeriesHighlights = {
+  schemaVersion: SupportedSchemaVersion;
+  entries: HighlightEntry[];
 };
 
 type ChapterContent = {
@@ -615,6 +630,10 @@ function seriesProgressPath(libraryPath: string, seriesId: string): string {
 
 function seriesBookmarksPath(libraryPath: string, seriesId: string): string {
   return libraryChildPath(seriesDirectoryPath(libraryPath, seriesId), "bookmarks.json");
+}
+
+function seriesHighlightsPath(libraryPath: string, seriesId: string): string {
+  return libraryChildPath(seriesDirectoryPath(libraryPath, seriesId), "highlights.json");
 }
 
 function seriesIndexPath(libraryPath: string): string {
@@ -1873,6 +1892,172 @@ async function listBookmarks(libraryPath: string): Promise<BookmarkEntry[]> {
   }
 
   return bookmarks.sort(compareReadingListEntries);
+}
+
+function readHighlightColor(record: JsonRecord): HighlightColor {
+  const color = readOptionalString(record, "color", "yellow");
+
+  if ((HIGHLIGHT_COLORS as readonly string[]).includes(color)) {
+    return color as HighlightColor;
+  }
+
+  throw new Error("color is invalid.");
+}
+
+function readHighlightScrollTop(record: JsonRecord): number {
+  const scrollTop = Number(record.scrollTop ?? 0);
+
+  if (!Number.isFinite(scrollTop) || scrollTop < 0) {
+    throw new Error("scrollTop must be a non-negative number.");
+  }
+
+  return scrollTop;
+}
+
+async function readSeriesHighlights(libraryPath: string, seriesId: string): Promise<SeriesHighlights> {
+  try {
+    const highlights = await readJsonFile<SeriesHighlights>(seriesHighlightsPath(libraryPath, seriesId));
+    assertSupportedSchemaVersion("highlights.json", highlights);
+    return { schemaVersion: SUPPORTED_SCHEMA_VERSION, entries: Array.isArray(highlights.entries) ? highlights.entries : [] };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { schemaVersion: SUPPORTED_SCHEMA_VERSION, entries: [] };
+    }
+
+    throw error;
+  }
+}
+
+async function createHighlight(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  input: unknown
+): Promise<HighlightEntry> {
+  const record = assertRecord(input);
+  const text = readRequiredText(record, "text").replace(/\s+/g, " ").trim();
+  const note = readOptionalString(record, "note", "");
+
+  if (!text) {
+    throw new Error("text is required.");
+  }
+
+  if (text.length > 2000) {
+    throw new Error("text is too long.");
+  }
+
+  if (note.length > 2000) {
+    throw new Error("note is too long.");
+  }
+
+  const reference = await readChapterReference(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  const filePath = seriesHighlightsPath(libraryPath, seriesId);
+
+  return withResourceWriteLock(filePath, async () => {
+    const highlights = await readSeriesHighlights(libraryPath, seriesId);
+    const now = new Date().toISOString();
+    const entry: HighlightEntry = {
+      ...reference,
+      id: randomUUID(),
+      text,
+      color: readHighlightColor(record),
+      note,
+      scrollTop: readHighlightScrollTop(record),
+      createdAt: now,
+      updatedAt: now
+    };
+    const next: SeriesHighlights = {
+      schemaVersion: SUPPORTED_SCHEMA_VERSION,
+      entries: [entry, ...highlights.entries].sort(compareReadingListEntries)
+    };
+    const tmpPath = `${filePath}.tmp`;
+
+    await mkdir(dirname(filePath), { recursive: true });
+    await backupExistingFile(filePath);
+    await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    await rename(tmpPath, filePath);
+
+    return entry;
+  });
+}
+
+async function listChapterHighlights(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<HighlightEntry[]> {
+  const reference = await readChapterReference(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  const highlights = await readSeriesHighlights(libraryPath, seriesId);
+
+  return highlights.entries
+    .filter((item) => sameChapterReference(item, reference))
+    .map((item) => ({ ...item, ...reference }))
+    .sort(compareReadingListEntries);
+}
+
+async function listHighlights(libraryPath: string): Promise<HighlightEntry[]> {
+  const seriesDirectory = libraryChildPath(libraryPath, "series");
+  const entries = await readdir(seriesDirectory, { withFileTypes: true });
+  const highlights: HighlightEntry[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    try {
+      const seriesHighlights = await readSeriesHighlights(libraryPath, entry.name);
+
+      for (const highlight of seriesHighlights.entries) {
+        try {
+          highlights.push({
+            ...highlight,
+            ...(await readChapterReference(
+              libraryPath,
+              highlight.seriesId,
+              highlight.categoryId,
+              highlight.volumeId,
+              highlight.chapterId
+            ))
+          });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw error;
+          }
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  return highlights.sort(compareReadingListEntries);
+}
+
+async function deleteHighlight(libraryPath: string, seriesId: string, highlightId: string): Promise<{ id: string }> {
+  const filePath = seriesHighlightsPath(libraryPath, seriesId);
+
+  return withResourceWriteLock(filePath, async () => {
+    const highlights = await readSeriesHighlights(libraryPath, seriesId);
+    const next: SeriesHighlights = {
+      schemaVersion: SUPPORTED_SCHEMA_VERSION,
+      entries: highlights.entries.filter((item) => item.id !== highlightId)
+    };
+    const tmpPath = `${filePath}.tmp`;
+
+    await mkdir(dirname(filePath), { recursive: true });
+    await backupExistingFile(filePath);
+    await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    await rename(tmpPath, filePath);
+
+    return { id: highlightId };
+  });
 }
 
 function parseSeriesCreateInput(input: unknown): SeriesMetadata {
@@ -3533,6 +3718,83 @@ function registerReadingStateIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.READING_STATE_FAILED, "Could not toggle bookmark.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle("highlights:list", async (): Promise<ApiResponse<HighlightEntry[]>> => {
+    try {
+      return ok(await listHighlights(await currentLibraryPathOrThrow({ ensureFiles: false })));
+    } catch (error) {
+      return fail(ErrorCode.READING_STATE_FAILED, "Could not list highlights.", String(error));
+    }
+  });
+
+  ipcMain.handle(
+    "highlights:listForChapter",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown
+    ): Promise<ApiResponse<HighlightEntry[]>> => {
+      try {
+        return ok(
+          await listChapterHighlights(
+            await currentLibraryPathOrThrow({ ensureFiles: false }),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.READING_STATE_FAILED, "Could not list chapter highlights.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "highlights:create",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<HighlightEntry>> => {
+      try {
+        return ok(
+          await createHighlight(
+            await currentLibraryPathOrThrow({ ensureFiles: false }),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId"),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.READING_STATE_FAILED, "Could not create highlight.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "highlights:delete",
+    async (_event, seriesId: unknown, highlightId: unknown): Promise<ApiResponse<{ id: string }>> => {
+      try {
+        return ok(
+          await deleteHighlight(
+            await currentLibraryPathOrThrow({ ensureFiles: false }),
+            assertId(seriesId, "seriesId"),
+            assertId(highlightId, "highlightId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.READING_STATE_FAILED, "Could not delete highlight.", String(error));
       }
     }
   );

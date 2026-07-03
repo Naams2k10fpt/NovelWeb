@@ -165,7 +165,7 @@ body {
 
 .reading-quick-sections {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
   margin-bottom: 20px;
 }
@@ -197,7 +197,7 @@ body {
   list-style: none;
 }
 
-.reading-quick-list button {
+.reading-quick-link {
   display: grid;
   width: 100%;
   gap: 3px;
@@ -211,7 +211,7 @@ body {
   cursor: pointer;
 }
 
-.reading-quick-list button:hover {
+.reading-quick-link:hover {
   border-color: #2f6f73;
 }
 
@@ -225,6 +225,24 @@ body {
 
 .reading-quick-list small {
   font-size: 12px;
+}
+
+.reading-highlight-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.reading-quick-delete {
+  align-self: start;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #d6a3a3;
+  border-radius: 6px;
+  background: #fff6f6;
+  color: #9f1d1d;
+  font: inherit;
+  cursor: pointer;
 }
 
 .search-page {
@@ -736,6 +754,127 @@ body {
   color: #23272f;
   font: inherit;
   cursor: pointer;
+}
+
+.highlight-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 760px;
+  margin: 0 auto 12px;
+}
+
+.highlight-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.highlight-toolbar select,
+.highlight-toolbar input,
+.highlight-toolbar button {
+  min-height: 34px;
+  border: 1px solid #cdbfaf;
+  border-radius: 6px;
+  background: #fffaf2;
+  color: #23272f;
+  font: inherit;
+}
+
+.highlight-toolbar select {
+  padding: 0 8px;
+}
+
+.highlight-toolbar input {
+  min-width: 180px;
+  flex: 1 1 220px;
+  padding: 0 10px;
+}
+
+.highlight-toolbar button {
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.chapter-highlights {
+  max-width: 760px;
+  margin: 0 auto 12px;
+  padding: 12px;
+  border: 1px solid #ddd4c7;
+  border-radius: 8px;
+  background: #fffaf2;
+  color: #23272f;
+}
+
+.chapter-highlights h3,
+.chapter-highlights ol,
+.chapter-highlights blockquote,
+.chapter-highlights p {
+  margin: 0;
+}
+
+.chapter-highlights h3 {
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.chapter-highlights ol {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.chapter-highlights li {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.chapter-highlights blockquote {
+  color: #23272f;
+}
+
+.chapter-highlights p,
+.chapter-highlights small {
+  color: #66707a;
+}
+
+.chapter-highlights button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #d6a3a3;
+  border-radius: 6px;
+  background: #fff6f6;
+  color: #9f1d1d;
+  font: inherit;
+  cursor: pointer;
+}
+
+.highlight-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 7px;
+  border-radius: 50%;
+}
+
+.highlight-dot-yellow {
+  background: #f5c84c;
+}
+
+.highlight-dot-green {
+  background: #5fbf8f;
+}
+
+.highlight-dot-pink {
+  background: #ef8fb7;
+}
+
+.highlight-dot-blue {
+  background: #6aa7e8;
 }
 
 .reader-page {

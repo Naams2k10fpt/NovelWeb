@@ -76,5 +76,13 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("bookmarks:get", seriesId, categoryId, volumeId, chapterId),
     toggle: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>
       ipcRenderer.invoke("bookmarks:toggle", seriesId, categoryId, volumeId, chapterId, input)
+  },
+  highlights: {
+    list: () => ipcRenderer.invoke("highlights:list"),
+    listForChapter: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
+      ipcRenderer.invoke("highlights:listForChapter", seriesId, categoryId, volumeId, chapterId),
+    create: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>
+      ipcRenderer.invoke("highlights:create", seriesId, categoryId, volumeId, chapterId, input),
+    delete: (seriesId: string, highlightId: string) => ipcRenderer.invoke("highlights:delete", seriesId, highlightId)
   }
 });

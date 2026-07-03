@@ -354,7 +354,7 @@ Ghi chú: Đã polish PDF Split View tối thiểu: ẩn menu bar Electron mặc
 
 ## Phase 9 - Search, bookmark, highlight, note
 
-**Trạng thái:** `[~]`
+**Trạng thái:** `[x]`
 
 **Mục tiêu:** Biến app thành thư viện đọc và ghi chú cá nhân hoàn chỉnh hơn.
 
@@ -374,19 +374,20 @@ Ghi chú: Đã polish PDF Split View tối thiểu: ẩn menu bar Electron mặc
 - [x] Click result để mở đúng chapter.
 - [x] Bookmark chapter.
 - [x] Bookmark vị trí đọc.
-- [ ] Highlight đoạn text.
-- [ ] Chọn màu highlight.
-- [ ] Note trên highlight.
-- [ ] Quản lý danh sách highlight/note.
+- [x] Highlight đoạn text.
+- [x] Chọn màu highlight.
+- [x] Note trên highlight.
+- [x] Quản lý danh sách highlight/note.
 - [x] Recent reading.
 
 Ghi chú: Đã thêm nhóm 2 tối thiểu: Reader có nút bookmark tại vị trí cuộn hiện tại; Library hiển thị Recent và Bookmarks để mở lại đúng chapter/vị trí.
+Ghi chú: Đã thêm nhóm 3 tối thiểu: Reader lưu đoạn text đang chọn kèm màu/note/vị trí vào `highlights.json`; Reader và Library hiển thị danh sách highlight/note, mở lại đúng chapter/vị trí và cho xóa.
 
 ### Tiêu chí hoàn thành
 
-- [ ] Search không cần quét toàn bộ file mỗi lần với thư viện vừa/lớn.
-- [ ] User có thể quay lại truyện đọc gần đây.
-- [ ] Highlight và note lưu được sau khi đóng app.
+- [x] Search không cần quét toàn bộ file mỗi lần với thư viện vừa/lớn.
+- [x] User có thể quay lại truyện đọc gần đây.
+- [x] Highlight và note lưu được sau khi đóng app.
 
 ---
 

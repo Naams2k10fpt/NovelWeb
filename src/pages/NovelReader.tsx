@@ -19,6 +19,18 @@ type BookmarkEntry = {
   updatedAt: string;
 };
 
+type HighlightColor = "yellow" | "green" | "pink" | "blue";
+
+type HighlightEntry = {
+  id: string;
+  text: string;
+  color: HighlightColor;
+  note: string;
+  scrollTop: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type ReaderTheme = "light" | "dark";
 
 type RendererApi = {
@@ -58,6 +70,22 @@ type RendererApi = {
       input: unknown
     ) => Promise<ApiResponse<BookmarkEntry | null>>;
   };
+  highlights?: {
+    listForChapter: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string
+    ) => Promise<ApiResponse<HighlightEntry[]>>;
+    create: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string,
+      input: unknown
+    ) => Promise<ApiResponse<HighlightEntry>>;
+    delete: (seriesId: string, highlightId: string) => Promise<ApiResponse<{ id: string }>>;
+  };
 };
 
 function getApi(): RendererApi | null {
@@ -70,6 +98,10 @@ function unwrap<T>(response: ApiResponse<T>): T {
   }
 
   return response.data;
+}
+
+function formatDate(value: string): string {
+  return new Date(value).toLocaleString();
 }
 
 export default function NovelReader({
@@ -85,6 +117,11 @@ export default function NovelReader({
   const [bookmark, setBookmark] = useState<BookmarkEntry | null>(null);
   const [bookmarkError, setBookmarkError] = useState<string | null>(null);
   const [bookmarkSaving, setBookmarkSaving] = useState(false);
+  const [highlightColor, setHighlightColor] = useState<HighlightColor>("yellow");
+  const [highlightError, setHighlightError] = useState<string | null>(null);
+  const [highlightNote, setHighlightNote] = useState("");
+  const [highlightSaving, setHighlightSaving] = useState(false);
+  const [highlights, setHighlights] = useState<HighlightEntry[]>([]);
   const [fontSize, setFontSize] = useState(18);
   const [html, setHtml] = useState("");
   const [readingWidth, setReadingWidth] = useState(760);
@@ -118,20 +155,25 @@ export default function NovelReader({
     setLoading(true);
     loadedRef.current = false;
     setError(null);
+    setHighlightError(null);
+    setHighlights([]);
 
     void Promise.all([
       api.chapters.getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId),
       api.chapters.getProgress(target.seriesId, target.categoryId, target.volumeId, target.chapterId),
       api.bookmarks?.get(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
-        Promise.resolve({ ok: true, data: null } as ApiResponse<BookmarkEntry | null>)
+        Promise.resolve({ ok: true, data: null } as ApiResponse<BookmarkEntry | null>),
+      api.highlights?.listForChapter(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
+        Promise.resolve({ ok: true, data: [] } as ApiResponse<HighlightEntry[]>)
     ])
-      .then(([contentResponse, progressResponse, bookmarkResponse]) => {
+      .then(([contentResponse, progressResponse, bookmarkResponse, highlightsResponse]) => {
         if (!isMounted) {
           return;
         }
 
         setHtml(unwrap(contentResponse).html || "<p>No content yet.</p>");
         setBookmark(unwrap(bookmarkResponse));
+        setHighlights(unwrap(highlightsResponse));
         loadedRef.current = true;
         setLoading(false);
         window.setTimeout(() => window.scrollTo({ top: target.scrollTop ?? unwrap(progressResponse).scrollTop }), 0);
@@ -193,6 +235,75 @@ export default function NovelReader({
     }
   }
 
+  function selectedReaderText(): string {
+    const selection = window.getSelection();
+    const readerContent = document.querySelector(".reader-content");
+
+    if (!selection || selection.isCollapsed || !readerContent || !selection.anchorNode || !selection.focusNode) {
+      return "";
+    }
+
+    if (!readerContent.contains(selection.anchorNode) || !readerContent.contains(selection.focusNode)) {
+      return "";
+    }
+
+    return selection.toString().replace(/\s+/g, " ").trim();
+  }
+
+  async function createHighlight(): Promise<void> {
+    const api = getApi();
+
+    if (!api?.highlights || !loadedRef.current) {
+      setHighlightError("Highlight API is unavailable. Restart the app or check the preload script.");
+      return;
+    }
+
+    const text = selectedReaderText();
+    if (!text) {
+      setHighlightError("Select text in the chapter first.");
+      return;
+    }
+
+    setHighlightError(null);
+    setHighlightSaving(true);
+
+    try {
+      const created = unwrap(
+        await api.highlights.create(target.seriesId, target.categoryId, target.volumeId, target.chapterId, {
+          text,
+          color: highlightColor,
+          note: highlightNote,
+          scrollTop: window.scrollY
+        })
+      );
+      setHighlights((current) => [created, ...current]);
+      setHighlightNote("");
+      window.getSelection()?.removeAllRanges();
+    } catch (createError) {
+      setHighlightError(String(createError));
+    } finally {
+      setHighlightSaving(false);
+    }
+  }
+
+  async function deleteHighlight(highlightId: string): Promise<void> {
+    const api = getApi();
+
+    if (!api?.highlights) {
+      setHighlightError("Highlight API is unavailable. Restart the app or check the preload script.");
+      return;
+    }
+
+    setHighlightError(null);
+
+    try {
+      unwrap(await api.highlights.delete(target.seriesId, highlightId));
+      setHighlights((current) => current.filter((item) => item.id !== highlightId));
+    } catch (deleteError) {
+      setHighlightError(String(deleteError));
+    }
+  }
+
   if (loading) {
     return (
       <section className="empty-state">
@@ -246,7 +357,50 @@ export default function NovelReader({
         </button>
       </div>
 
+      <div className="highlight-toolbar" aria-label="Highlight tools">
+        <label>
+          Color
+          <select onChange={(event) => setHighlightColor(event.target.value as HighlightColor)} value={highlightColor}>
+            <option value="yellow">Yellow</option>
+            <option value="green">Green</option>
+            <option value="pink">Pink</option>
+            <option value="blue">Blue</option>
+          </select>
+        </label>
+        <input
+          onChange={(event) => setHighlightNote(event.target.value)}
+          placeholder="Note"
+          type="text"
+          value={highlightNote}
+        />
+        <button disabled={highlightSaving} onClick={() => void createHighlight()} type="button">
+          {highlightSaving ? "Saving" : "Highlight selection"}
+        </button>
+      </div>
+
       {bookmarkError ? <p className="error-text">{bookmarkError}</p> : null}
+      {highlightError ? <p className="error-text">{highlightError}</p> : null}
+
+      {highlights.length > 0 ? (
+        <section className="chapter-highlights" aria-label="Chapter highlights">
+          <h3>Highlights</h3>
+          <ol>
+            {highlights.map((item) => (
+              <li key={item.id}>
+                <span className={`highlight-dot highlight-dot-${item.color}`} aria-hidden="true" />
+                <div>
+                  <blockquote>{item.text}</blockquote>
+                  {item.note ? <p>{item.note}</p> : null}
+                  <small>{formatDate(item.updatedAt)}</small>
+                </div>
+                <button onClick={() => void deleteHighlight(item.id)} type="button">
+                  Delete
+                </button>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
 
       <article className="reader-page" style={{ maxWidth: readingWidth }}>
         <h2>{target.title}</h2>
