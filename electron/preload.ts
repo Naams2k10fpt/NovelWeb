@@ -62,5 +62,9 @@ contextBridge.exposeInMainWorld("api", {
     scan: (importSessionId: string) => ipcRenderer.invoke("import:scan", importSessionId),
     readText: (importSessionId: string, fileId: string) => ipcRenderer.invoke("import:readText", importSessionId, fileId),
     execute: (importSessionId: string, input: unknown) => ipcRenderer.invoke("import:execute", importSessionId, input)
+  },
+  search: {
+    query: (query: string) => ipcRenderer.invoke("search:query", query),
+    rebuild: () => ipcRenderer.invoke("search:rebuild")
   }
 });

@@ -354,18 +354,24 @@ Ghi chú: Đã polish PDF Split View tối thiểu: ẩn menu bar Electron mặc
 
 ## Phase 9 - Search, bookmark, highlight, note
 
-**Trạng thái:** `[ ]`
+**Trạng thái:** `[~]`
 
 **Mục tiêu:** Biến app thành thư viện đọc và ghi chú cá nhân hoàn chỉnh hơn.
 
+### Nhóm triển khai
+
+- Nhóm 1 - Search MVP: index từ `content.txt`, cập nhật khi chapter đổi, UI kết quả, highlight keyword, mở đúng chapter.
+- Nhóm 2 - Recent/bookmark: recent reading, bookmark chapter, bookmark vị trí đọc.
+- Nhóm 3 - Highlight/note: highlight đoạn text, chọn màu, note trên highlight, quản lý danh sách.
+
 ### Checklist
 
-- [ ] Search từ `content.txt`.
-- [ ] Tạo `search-index.json`.
-- [ ] Update search index khi chapter thay đổi.
-- [ ] Search result hiển thị series/volume/chapter.
-- [ ] Search result highlight keyword.
-- [ ] Click result để mở đúng chapter.
+- [x] Search từ `content.txt`.
+- [x] Tạo `search-index.json`.
+- [x] Update search index khi chapter thay đổi.
+- [x] Search result hiển thị series/volume/chapter.
+- [x] Search result highlight keyword.
+- [x] Click result để mở đúng chapter.
 - [ ] Bookmark chapter.
 - [ ] Bookmark vị trí đọc.
 - [ ] Highlight đoạn text.

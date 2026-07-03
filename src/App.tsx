@@ -4,9 +4,10 @@ import Library from "./pages/Library";
 import Manager from "./pages/Manager";
 import NovelEditor, { type ChapterTarget } from "./pages/NovelEditor";
 import NovelReader from "./pages/NovelReader";
+import Search from "./pages/Search";
 import SeriesDetail from "./pages/SeriesDetail";
 
-type Mode = "library" | "manager" | "import" | "settings";
+type Mode = "library" | "search" | "manager" | "import" | "settings";
 type ChapterMode = "edit" | "read";
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -34,6 +35,11 @@ const modes: Record<Mode, { label: string; eyebrow: string; title: string }> = {
     label: "Library",
     eyebrow: "Library",
     title: "Your novels"
+  },
+  search: {
+    label: "Search",
+    eyebrow: "Search",
+    title: "Find chapters"
   },
   manager: {
     label: "Manager",
@@ -177,28 +183,28 @@ export default function App() {
   }
 
   function renderWorkspaceContent() {
-    if (mode === "library") {
-      if (selectedChapter) {
-        if (chapterMode === "edit") {
-          return (
-            <NovelEditor
-              onBack={closeChapter}
-              onDirtyChange={setChapterDirty}
-              onRead={() => openChapter(selectedChapter, "read")}
-              target={selectedChapter}
-            />
-          );
-        }
-
+    if (selectedChapter) {
+      if (chapterMode === "edit") {
         return (
-          <NovelReader
+          <NovelEditor
             onBack={closeChapter}
-            onEdit={() => openChapter(selectedChapter, "edit")}
+            onDirtyChange={setChapterDirty}
+            onRead={() => openChapter(selectedChapter, "read")}
             target={selectedChapter}
           />
         );
       }
 
+      return (
+        <NovelReader
+          onBack={closeChapter}
+          onEdit={() => openChapter(selectedChapter, "edit")}
+          target={selectedChapter}
+        />
+      );
+    }
+
+    if (mode === "library") {
       if (selectedSeriesId) {
         return (
           <SeriesDetail
@@ -218,6 +224,16 @@ export default function App() {
         <Library
           library={library}
           onOpenSeries={openSeries}
+          onOpenSettings={() => openMode("settings")}
+        />
+      );
+    }
+
+    if (mode === "search") {
+      return (
+        <Search
+          library={library}
+          onOpenChapter={(target) => openChapter(target, "read")}
           onOpenSettings={() => openMode("settings")}
         />
       );
