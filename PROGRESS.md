@@ -277,6 +277,7 @@ Ghi chú: Đã thêm import TXT/MD tối thiểu: bước confirm đọc text qu
 Ghi chú: Đã thêm import PDF tối thiểu không parser: tạo chapter, copy file gốc vào `original.pdf`, đặt `hasOriginalPdf`, ghi report trạng thái `unsupported` để biết text extraction/split view sẽ làm sau.
 Ghi chú: Đã thêm dependency Phase 6 theo `PLAN.md`: `mammoth`, `pdf-parse`, `pdfjs-dist`; Import Wizard đọc preview text cho DOCX/PDF, cho sửa trước import, PDF parser dùng `pdf-parse` và fallback `pdfjs-dist`.
 Ghi chú: Đã thêm PDF Split View trong NovelEditor: main process đọc `original.pdf` qua API hẹp, renderer hiển thị PDF gốc bên trái bằng iframe và editor text bên phải.
+Ghi chú: Đã polish PDF Split View tối thiểu: ẩn menu bar Electron mặc định, tắt spellcheck trong editor, giảm chrome PDF viewer và cho hai pane dùng chiều cao viewport/cuộn độc lập.
 
 ### Tiêu chí hoàn thành
 

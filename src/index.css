@@ -362,7 +362,8 @@ body {
 }
 
 .novel-editor-split {
-  max-width: 1280px;
+  width: 100%;
+  max-width: 1480px;
 }
 
 .novel-editor-header {
@@ -418,6 +419,12 @@ body {
   font-size: 13px;
 }
 
+.novel-editor-split .editor-status {
+  margin-left: 4px;
+  padding-left: 12px;
+  border-left: 1px solid #ddd4c7;
+}
+
 .editor-status-error {
   color: #b42318;
 }
@@ -431,15 +438,16 @@ body {
 
 .pdf-split-view {
   display: grid;
-  grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(420px, 1fr) minmax(460px, 1fr);
+  gap: 12px;
   align-items: stretch;
 }
 
 .pdf-pane {
   display: grid;
   grid-template-rows: auto 1fr;
-  min-height: 640px;
+  height: clamp(560px, calc(100vh - 300px), 760px);
+  min-height: 0;
   border: 1px solid #ddd4c7;
   border-radius: 8px;
   background: #fffaf2;
@@ -451,8 +459,8 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 44px;
-  padding: 0 12px;
+  min-height: 36px;
+  padding: 0 10px;
   border-bottom: 1px solid #ddd4c7;
 }
 
@@ -473,15 +481,23 @@ body {
 }
 
 .pdf-frame {
+  display: block;
   width: 100%;
-  min-height: 596px;
+  height: 100%;
+  min-height: 0;
   border: 0;
   background: #ffffff;
 }
 
-.editor-surface-split,
+.editor-surface-split {
+  height: clamp(560px, calc(100vh - 300px), 760px);
+  min-height: 0;
+  overflow: auto;
+}
+
 .editor-surface-split .novel-editor-content {
-  min-height: 640px;
+  min-height: 100%;
+  padding: 28px 32px;
 }
 
 .novel-editor-content {
@@ -890,5 +906,15 @@ body {
 @media (max-width: 980px) {
   .pdf-split-view {
     grid-template-columns: 1fr;
+  }
+
+  .pdf-pane,
+  .editor-surface-split {
+    height: auto;
+    min-height: 520px;
+  }
+
+  .pdf-frame {
+    min-height: 520px;
   }
 }

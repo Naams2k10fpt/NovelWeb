@@ -160,7 +160,8 @@ export default function NovelEditor({
     editorProps: {
       attributes: {
         "aria-label": "Chapter editor",
-        class: "novel-editor-content"
+        class: "novel-editor-content",
+        spellcheck: "false"
       }
     },
     onUpdate: ({ editor: currentEditor }) => {
@@ -446,7 +447,11 @@ export default function NovelEditor({
               <span>Original PDF</span>
               <strong>{originalPdf.fileName}</strong>
             </div>
-            <iframe className="pdf-frame" src={originalPdf.dataUrl} title={originalPdf.fileName} />
+            <iframe
+              className="pdf-frame"
+              src={`${originalPdf.dataUrl}#toolbar=0&navpanes=0&view=FitH`}
+              title={originalPdf.fileName}
+            />
           </section>
 
           <div className="editor-surface editor-surface-split">
