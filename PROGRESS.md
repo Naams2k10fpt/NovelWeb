@@ -295,34 +295,36 @@ Ghi chú: Đã polish PDF Split View tối thiểu: ẩn menu bar Electron mặc
 
 ## Phase 7 - Manga management
 
-**Trạng thái:** `[ ]`
+**Trạng thái:** `[x]`
 
 **Mục tiêu:** Quản lý manga theo chapter và page một cách nhẹ, không làm app lag.
 
 ### Checklist
 
-- [ ] Tạo manga category.
-- [ ] Tạo manga chapter.
-- [ ] Add pages từ file picker.
-- [ ] Add pages bằng drag & drop.
-- [ ] Remove page.
-- [ ] Remove nhiều page.
-- [ ] Reorder pages.
-- [ ] Lưu `pageOrder`.
-- [ ] Lưu `pageCount`.
-- [ ] Lưu `totalSizeBytes`.
-- [ ] Tạo thumbnail cache.
-- [ ] PageManager dùng thumbnail trong grid.
-- [ ] PageManager không load full-size toàn bộ ảnh cùng lúc.
-- [ ] Click thumbnail để preview ảnh lớn.
-- [ ] Confirm trước khi xóa page.
+- [x] Tạo manga category.
+- [x] Tạo manga chapter.
+- [x] Add pages từ file picker.
+- [x] Add pages bằng drag & drop.
+- [x] Remove page.
+- [x] Remove nhiều page.
+- [x] Reorder pages.
+- [x] Lưu `pageOrder`.
+- [x] Lưu `pageCount`.
+- [x] Lưu `totalSizeBytes`.
+- [x] Tạo thumbnail cache.
+- [x] PageManager dùng thumbnail trong grid.
+- [x] PageManager không load full-size toàn bộ ảnh cùng lúc.
+- [x] Click thumbnail để preview ảnh lớn.
+- [x] Confirm trước khi xóa page.
+
+Ghi chú: Đã thêm PageManager tối thiểu trong Manager; manga pages lưu ở `chapters/{chapterId}/pages`, thumbnail cache ở `thumbnails`. Drag/drop dùng `webUtils.getPathForFile` trong preload rồi main process copy file, renderer không đọc filesystem bằng Node API.
 
 ### Tiêu chí hoàn thành
 
-- [ ] User có thể tạo manga chapter và thêm trang.
-- [ ] User có thể sắp xếp lại thứ tự trang.
-- [ ] PageManager vẫn mượt với chapter nhiều ảnh.
-- [ ] Metadata page luôn khớp với file thực tế.
+- [x] User có thể tạo manga chapter và thêm trang.
+- [x] User có thể sắp xếp lại thứ tự trang.
+- [x] PageManager vẫn mượt với chapter nhiều ảnh.
+- [x] Metadata page luôn khớp với file thực tế.
 
 ---
 

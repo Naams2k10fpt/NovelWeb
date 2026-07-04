@@ -11,15 +11,21 @@ NovelWeb hiện đã hoàn thành:
 - Phase 0: Chốt nền tảng kỹ thuật và phạm vi MVP.
 - Phase 1: Khởi tạo app Electron + Vite + React + TypeScript.
 - Phase 2: Nền tảng lưu trữ an toàn.
+- Phase 3: Data model core cho Series, Category, Volume và Chapter LN/WN.
+- Phase 4: UI Library và Manager cơ bản.
+- Phase 5: Novel editor và reader.
+- Phase 6: Import TXT/MD/DOCX/PDF.
+- Phase 7: Manga management.
+- Phase 9: Search, bookmark, highlight, note và recent reading.
 
-Phase tiếp theo là Phase 3: xây dựng data model core cho Series, Category, Volume và Chapter.
+Phase tiếp theo là Phase 8: Manga reader.
 
-> Lưu ý: CRUD truyện, editor, reader, import/export, manga reader, search, bookmark, highlight và backup/restore đầy đủ vẫn đang nằm trong roadmap, chưa phải tính năng hoàn chỉnh ở trạng thái hiện tại.
+> Lưu ý: Manga reader, export PDF/EPUB, backup/restore đầy đủ và build installer vẫn đang nằm trong roadmap.
 
 ## Tính năng đã có
 
 - App desktop Electron chạy bằng `electron-vite`.
-- Renderer React với các tab cơ bản: Library, Manager và Settings.
+- Renderer React với các tab Library, Search, Manager, Import và Settings.
 - Chọn và đổi Library folder bằng Electron dialog.
 - Lưu `currentLibraryPath` trong `app.getPath("userData")`.
 - Tạo cấu trúc Library folder tự động:
@@ -42,6 +48,15 @@ Phase tiếp theo là Phase 3: xây dựng data model core cho Series, Category,
 - Kiểm tra `schemaVersion` khi mở Library.
 - Per-resource write queue để tránh các lần ghi cùng file chạy chồng nhau.
 - IPC response thống nhất dạng `{ ok, data, error }`.
+- CRUD Series, Category, Volume và Chapter LN/WN.
+- Library/Series Detail/Manager UI để duyệt và quản lý cấu trúc truyện.
+- TipTap editor với toolbar cơ bản, autosave, Ctrl+S và trạng thái lưu.
+- Lưu `content.html`, sinh `content.txt`, sanitize HTML và hỗ trợ ảnh inline.
+- NovelReader với font size, reading width, theme và progress theo scroll.
+- Import Wizard cho TXT, MD, DOCX và PDF qua import session từ Electron dialog.
+- PDF split view để đối chiếu PDF gốc với text/editor.
+- Manga chapter/page management với file picker, drag/drop, thumbnail grid, preview và reorder.
+- Search qua `search-index.json`, bookmark, highlight/note và recent reading.
 
 ## Tầm nhìn tính năng
 
@@ -67,7 +82,7 @@ Khi hoàn thiện, NovelWeb sẽ hỗ trợ:
 - TypeScript
 - electron-vite
 
-Các dependency hiện tại được giữ tối thiểu cho giai đoạn nền tảng. Những thư viện như editor, import parser, drag & drop, icons hoặc packaging sẽ được thêm khi đến phase tương ứng.
+Các dependency hiện tại bao gồm nền app, editor và parser import. Icons hoặc packaging sẽ được thêm khi đến phase tương ứng.
 
 ## Kiến trúc
 
@@ -78,14 +93,19 @@ Electron App
 │   ├── Library path management
 │   ├── Safe file I/O
 │   ├── JSON/index storage
+│   ├── Import/PDF parsing
+│   ├── Search/reading state
+│   ├── Manga page storage
 │   └── Migration/health-check foundation
 ├── Preload
 │   └── Narrow API exposed through contextBridge
 └── Renderer
     ├── React UI
-    ├── Library tab
-    ├── Manager tab
-    └── Settings tab
+    ├── Library/Search
+    ├── Manager/Import
+    ├── Novel editor/reader
+    ├── Manga PageManager
+    └── Settings
 ```
 
 Nguyên tắc quan trọng:
@@ -203,13 +223,10 @@ Workflow hiện tại:
 
 ## Roadmap
 
-- Phase 3: Core data model cho Series, Category, Volume và Chapter LN/WN.
-- Phase 4: UI Library và Manager cơ bản.
-- Phase 5: Novel editor và reader.
-- Phase 6: Import TXT/MD/DOCX/PDF.
-- Phase 7: Manga management.
+- Phase 0-6: Đã hoàn thành nền app, storage, data model, Library/Manager, editor/reader và import.
+- Phase 7: Đã hoàn thành Manga management.
 - Phase 8: Manga reader.
-- Phase 9: Search, bookmark, highlight và note.
+- Phase 9: Đã hoàn thành search, bookmark, highlight và note.
 - Phase 10: Export PDF/EPUB.
 - Phase 11: Backup, restore và migration.
 - Phase 12: Build final và kiểm thử toàn bộ workflow.
@@ -222,4 +239,4 @@ Workflow hiện tại:
 
 ## Ghi chú
 
-NovelWeb hiện là dự án cá nhân đang phát triển. README này phản ánh trạng thái sau Phase 2: nền app và storage foundation đã sẵn sàng, còn các workflow quản lý/trình đọc/editor/import sẽ được triển khai ở các phase tiếp theo.
+NovelWeb hiện là dự án cá nhân đang phát triển. README này phản ánh trạng thái sau Phase 7 và Phase 9; phần tiếp theo ưu tiên Manga reader trước export, backup/restore và build final.

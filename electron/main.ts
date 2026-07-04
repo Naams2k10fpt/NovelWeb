@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, type OpenDialogOptions } from "electron";
 import mammoth from "mammoth";
 import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
@@ -20,8 +20,13 @@ import {
 import { VOLUME_METADATA_SCHEMA_VERSION, type VolumeMetadata } from "./schemas/volume";
 import {
   CHAPTER_METADATA_SCHEMA_VERSION,
+  MANGA_READING_DIRECTIONS,
+  MANGA_VIEW_MODES,
   NOVEL_CHAPTER_TYPES,
   TRANSLATION_STATUSES,
+  type MangaChapterMetadata,
+  type MangaReadingDirection,
+  type MangaViewMode,
   type NovelChapterMetadata,
   type NovelChapterType,
   type TranslationStatus
@@ -40,6 +45,7 @@ const ErrorCode = {
   VOLUME_CRUD_FAILED: "VOLUME_CRUD_FAILED",
   CHAPTER_CRUD_FAILED: "CHAPTER_CRUD_FAILED",
   IMPORT_FAILED: "IMPORT_FAILED",
+  MANGA_FAILED: "MANGA_FAILED",
   SEARCH_FAILED: "SEARCH_FAILED",
   READING_STATE_FAILED: "READING_STATE_FAILED"
 } as const;
@@ -57,6 +63,7 @@ const MAX_SEARCH_RESULTS = 50;
 const SEARCH_SNIPPET_RADIUS = 90;
 const MAX_RECENT_ENTRIES = 50;
 const HIGHLIGHT_COLORS = ["yellow", "green", "pink", "blue"] as const;
+const MANGA_THUMBNAIL_WIDTH = 220;
 const importSessions = new Map<string, ImportSession>();
 const writeQueues = new Map<string, Promise<unknown>>();
 
@@ -277,6 +284,8 @@ type ChapterImageAsset = {
   fileName: string;
 };
 
+type ChapterMetadata = NovelChapterMetadata | MangaChapterMetadata;
+
 type ChapterOriginalPdf = {
   dataUrl: string;
   fileName: string;
@@ -290,6 +299,24 @@ type ChapterReadingProgress = {
 type SeriesProgress = {
   schemaVersion: SupportedSchemaVersion;
   chapters: Record<string, ChapterReadingProgress>;
+};
+
+type MangaPageSummary = {
+  fileName: string;
+  thumbnailFileName: string;
+  thumbnailDataUrl: string | null;
+  sizeBytes: number;
+};
+
+type MangaChapterPages = {
+  chapter: MangaChapterMetadata;
+  pages: MangaPageSummary[];
+};
+
+type MangaPageData = {
+  fileName: string;
+  dataUrl: string;
+  sizeBytes: number;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -616,6 +643,34 @@ function readTranslationStatus(record: JsonRecord, fallback: TranslationStatus):
   throw new Error("translationStatus is invalid.");
 }
 
+function readMangaReadingDirection(record: JsonRecord, fallback: MangaReadingDirection): MangaReadingDirection {
+  const value = record.readingDirection;
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value === "string" && (MANGA_READING_DIRECTIONS as readonly string[]).includes(value)) {
+    return value as MangaReadingDirection;
+  }
+
+  throw new Error("readingDirection is invalid.");
+}
+
+function readMangaViewMode(record: JsonRecord, fallback: MangaViewMode): MangaViewMode {
+  const value = record.viewMode;
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value === "string" && (MANGA_VIEW_MODES as readonly string[]).includes(value)) {
+    return value as MangaViewMode;
+  }
+
+  throw new Error("viewMode is invalid.");
+}
+
 function seriesDirectoryPath(libraryPath: string, seriesId: string): string {
   return libraryChildPath(libraryPath, "series", assertId(seriesId, "seriesId"));
 }
@@ -775,8 +830,34 @@ function chapterAssetPath(
   );
 }
 
+function mangaPagesDirectoryPath(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string
+): string {
+  return libraryChildPath(chapterDirectoryPath(libraryPath, seriesId, categoryId, null, chapterId), "pages");
+}
+
+function mangaThumbnailsDirectoryPath(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string
+): string {
+  return libraryChildPath(chapterDirectoryPath(libraryPath, seriesId, categoryId, null, chapterId), "thumbnails");
+}
+
 function isSafeImageFileName(fileName: string): boolean {
   return /^[a-zA-Z0-9._-]+$/.test(fileName) && IMAGE_FILE_EXTENSIONS.has(extname(fileName).toLowerCase());
+}
+
+function assertSafeImageFileName(fileName: string): string {
+  if (!isSafeImageFileName(fileName)) {
+    throw new Error("Image file name is invalid.");
+  }
+
+  return fileName;
 }
 
 function chapterAssetSource(fileName: string): string {
@@ -801,6 +882,37 @@ function imageFileNameFromAssetSource(source: string | null): string | null {
 
   const fileName = normalizedSource.slice(prefix.length);
   return fileName === basename(fileName) && isSafeImageFileName(fileName) ? fileName : null;
+}
+
+function mangaPagePath(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string,
+  fileName: string
+): string {
+  return libraryChildPath(
+    mangaPagesDirectoryPath(libraryPath, seriesId, categoryId, chapterId),
+    assertSafeImageFileName(fileName)
+  );
+}
+
+function mangaThumbnailFileName(pageFileName: string): string {
+  const safeFileName = assertSafeImageFileName(pageFileName);
+  return `${basename(safeFileName, extname(safeFileName))}.png`;
+}
+
+function mangaThumbnailPath(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string,
+  pageFileName: string
+): string {
+  return libraryChildPath(
+    mangaThumbnailsDirectoryPath(libraryPath, seriesId, categoryId, chapterId),
+    mangaThumbnailFileName(pageFileName)
+  );
 }
 
 async function ensureLibraryDirectory(libraryPath: string, directoryName: string): Promise<void> {
@@ -2154,6 +2266,25 @@ function imageMimeType(fileName: string): string {
   return "image/jpeg";
 }
 
+async function readImageDataUrl(filePath: string, fileName: string): Promise<string> {
+  const image = await readFile(filePath);
+  return `data:${imageMimeType(fileName)};base64,${image.toString("base64")}`;
+}
+
+async function writeMangaThumbnail(sourcePath: string, targetPath: string): Promise<boolean> {
+  const image = nativeImage.createFromPath(sourcePath);
+
+  if (image.isEmpty()) {
+    return false;
+  }
+
+  const tmpPath = `${targetPath}.tmp`;
+  await mkdir(dirname(targetPath), { recursive: true });
+  await writeFile(tmpPath, image.resize({ width: MANGA_THUMBNAIL_WIDTH }).toPNG());
+  await rename(tmpPath, targetPath);
+  return true;
+}
+
 async function readSeriesCoverDataUrl(libraryPath: string, entry: SeriesIndexEntry): Promise<string | null> {
   if (!entry.coverImage) {
     return null;
@@ -2161,9 +2292,8 @@ async function readSeriesCoverDataUrl(libraryPath: string, entry: SeriesIndexEnt
 
   try {
     const fileName = basename(entry.coverImage);
-    const cover = await readFile(libraryChildPath(libraryPath, "series", entry.id, fileName));
     // ponytail: data URLs are enough for MVP; add thumbnails/protocol if cover loading gets slow.
-    return `data:${imageMimeType(fileName)};base64,${cover.toString("base64")}`;
+    return readImageDataUrl(libraryChildPath(libraryPath, "series", entry.id, fileName), fileName);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return null;
@@ -3027,6 +3157,506 @@ async function moveNovelChapterToTrash(
   return { id: chapter.id, trashPath };
 }
 
+function assertMangaCategory(category: CategoryMetadata): void {
+  if (category.type !== "manga") {
+    throw new Error("Manga pages are only available for manga categories.");
+  }
+}
+
+async function assertMangaChapterScope(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null
+): Promise<CategoryMetadata> {
+  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  assertMangaCategory(category);
+
+  if (volumeId) {
+    throw new Error("Manga chapters do not support volumes.");
+  }
+
+  return category;
+}
+
+function parseMangaChapterCreateInput(input: unknown, orderFallback: number): MangaChapterMetadata {
+  const record = assertRecord(input);
+  const now = new Date().toISOString();
+
+  return {
+    schemaVersion: CHAPTER_METADATA_SCHEMA_VERSION,
+    id: randomUUID(),
+    title: readRequiredString(record, "title"),
+    order: readOptionalInteger(record, "order", orderFallback),
+    pageCount: 0,
+    pageOrder: [],
+    readingDirection: readMangaReadingDirection(record, "rtl"),
+    viewMode: readMangaViewMode(record, "long-strip"),
+    thumbnail: null,
+    totalSizeBytes: 0,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function parseMangaChapterUpdateInput(input: unknown, current: MangaChapterMetadata): MangaChapterMetadata {
+  const record = assertRecord(input);
+
+  return {
+    ...current,
+    title: record.title === undefined ? current.title : readRequiredString(record, "title"),
+    order: readOptionalInteger(record, "order", current.order),
+    readingDirection: readMangaReadingDirection(record, current.readingDirection),
+    viewMode: readMangaViewMode(record, current.viewMode),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function readMangaChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string
+): Promise<MangaChapterMetadata> {
+  await assertMangaChapterScope(libraryPath, seriesId, categoryId, null);
+  const metadata = await readJsonFile<MangaChapterMetadata>(
+    chapterMetaPath(libraryPath, seriesId, categoryId, null, chapterId)
+  );
+  assertSupportedSchemaVersion(`series/${seriesId}/categories/${categoryId}/chapters/${chapterId}/meta.json`, metadata);
+  return metadata;
+}
+
+async function listMangaChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string
+): Promise<MangaChapterMetadata[]> {
+  const category = await assertMangaChapterScope(libraryPath, seriesId, categoryId, null);
+  const chapterDirectory = libraryChildPath(libraryPath, "series", seriesId, "categories", categoryId, "chapters");
+  const entries = await readdir(chapterDirectory, { withFileTypes: true });
+  const chapters = new Map<string, MangaChapterMetadata>();
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    try {
+      const metadata = await readMangaChapterMetadata(libraryPath, seriesId, categoryId, entry.name);
+      chapters.set(metadata.id, metadata);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  return [
+    ...category.chapterOrder.map((chapterId) => chapters.get(chapterId)).filter((item): item is MangaChapterMetadata => !!item),
+    ...[...chapters.values()].filter((chapter) => !category.chapterOrder.includes(chapter.id))
+  ];
+}
+
+async function createMangaChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  input: unknown
+): Promise<MangaChapterMetadata> {
+  const category = await assertMangaChapterScope(libraryPath, seriesId, categoryId, null);
+  const metadata = parseMangaChapterCreateInput(input, category.chapterOrder.length + 1);
+  const now = new Date().toISOString();
+
+  await mkdir(chapterDirectoryPath(libraryPath, seriesId, categoryId, null, metadata.id), { recursive: true });
+  await mkdir(mangaPagesDirectoryPath(libraryPath, seriesId, categoryId, metadata.id), { recursive: true });
+  await mkdir(mangaThumbnailsDirectoryPath(libraryPath, seriesId, categoryId, metadata.id), { recursive: true });
+  await writeJsonFile(chapterMetaPath(libraryPath, seriesId, categoryId, null, metadata.id), metadata);
+  await writeJsonFile(
+    categoryMetaPath(libraryPath, seriesId, categoryId),
+    { ...category, chapterOrder: [...category.chapterOrder, metadata.id], updatedAt: now } satisfies CategoryMetadata,
+    { backup: true }
+  );
+
+  return metadata;
+}
+
+async function updateMangaChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string,
+  input: unknown
+): Promise<MangaChapterMetadata> {
+  const current = await readMangaChapterMetadata(libraryPath, seriesId, categoryId, chapterId);
+  const metadata = parseMangaChapterUpdateInput(input, current);
+  await writeJsonFile(chapterMetaPath(libraryPath, seriesId, categoryId, null, chapterId), metadata, { backup: true });
+  return metadata;
+}
+
+async function moveMangaChapterToTrash(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string
+): Promise<{ id: string; trashPath: string }> {
+  const category = await assertMangaChapterScope(libraryPath, seriesId, categoryId, null);
+  const chapter = await readMangaChapterMetadata(libraryPath, seriesId, categoryId, chapterId);
+  const trashPath = trashItemDirectoryPath(libraryPath, "manga-chapter", chapter.id);
+  const now = new Date().toISOString();
+
+  await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
+  await rename(chapterDirectoryPath(libraryPath, seriesId, categoryId, null, chapter.id), trashPath);
+  await writeJsonFile(
+    categoryMetaPath(libraryPath, seriesId, categoryId),
+    { ...category, chapterOrder: category.chapterOrder.filter((id) => id !== chapter.id), updatedAt: now } satisfies CategoryMetadata,
+    { backup: true }
+  );
+
+  return { id: chapter.id, trashPath };
+}
+
+async function listChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null
+): Promise<ChapterMetadata[]> {
+  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  if (category.type === "manga") {
+    await assertMangaChapterScope(libraryPath, seriesId, categoryId, volumeId);
+    return listMangaChapterMetadata(libraryPath, seriesId, categoryId);
+  }
+
+  return listNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId);
+}
+
+async function readChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<ChapterMetadata> {
+  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  if (category.type === "manga") {
+    await assertMangaChapterScope(libraryPath, seriesId, categoryId, volumeId);
+    return readMangaChapterMetadata(libraryPath, seriesId, categoryId, chapterId);
+  }
+
+  return readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+}
+
+async function createChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  input: unknown
+): Promise<ChapterMetadata> {
+  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  if (category.type === "manga") {
+    await assertMangaChapterScope(libraryPath, seriesId, categoryId, volumeId);
+    return createMangaChapterMetadata(libraryPath, seriesId, categoryId, input);
+  }
+
+  return createNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, input);
+}
+
+async function updateChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  input: unknown
+): Promise<ChapterMetadata> {
+  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  if (category.type === "manga") {
+    await assertMangaChapterScope(libraryPath, seriesId, categoryId, volumeId);
+    return updateMangaChapterMetadata(libraryPath, seriesId, categoryId, chapterId, input);
+  }
+
+  return updateNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId, input);
+}
+
+async function moveChapterToTrash(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<{ id: string; trashPath: string }> {
+  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  if (category.type === "manga") {
+    await assertMangaChapterScope(libraryPath, seriesId, categoryId, volumeId);
+    return moveMangaChapterToTrash(libraryPath, seriesId, categoryId, chapterId);
+  }
+
+  return moveNovelChapterToTrash(libraryPath, seriesId, categoryId, volumeId, chapterId);
+}
+
+async function mangaPagesTotalSize(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string,
+  pageOrder: string[]
+): Promise<number> {
+  let totalSizeBytes = 0;
+
+  for (const fileName of pageOrder) {
+    totalSizeBytes += (await stat(mangaPagePath(libraryPath, seriesId, categoryId, chapterId, fileName))).size;
+  }
+
+  return totalSizeBytes;
+}
+
+async function readMangaPageSummary(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string,
+  fileName: string
+): Promise<MangaPageSummary> {
+  const sizeBytes = (await stat(mangaPagePath(libraryPath, seriesId, categoryId, chapterId, fileName))).size;
+  const thumbnailFileName = mangaThumbnailFileName(fileName);
+  let thumbnailDataUrl: string | null = null;
+
+  try {
+    thumbnailDataUrl = await readImageDataUrl(
+      mangaThumbnailPath(libraryPath, seriesId, categoryId, chapterId, fileName),
+      thumbnailFileName
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  return { fileName, thumbnailFileName, thumbnailDataUrl, sizeBytes };
+}
+
+async function readMangaChapterPages(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string
+): Promise<MangaChapterPages> {
+  const chapter = await readMangaChapterMetadata(libraryPath, seriesId, categoryId, chapterId);
+  const pages = await Promise.all(
+    chapter.pageOrder.map((fileName) => readMangaPageSummary(libraryPath, seriesId, categoryId, chapterId, fileName))
+  );
+
+  return { chapter, pages };
+}
+
+function assertPageOrderInput(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error("pageOrder must be an array.");
+  }
+
+  const pageOrder = value.map((item) => assertSafeImageFileName(String(item)));
+
+  if (new Set(pageOrder).size !== pageOrder.length) {
+    throw new Error("pageOrder must not contain duplicates.");
+  }
+
+  return pageOrder;
+}
+
+function assertSourcePathArray(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || item.trim() === "")) {
+    throw new Error("sourcePaths must be a string array.");
+  }
+
+  return value.map((item) => item.trim());
+}
+
+function assertSamePageSet(nextPageOrder: string[], currentPageOrder: string[]): void {
+  if (nextPageOrder.length !== currentPageOrder.length) {
+    throw new Error("pageOrder must include every current page.");
+  }
+
+  const current = new Set(currentPageOrder);
+  if (nextPageOrder.some((fileName) => !current.has(fileName))) {
+    throw new Error("pageOrder contains an unknown page.");
+  }
+}
+
+async function chooseMangaPages(
+  window: BrowserWindow | null,
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string
+): Promise<MangaChapterPages | null> {
+  await readMangaChapterMetadata(libraryPath, seriesId, categoryId, chapterId);
+
+  const options: OpenDialogOptions = {
+    title: "Choose manga pages",
+    properties: ["openFile", "multiSelections"],
+    filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png", "webp", "gif"] }]
+  };
+  const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  return addMangaPageFiles(libraryPath, seriesId, categoryId, chapterId, result.filePaths);
+}
+
+async function addMangaPageFiles(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string,
+  sourcePaths: string[]
+): Promise<MangaChapterPages> {
+  return withResourceWriteLock(chapterDirectoryPath(libraryPath, seriesId, categoryId, null, chapterId), async () => {
+    const current = await readMangaChapterMetadata(libraryPath, seriesId, categoryId, chapterId);
+    const pageDirectory = mangaPagesDirectoryPath(libraryPath, seriesId, categoryId, chapterId);
+    const thumbnailDirectory = mangaThumbnailsDirectoryPath(libraryPath, seriesId, categoryId, chapterId);
+    const addedPageOrder: string[] = [];
+
+    await mkdir(pageDirectory, { recursive: true });
+    await mkdir(thumbnailDirectory, { recursive: true });
+
+    for (const sourcePath of sourcePaths) {
+      const sourceStat = await stat(sourcePath);
+      const extension = extname(sourcePath).toLowerCase();
+
+      if (!sourceStat.isFile() || !IMAGE_FILE_EXTENSIONS.has(extension)) {
+        throw new Error(`Unsupported manga page: ${basename(sourcePath)}`);
+      }
+
+      const fileName = `${randomUUID()}${extension}`;
+      const targetPath = mangaPagePath(libraryPath, seriesId, categoryId, chapterId, fileName);
+      const tmpPath = `${targetPath}.tmp`;
+
+      await copyFile(sourcePath, tmpPath);
+      await rename(tmpPath, targetPath);
+      await writeMangaThumbnail(targetPath, mangaThumbnailPath(libraryPath, seriesId, categoryId, chapterId, fileName));
+      addedPageOrder.push(fileName);
+    }
+
+    const pageOrder = [...current.pageOrder, ...addedPageOrder];
+    const next: MangaChapterMetadata = {
+      ...current,
+      pageOrder,
+      pageCount: pageOrder.length,
+      thumbnail: pageOrder[0] ? mangaThumbnailFileName(pageOrder[0]) : null,
+      totalSizeBytes: await mangaPagesTotalSize(libraryPath, seriesId, categoryId, chapterId, pageOrder),
+      updatedAt: new Date().toISOString()
+    };
+    await writeJsonFile(chapterMetaPath(libraryPath, seriesId, categoryId, null, chapterId), next, { backup: true });
+
+    return readMangaChapterPages(libraryPath, seriesId, categoryId, chapterId);
+  });
+}
+
+async function moveExistingFileToDirectory(sourcePath: string, targetDirectoryPath: string): Promise<void> {
+  try {
+    await rename(sourcePath, join(targetDirectoryPath, basename(sourcePath)));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+}
+
+async function removeMangaPages(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string,
+  input: unknown
+): Promise<MangaChapterPages> {
+  return withResourceWriteLock(chapterDirectoryPath(libraryPath, seriesId, categoryId, null, chapterId), async () => {
+    const record = assertRecord(input);
+    const fileNames = assertPageOrderInput(record.fileNames);
+    const current = await readMangaChapterMetadata(libraryPath, seriesId, categoryId, chapterId);
+    const removeSet = new Set(fileNames);
+
+    if (fileNames.length === 0) {
+      return readMangaChapterPages(libraryPath, seriesId, categoryId, chapterId);
+    }
+
+    if (fileNames.some((fileName) => !current.pageOrder.includes(fileName))) {
+      throw new Error("Cannot remove an unknown page.");
+    }
+
+    const trashPath = trashItemDirectoryPath(libraryPath, "manga-pages", chapterId);
+    await mkdir(trashPath, { recursive: true });
+
+    for (const fileName of fileNames) {
+      await moveExistingFileToDirectory(mangaPagePath(libraryPath, seriesId, categoryId, chapterId, fileName), trashPath);
+      await moveExistingFileToDirectory(mangaThumbnailPath(libraryPath, seriesId, categoryId, chapterId, fileName), trashPath);
+    }
+
+    const pageOrder = current.pageOrder.filter((fileName) => !removeSet.has(fileName));
+    const next: MangaChapterMetadata = {
+      ...current,
+      pageOrder,
+      pageCount: pageOrder.length,
+      thumbnail: pageOrder[0] ? mangaThumbnailFileName(pageOrder[0]) : null,
+      totalSizeBytes: await mangaPagesTotalSize(libraryPath, seriesId, categoryId, chapterId, pageOrder),
+      updatedAt: new Date().toISOString()
+    };
+    await writeJsonFile(chapterMetaPath(libraryPath, seriesId, categoryId, null, chapterId), next, { backup: true });
+
+    return readMangaChapterPages(libraryPath, seriesId, categoryId, chapterId);
+  });
+}
+
+async function reorderMangaPages(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string,
+  input: unknown
+): Promise<MangaChapterPages> {
+  return withResourceWriteLock(chapterDirectoryPath(libraryPath, seriesId, categoryId, null, chapterId), async () => {
+    const record = assertRecord(input);
+    const pageOrder = assertPageOrderInput(record.pageOrder);
+    const current = await readMangaChapterMetadata(libraryPath, seriesId, categoryId, chapterId);
+    assertSamePageSet(pageOrder, current.pageOrder);
+
+    const next: MangaChapterMetadata = {
+      ...current,
+      pageOrder,
+      thumbnail: pageOrder[0] ? mangaThumbnailFileName(pageOrder[0]) : null,
+      updatedAt: new Date().toISOString()
+    };
+    await writeJsonFile(chapterMetaPath(libraryPath, seriesId, categoryId, null, chapterId), next, { backup: true });
+
+    return readMangaChapterPages(libraryPath, seriesId, categoryId, chapterId);
+  });
+}
+
+async function readMangaPageData(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string,
+  pageFileName: string
+): Promise<MangaPageData> {
+  const fileName = assertSafeImageFileName(pageFileName);
+  const chapter = await readMangaChapterMetadata(libraryPath, seriesId, categoryId, chapterId);
+
+  if (!chapter.pageOrder.includes(fileName)) {
+    throw new Error("Manga page is not in chapter metadata.");
+  }
+
+  const filePath = mangaPagePath(libraryPath, seriesId, categoryId, chapterId, fileName);
+
+  return {
+    fileName,
+    dataUrl: await readImageDataUrl(filePath, fileName),
+    sizeBytes: (await stat(filePath)).size
+  };
+}
+
 function registerLibraryIpc(): void {
   ipcMain.handle("library:getCurrent", async (): Promise<ApiResponse<{ path: string | null }>> => {
     try {
@@ -3318,10 +3948,10 @@ function registerVolumeIpc(): void {
 function registerChapterIpc(): void {
   ipcMain.handle(
     "chapters:list",
-    async (_event, seriesId: unknown, categoryId: unknown, volumeId: unknown): Promise<ApiResponse<NovelChapterMetadata[]>> => {
+    async (_event, seriesId: unknown, categoryId: unknown, volumeId: unknown): Promise<ApiResponse<ChapterMetadata[]>> => {
       try {
         return ok(
-          await listNovelChapterMetadata(
+          await listChapterMetadata(
             await currentLibraryPathOrThrow(),
             assertId(seriesId, "seriesId"),
             assertId(categoryId, "categoryId"),
@@ -3342,10 +3972,10 @@ function registerChapterIpc(): void {
       categoryId: unknown,
       volumeId: unknown,
       chapterId: unknown
-    ): Promise<ApiResponse<NovelChapterMetadata>> => {
+    ): Promise<ApiResponse<ChapterMetadata>> => {
       try {
         return ok(
-          await readNovelChapterMetadata(
+          await readChapterMetadata(
             await currentLibraryPathOrThrow(),
             assertId(seriesId, "seriesId"),
             assertId(categoryId, "categoryId"),
@@ -3367,10 +3997,10 @@ function registerChapterIpc(): void {
       categoryId: unknown,
       volumeId: unknown,
       input: unknown
-    ): Promise<ApiResponse<NovelChapterMetadata>> => {
+    ): Promise<ApiResponse<ChapterMetadata>> => {
       try {
         return ok(
-          await createNovelChapterMetadata(
+          await createChapterMetadata(
             await currentLibraryPathOrThrow(),
             assertId(seriesId, "seriesId"),
             assertId(categoryId, "categoryId"),
@@ -3393,10 +4023,10 @@ function registerChapterIpc(): void {
       volumeId: unknown,
       chapterId: unknown,
       input: unknown
-    ): Promise<ApiResponse<NovelChapterMetadata>> => {
+    ): Promise<ApiResponse<ChapterMetadata>> => {
       try {
         return ok(
-          await updateNovelChapterMetadata(
+          await updateChapterMetadata(
             await currentLibraryPathOrThrow(),
             assertId(seriesId, "seriesId"),
             assertId(categoryId, "categoryId"),
@@ -3577,7 +4207,7 @@ function registerChapterIpc(): void {
     ): Promise<ApiResponse<{ id: string; trashPath: string }>> => {
       try {
         return ok(
-          await moveNovelChapterToTrash(
+          await moveChapterToTrash(
             await currentLibraryPathOrThrow(),
             assertId(seriesId, "seriesId"),
             assertId(categoryId, "categoryId"),
@@ -3587,6 +4217,155 @@ function registerChapterIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not move chapter to trash.", String(error));
+      }
+    }
+  );
+}
+
+function registerMangaIpc(): void {
+  ipcMain.handle(
+    "manga:listPages",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      chapterId: unknown
+    ): Promise<ApiResponse<MangaChapterPages>> => {
+      try {
+        return ok(
+          await readMangaChapterPages(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.MANGA_FAILED, "Could not list manga pages.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "manga:choosePages",
+    async (
+      event,
+      seriesId: unknown,
+      categoryId: unknown,
+      chapterId: unknown
+    ): Promise<ApiResponse<MangaChapterPages | null>> => {
+      try {
+        return ok(
+          await chooseMangaPages(
+            BrowserWindow.fromWebContents(event.sender),
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.MANGA_FAILED, "Could not add manga pages.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "manga:getPage",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      chapterId: unknown,
+      pageFileName: unknown
+    ): Promise<ApiResponse<MangaPageData>> => {
+      try {
+        return ok(
+          await readMangaPageData(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(chapterId, "chapterId"),
+            readRequiredText({ pageFileName }, "pageFileName")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.MANGA_FAILED, "Could not load manga page.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "manga:addDroppedPages",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      chapterId: unknown,
+      sourcePaths: unknown
+    ): Promise<ApiResponse<MangaChapterPages>> => {
+      try {
+        return ok(
+          await addMangaPageFiles(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(chapterId, "chapterId"),
+            assertSourcePathArray(sourcePaths)
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.MANGA_FAILED, "Could not add dropped manga pages.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "manga:removePages",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      chapterId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<MangaChapterPages>> => {
+      try {
+        return ok(
+          await removeMangaPages(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(chapterId, "chapterId"),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.MANGA_FAILED, "Could not remove manga pages.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "manga:reorderPages",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      chapterId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<MangaChapterPages>> => {
+      try {
+        return ok(
+          await reorderMangaPages(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(chapterId, "chapterId"),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.MANGA_FAILED, "Could not reorder manga pages.", String(error));
       }
     }
   );
@@ -3826,6 +4605,7 @@ void app.whenReady().then(() => {
   registerCategoryIpc();
   registerVolumeIpc();
   registerChapterIpc();
+  registerMangaIpc();
   registerImportIpc();
   registerSearchIpc();
   registerReadingStateIpc();

@@ -34,20 +34,21 @@ type VolumeMetadata = {
   title: string;
 };
 
-type NovelChapterMetadata = {
+type ChapterMetadata = {
   id: string;
   title: string;
-  translationStatus: string;
+  translationStatus?: string;
+  pageCount?: number;
 };
 
 type VolumeDetail = {
   volume: VolumeMetadata;
-  chapters: NovelChapterMetadata[];
+  chapters: ChapterMetadata[];
 };
 
 type CategoryDetail = CategoryMetadata & {
   volumes: VolumeDetail[];
-  directChapters: NovelChapterMetadata[];
+  directChapters: ChapterMetadata[];
 };
 
 type DetailState = {
@@ -68,7 +69,7 @@ type RendererApi = {
     list: (seriesId: string, categoryId: string) => Promise<ApiResponse<VolumeMetadata[]>>;
   };
   chapters: {
-    list: (seriesId: string, categoryId: string, volumeId?: string | null) => Promise<ApiResponse<NovelChapterMetadata[]>>;
+    list: (seriesId: string, categoryId: string, volumeId?: string | null) => Promise<ApiResponse<ChapterMetadata[]>>;
   };
 };
 
@@ -90,7 +91,7 @@ function formatLabel(value: string): string {
 
 async function loadCategory(api: RendererApi, seriesId: string, category: CategoryMetadata): Promise<CategoryDetail> {
   if (category.type === "manga") {
-    return { ...category, volumes: [], directChapters: [] };
+    return { ...category, volumes: [], directChapters: unwrap(await api.chapters.list(seriesId, category.id, null)) };
   }
 
   const volumes = unwrap(await api.volumes.list(seriesId, category.id));
@@ -241,9 +242,12 @@ function CategoryPanel({
 }) {
   if (category.type === "manga") {
     return (
-      <section className="empty-state">
-        <h2>Manga</h2>
-        <p>Sẽ làm sau.</p>
+      <section className="category-panel">
+        <div className="category-heading">
+          <h3>{category.title}</h3>
+          <span>Manga</span>
+        </div>
+        <MangaChapterList chapters={category.directChapters} />
       </section>
     );
   }
@@ -304,7 +308,7 @@ function ChapterList({
   volumeId
 }: {
   categoryId: string;
-  chapters: NovelChapterMetadata[];
+  chapters: ChapterMetadata[];
   onEditChapter: (target: ChapterTarget) => void;
   onReadChapter: (target: ChapterTarget) => void;
   seriesId: string;
@@ -312,7 +316,7 @@ function ChapterList({
   title: string;
   volumeId: string | null;
 }) {
-  function targetFor(chapter: NovelChapterMetadata): ChapterTarget {
+  function targetFor(chapter: ChapterMetadata): ChapterTarget {
     return {
       categoryId,
       chapterId: chapter.id,
@@ -338,7 +342,7 @@ function ChapterList({
                 type="button"
               >
                 <span>{chapter.title}</span>
-                <span>{formatLabel(chapter.translationStatus)}</span>
+                <span>{formatLabel(chapter.translationStatus ?? "draft")}</span>
               </button>
               <button className="chapter-edit-action" onClick={() => onEditChapter(targetFor(chapter))} type="button">
                 Edit
@@ -347,6 +351,28 @@ function ChapterList({
           ))}
         </ol>
       )}
+    </section>
+  );
+}
+
+function MangaChapterList({ chapters }: { chapters: ChapterMetadata[] }) {
+  if (chapters.length === 0) {
+    return <p className="muted-text">No manga chapters yet.</p>;
+  }
+
+  return (
+    <section className="chapter-group">
+      <h4>Chapters</h4>
+      <ol>
+        {chapters.map((chapter) => (
+          <li key={chapter.id}>
+            <span className="chapter-row">
+              <span>{chapter.title}</span>
+              <span>{chapter.pageCount ?? 0} pages</span>
+            </span>
+          </li>
+        ))}
+      </ol>
     </section>
   );
 }
