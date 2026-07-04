@@ -518,6 +518,8 @@ Các mục này không bắt buộc cho bản đầu, nhưng nên cân nhắc sa
 ## Ghi chú kiểm thử định kỳ
 
 - [ ] Kiểm tra `PROGRESS.md` hiển thị tiếng Việt đúng UTF-8.
-- [ ] Đối chiếu phase với `PLAN.md` sau mỗi lần cập nhật lớn.
+- [x] Đối chiếu phase với `PLAN.md` sau mỗi lần cập nhật lớn.
 - [ ] Không bỏ sót các nhóm lớn: PDF split view, manga reader, editor, export, backup.
 - [ ] Mỗi phase nên được chia nhỏ tiếp nếu checklist bắt đầu quá lớn hoặc khó kiểm soát.
+
+Ghi chú: 2026-07-04 đã đồng bộ `README.md` với trạng thái trong `PROGRESS.md` sau Phase 6 và Phase 9.
