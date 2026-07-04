@@ -330,32 +330,34 @@ Ghi chú: Đã thêm PageManager tối thiểu trong Manager; manga pages lưu �
 
 ## Phase 8 - Manga reader
 
-**Trạng thái:** `[ ]`
+**Trạng thái:** `[x]`
 
 **Mục tiêu:** Đọc manga thoải mái với nhiều chế độ đọc.
 
 ### Checklist
 
-- [ ] Tạo MangaReader.
-- [ ] Long strip mode.
-- [ ] Page mode.
-- [ ] Chuyển hướng đọc RTL/LTR.
-- [ ] Fit width.
-- [ ] Fit height.
-- [ ] Zoom.
-- [ ] Keyboard navigation.
-- [ ] Chuyển chapter trước/sau.
-- [ ] Hiển thị progress theo trang.
-- [ ] Lưu trang đang đọc.
-- [ ] Khôi phục trang đang đọc khi mở lại.
-- [ ] Lazy load ảnh khi đọc long strip.
+- [x] Tạo MangaReader.
+- [x] Long strip mode.
+- [x] Page mode.
+- [x] Chuyển hướng đọc RTL/LTR.
+- [x] Fit width.
+- [x] Fit height.
+- [x] Zoom.
+- [x] Keyboard navigation.
+- [x] Chuyển chapter trước/sau.
+- [x] Hiển thị progress theo trang.
+- [x] Lưu trang đang đọc.
+- [x] Khôi phục trang đang đọc khi mở lại.
+- [x] Lazy load ảnh khi đọc long strip.
+
+Ghi chú: Đã thêm MangaReader mở từ Series Detail, hỗ trợ long strip/page mode, RTL/LTR, fit width/height, zoom, phím điều hướng, chuyển chapter, progress theo `pageIndex` trong `progress.json`, và lazy load ảnh full-size bằng IntersectionObserver.
 
 ### Tiêu chí hoàn thành
 
-- [ ] User đọc được manga bằng cuộn dọc.
-- [ ] User đọc được manga bằng lật trang.
-- [ ] Hướng đọc RTL/LTR hoạt động đúng.
-- [ ] Reader không load toàn bộ ảnh nặng cùng lúc.
+- [x] User đọc được manga bằng cuộn dọc.
+- [x] User đọc được manga bằng lật trang.
+- [x] Hướng đọc RTL/LTR hoạt động đúng.
+- [x] Reader không load toàn bộ ảnh nặng cùng lúc.
 
 ---
 

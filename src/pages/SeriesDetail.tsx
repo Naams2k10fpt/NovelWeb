@@ -247,7 +247,13 @@ function CategoryPanel({
           <h3>{category.title}</h3>
           <span>Manga</span>
         </div>
-        <MangaChapterList chapters={category.directChapters} />
+        <MangaChapterList
+          categoryId={category.id}
+          chapters={category.directChapters}
+          onReadChapter={onReadChapter}
+          seriesId={seriesId}
+          seriesTitle={seriesTitle}
+        />
       </section>
     );
   }
@@ -355,9 +361,33 @@ function ChapterList({
   );
 }
 
-function MangaChapterList({ chapters }: { chapters: ChapterMetadata[] }) {
+function MangaChapterList({
+  categoryId,
+  chapters,
+  onReadChapter,
+  seriesId,
+  seriesTitle
+}: {
+  categoryId: string;
+  chapters: ChapterMetadata[];
+  onReadChapter: (target: ChapterTarget) => void;
+  seriesId: string;
+  seriesTitle: string;
+}) {
   if (chapters.length === 0) {
     return <p className="muted-text">No manga chapters yet.</p>;
+  }
+
+  function targetFor(chapter: ChapterMetadata): ChapterTarget {
+    return {
+      categoryId,
+      categoryType: "manga",
+      chapterId: chapter.id,
+      seriesId,
+      seriesTitle,
+      title: chapter.title,
+      volumeId: null
+    };
   }
 
   return (
@@ -366,10 +396,10 @@ function MangaChapterList({ chapters }: { chapters: ChapterMetadata[] }) {
       <ol>
         {chapters.map((chapter) => (
           <li key={chapter.id}>
-            <span className="chapter-row">
+            <button className="chapter-row" onClick={() => onReadChapter(targetFor(chapter))} type="button">
               <span>{chapter.title}</span>
               <span>{chapter.pageCount ?? 0} pages</span>
-            </span>
+            </button>
           </li>
         ))}
       </ol>

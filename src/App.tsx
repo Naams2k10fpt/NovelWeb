@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import ImportWizard from "./pages/ImportWizard";
 import Library from "./pages/Library";
+import MangaReader from "./pages/MangaReader";
 import Manager from "./pages/Manager";
 import NovelEditor, { type ChapterTarget } from "./pages/NovelEditor";
 import NovelReader from "./pages/NovelReader";
@@ -164,7 +165,7 @@ export default function App() {
     }
 
     setChapterDirty(false);
-    setChapterMode(nextMode);
+    setChapterMode(target.categoryType === "manga" ? "read" : nextMode);
     setSelectedChapter(target);
   }
 
@@ -184,6 +185,16 @@ export default function App() {
 
   function renderWorkspaceContent() {
     if (selectedChapter) {
+      if (selectedChapter.categoryType === "manga") {
+        return (
+          <MangaReader
+            onBack={closeChapter}
+            onOpenChapter={(target) => openChapter(target, "read")}
+            target={selectedChapter}
+          />
+        );
+      }
+
       if (chapterMode === "edit") {
         return (
           <NovelEditor

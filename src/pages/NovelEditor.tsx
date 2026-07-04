@@ -11,6 +11,7 @@ export type ChapterTarget = {
   seriesId: string;
   seriesTitle?: string;
   categoryId: string;
+  categoryType?: "light-novel" | "web-novel" | "manga";
   volumeId: string | null;
   chapterId: string;
   title: string;
