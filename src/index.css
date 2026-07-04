@@ -1128,6 +1128,117 @@ body {
   border-color: #2f6f73;
 }
 
+.manga-page-manager {
+  display: grid;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #ddd4c7;
+}
+
+.manga-page-manager-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.manga-page-manager-header h3,
+.manga-page-manager-header p {
+  margin: 0;
+}
+
+.manga-page-manager-header p,
+.manga-page-card small {
+  color: #66707a;
+}
+
+.manga-page-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 34%);
+  gap: 14px;
+}
+
+.manga-page-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.manga-page-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #ddd4c7;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.manga-page-card-active {
+  border-color: #2f6f73;
+}
+
+.manga-page-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.manga-page-check span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manga-page-thumb {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  padding: 0;
+  border: 1px solid #ddd4c7;
+  border-radius: 6px;
+  background: #f4efe8;
+  color: #66707a;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.manga-page-thumb img,
+.manga-page-preview img {
+  display: block;
+  max-width: 100%;
+}
+
+.manga-page-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.manga-page-preview {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.manga-page-preview h3,
+.manga-page-preview p {
+  margin: 0;
+}
+
+.manga-page-preview img {
+  border: 1px solid #ddd4c7;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
 .import-wizard {
   display: grid;
   gap: 16px;
@@ -1312,6 +1423,10 @@ body {
   }
 
   .pdf-split-view {
+    grid-template-columns: 1fr;
+  }
+
+  .manga-page-workspace {
     grid-template-columns: 1fr;
   }
 

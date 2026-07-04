@@ -15,11 +15,12 @@ NovelWeb hiện đã hoàn thành:
 - Phase 4: UI Library và Manager cơ bản.
 - Phase 5: Novel editor và reader.
 - Phase 6: Import TXT/MD/DOCX/PDF.
+- Phase 7: Manga management.
 - Phase 9: Search, bookmark, highlight, note và recent reading.
 
-Phase tiếp theo là Phase 7: Manga management.
+Phase tiếp theo là Phase 8: Manga reader.
 
-> Lưu ý: Manga management/reader, export PDF/EPUB, backup/restore đầy đủ và build installer vẫn đang nằm trong roadmap.
+> Lưu ý: Manga reader, export PDF/EPUB, backup/restore đầy đủ và build installer vẫn đang nằm trong roadmap.
 
 ## Tính năng đã có
 
@@ -54,6 +55,7 @@ Phase tiếp theo là Phase 7: Manga management.
 - NovelReader với font size, reading width, theme và progress theo scroll.
 - Import Wizard cho TXT, MD, DOCX và PDF qua import session từ Electron dialog.
 - PDF split view để đối chiếu PDF gốc với text/editor.
+- Manga chapter/page management với file picker, drag/drop, thumbnail grid, preview và reorder.
 - Search qua `search-index.json`, bookmark, highlight/note và recent reading.
 
 ## Tầm nhìn tính năng
@@ -80,7 +82,7 @@ Khi hoàn thiện, NovelWeb sẽ hỗ trợ:
 - TypeScript
 - electron-vite
 
-Các dependency hiện tại bao gồm nền app, editor và parser import. Drag & drop, icons hoặc packaging sẽ được thêm khi đến phase tương ứng.
+Các dependency hiện tại bao gồm nền app, editor và parser import. Icons hoặc packaging sẽ được thêm khi đến phase tương ứng.
 
 ## Kiến trúc
 
@@ -93,6 +95,7 @@ Electron App
 │   ├── JSON/index storage
 │   ├── Import/PDF parsing
 │   ├── Search/reading state
+│   ├── Manga page storage
 │   └── Migration/health-check foundation
 ├── Preload
 │   └── Narrow API exposed through contextBridge
@@ -101,6 +104,7 @@ Electron App
     ├── Library/Search
     ├── Manager/Import
     ├── Novel editor/reader
+    ├── Manga PageManager
     └── Settings
 ```
 
@@ -220,7 +224,7 @@ Workflow hiện tại:
 ## Roadmap
 
 - Phase 0-6: Đã hoàn thành nền app, storage, data model, Library/Manager, editor/reader và import.
-- Phase 7: Manga management.
+- Phase 7: Đã hoàn thành Manga management.
 - Phase 8: Manga reader.
 - Phase 9: Đã hoàn thành search, bookmark, highlight và note.
 - Phase 10: Export PDF/EPUB.
@@ -235,4 +239,4 @@ Workflow hiện tại:
 
 ## Ghi chú
 
-NovelWeb hiện là dự án cá nhân đang phát triển. README này phản ánh trạng thái sau Phase 6 và Phase 9; phần tiếp theo ưu tiên Manga management trước Manga reader, export, backup/restore và build final.
+NovelWeb hiện là dự án cá nhân đang phát triển. README này phản ánh trạng thái sau Phase 7 và Phase 9; phần tiếp theo ưu tiên Manga reader trước export, backup/restore và build final.
