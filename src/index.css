@@ -980,6 +980,137 @@ body {
   border-left: 3px solid #9fb4b2;
 }
 
+.manga-reader {
+  min-height: 100vh;
+  margin: -32px;
+  padding: 24px 32px 56px;
+  overflow-x: auto;
+  background: #111416;
+  color: #edf2f7;
+}
+
+.manga-reader .plain-action {
+  color: #b8e6e1;
+}
+
+.manga-reader-toolbar {
+  background: #111416;
+}
+
+.manga-reader-toolbar button:not(.plain-action),
+.manga-reader-toolbar select,
+.manga-reader-toolbar input[type="range"] {
+  min-height: 34px;
+  border: 1px solid #56636b;
+  border-radius: 6px;
+  background: #20282d;
+  color: #edf2f7;
+  font: inherit;
+}
+
+.manga-reader-toolbar button:not(.plain-action) {
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.manga-reader-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.manga-reader-toolbar select {
+  padding: 0 8px;
+}
+
+.manga-reader-status {
+  min-width: 72px;
+  color: #cbd5df;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.manga-reader-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.manga-reader-heading span,
+.manga-reader-heading p {
+  margin: 0;
+  color: #edf2f7;
+}
+
+.manga-reader-heading p {
+  color: #cbd5df;
+}
+
+.manga-reader-empty {
+  margin: 0 auto;
+  background: #20282d;
+  border-color: #56636b;
+}
+
+.manga-long-strip {
+  display: grid;
+  gap: 18px;
+  width: min(100%, 980px);
+  margin: 0 auto;
+  padding: 0;
+  list-style: none;
+}
+
+.manga-long-strip-page {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.manga-page-number {
+  color: #9aa7b1;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.manga-reader-image {
+  display: block;
+  background: #050607;
+  box-shadow: 0 0 0 1px #30383d;
+}
+
+.manga-reader-placeholder {
+  display: grid;
+  place-items: center;
+  width: min(100%, 420px);
+  aspect-ratio: 2 / 3;
+  border: 1px solid #30383d;
+  border-radius: 6px;
+  background: #20282d;
+  color: #9aa7b1;
+  overflow: hidden;
+}
+
+.manga-reader-placeholder img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: saturate(0.75);
+}
+
+.manga-page-mode {
+  display: grid;
+  min-height: calc(100vh - 220px);
+}
+
+.manga-page-stage {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .manager-layout {
   position: relative;
   display: grid;

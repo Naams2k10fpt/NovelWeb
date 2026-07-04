@@ -296,9 +296,20 @@ type ChapterReadingProgress = {
   updatedAt: string | null;
 };
 
+type ReadingProgressEntry = {
+  scrollTop?: number;
+  pageIndex?: number;
+  updatedAt: string | null;
+};
+
 type SeriesProgress = {
   schemaVersion: SupportedSchemaVersion;
-  chapters: Record<string, ChapterReadingProgress>;
+  chapters: Record<string, ReadingProgressEntry>;
+};
+
+type MangaReadingProgress = {
+  pageIndex: number;
+  updatedAt: string | null;
 };
 
 type MangaPageSummary = {
@@ -1793,7 +1804,7 @@ async function rebuildRecentIndex(libraryPath: string): Promise<RecentIndex> {
       for (const [key, item] of Object.entries(progress.chapters)) {
         const target = parseChapterProgressKey(key);
 
-        if (!target || !item.updatedAt) {
+        if (!target || !item.updatedAt || typeof item.scrollTop !== "number") {
           continue;
         }
 
@@ -3096,7 +3107,11 @@ async function readChapterReadingProgress(
 ): Promise<ChapterReadingProgress> {
   await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
   const progress = await readSeriesProgress(libraryPath, seriesId);
-  return progress.chapters[chapterProgressKey(categoryId, volumeId, chapterId)] ?? { scrollTop: 0, updatedAt: null };
+  const entry = progress.chapters[chapterProgressKey(categoryId, volumeId, chapterId)];
+  return {
+    scrollTop: typeof entry?.scrollTop === "number" && entry.scrollTop >= 0 ? entry.scrollTop : 0,
+    updatedAt: entry?.updatedAt ?? null
+  };
 }
 
 async function saveChapterReadingProgress(
@@ -3120,6 +3135,43 @@ async function saveChapterReadingProgress(
   progress.chapters[chapterProgressKey(categoryId, volumeId, chapterId)] = next;
   await writeJsonFile(seriesProgressPath(libraryPath, seriesId), progress, { backup: true });
   await upsertRecentEntry(libraryPath, seriesId, categoryId, volumeId, chapterId, next);
+  return next;
+}
+
+async function readMangaReadingProgress(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string
+): Promise<MangaReadingProgress> {
+  await readMangaChapterMetadata(libraryPath, seriesId, categoryId, chapterId);
+  const progress = await readSeriesProgress(libraryPath, seriesId);
+  const entry = progress.chapters[chapterProgressKey(categoryId, null, chapterId)];
+
+  return {
+    pageIndex: typeof entry?.pageIndex === "number" && entry.pageIndex >= 0 ? entry.pageIndex : 0,
+    updatedAt: entry?.updatedAt ?? null
+  };
+}
+
+async function saveMangaReadingProgress(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  chapterId: string,
+  input: unknown
+): Promise<MangaReadingProgress> {
+  const chapter = await readMangaChapterMetadata(libraryPath, seriesId, categoryId, chapterId);
+  const record = assertRecord(input);
+  const pageIndex = readOptionalNonNegativeInteger(record, "pageIndex", 0);
+  const progress = await readSeriesProgress(libraryPath, seriesId);
+  const next: MangaReadingProgress = {
+    pageIndex: Math.min(Math.max(pageIndex, 0), Math.max(chapter.pageCount - 1, 0)),
+    updatedAt: new Date().toISOString()
+  };
+
+  progress.chapters[chapterProgressKey(categoryId, null, chapterId)] = next;
+  await writeJsonFile(seriesProgressPath(libraryPath, seriesId), progress, { backup: true });
   return next;
 }
 
@@ -4291,6 +4343,49 @@ function registerMangaIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.MANGA_FAILED, "Could not load manga page.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "manga:getProgress",
+    async (_event, seriesId: unknown, categoryId: unknown, chapterId: unknown): Promise<ApiResponse<MangaReadingProgress>> => {
+      try {
+        return ok(
+          await readMangaReadingProgress(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.MANGA_FAILED, "Could not load manga reading progress.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "manga:saveProgress",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      chapterId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<MangaReadingProgress>> => {
+      try {
+        return ok(
+          await saveMangaReadingProgress(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(chapterId, "chapterId"),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.MANGA_FAILED, "Could not save manga reading progress.", String(error));
       }
     }
   );

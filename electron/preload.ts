@@ -78,6 +78,10 @@ contextBridge.exposeInMainWorld("api", {
       ),
     getPage: (seriesId: string, categoryId: string, chapterId: string, pageFileName: string) =>
       ipcRenderer.invoke("manga:getPage", seriesId, categoryId, chapterId, pageFileName),
+    getProgress: (seriesId: string, categoryId: string, chapterId: string) =>
+      ipcRenderer.invoke("manga:getProgress", seriesId, categoryId, chapterId),
+    saveProgress: (seriesId: string, categoryId: string, chapterId: string, input: unknown) =>
+      ipcRenderer.invoke("manga:saveProgress", seriesId, categoryId, chapterId, input),
     removePages: (seriesId: string, categoryId: string, chapterId: string, input: unknown) =>
       ipcRenderer.invoke("manga:removePages", seriesId, categoryId, chapterId, input),
     reorderPages: (seriesId: string, categoryId: string, chapterId: string, input: unknown) =>
