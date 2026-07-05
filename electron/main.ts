@@ -1241,6 +1241,23 @@ function escapeImportText(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function markdownInlineToHtml(text: string): string {
+  return escapeImportText(text)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+    .replace(/_([^_]+)_/g, "<em>$1</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s"'<]+)\)/g, '<a href="$2">$1</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<>"')]+)/g, '$1<a href="$2">$2</a>');
+}
+
+function markdownImageToHtml(line: string): string | null {
+  const image = line.match(/^!\[([^\]]*)\]\((https?:\/\/[^)\s"'<]+)\)$/);
+
+  return image ? `<p><img alt="${escapeHtmlAttribute(image[1])}" src="${escapeHtmlAttribute(image[2])}"></p>` : null;
+}
+
 function endsWithSentenceBreak(line: string): boolean {
   return /[.!?…。！？]["')\]}»”’]*$/.test(line.trim());
 }
@@ -1287,6 +1304,126 @@ function importTextToHtml(text: string): string {
     .flatMap(importBlockToParagraphs)
     .map((paragraph) => `<p>${escapeImportText(paragraph)}</p>`)
     .join("\n");
+}
+
+function importMarkdownToHtml(text: string): string {
+  // ponytail: basic Markdown for chapter imports; use a real parser if tables, nested lists, or Obsidian embeds matter.
+  const normalized = normalizeImportText(text).trim();
+
+  if (!normalized) {
+    return "<p></p>";
+  }
+
+  const html: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+  let inCodeBlock = false;
+  let codeLines: string[] = [];
+  let paragraphLines: string[] = [];
+
+  const flushParagraph = (): void => {
+    if (paragraphLines.length === 0) {
+      return;
+    }
+
+    html.push(`<p>${markdownInlineToHtml(paragraphLines.join(" "))}</p>`);
+    paragraphLines = [];
+  };
+  const flushList = (): void => {
+    if (listType) {
+      html.push(`</${listType}>`);
+      listType = null;
+    }
+  };
+  const flushCodeBlock = (): void => {
+    html.push(`<pre><code>${escapeImportText(codeLines.join("\n"))}</code></pre>`);
+    codeLines = [];
+    inCodeBlock = false;
+  };
+
+  for (const rawLine of normalized.split("\n")) {
+    const line = rawLine.trim();
+
+    if (line.startsWith("```")) {
+      flushParagraph();
+      flushList();
+      if (inCodeBlock) {
+        flushCodeBlock();
+      } else {
+        inCodeBlock = true;
+        codeLines = [];
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(rawLine);
+      continue;
+    }
+
+    if (!line) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const imageHtml = markdownImageToHtml(line);
+    if (imageHtml) {
+      flushParagraph();
+      flushList();
+      html.push(imageHtml);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      html.push(`<h${heading[1].length}>${markdownInlineToHtml(heading[2].trim())}</h${heading[1].length}>`);
+      continue;
+    }
+
+    if (/^(-{3,}|\*{3,})$/.test(line)) {
+      flushParagraph();
+      flushList();
+      html.push("<hr>");
+      continue;
+    }
+
+    if (line.startsWith("> ")) {
+      flushParagraph();
+      flushList();
+      html.push(`<blockquote><p>${markdownInlineToHtml(line.slice(2).trim())}</p></blockquote>`);
+      continue;
+    }
+
+    const unordered = line.match(/^[-*]\s+(.+)$/);
+    const ordered = line.match(/^\d+[.)]\s+(.+)$/);
+    const nextListType = unordered ? "ul" : ordered ? "ol" : null;
+    if (nextListType) {
+      flushParagraph();
+      if (listType !== nextListType) {
+        flushList();
+        listType = nextListType;
+        html.push(`<${listType}>`);
+      }
+      html.push(`<li>${markdownInlineToHtml((unordered?.[1] ?? ordered?.[1] ?? "").trim())}</li>`);
+      continue;
+    }
+
+    paragraphLines.push(line);
+  }
+
+  if (inCodeBlock) {
+    flushCodeBlock();
+  }
+  flushParagraph();
+  flushList();
+
+  return html.join("\n");
+}
+
+function importChapterTextToHtml(text: string, fileType: ImportFileType | null): string {
+  return fileType === "md" ? importMarkdownToHtml(text) : importTextToHtml(text);
 }
 
 function readImportPlanChapter(input: unknown): ImportPlanChapter {
@@ -1392,7 +1529,7 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
       }
 
       await saveNovelChapterContent(libraryPath, series.id, category.id, volume.id, metadata.id, {
-        html: importTextToHtml(chapter.text)
+        html: importChapterTextToHtml(chapter.text, chapter.sourceFile.fileType)
       });
       imported += 1;
       const unsupportedPdf = chapter.sourceFile.fileType === "pdf" && normalizeImportText(chapter.text).trim() === "";
