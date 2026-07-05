@@ -50,6 +50,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("chapters:saveContent", seriesId, categoryId, volumeId, chapterId, input),
     getOriginalPdf: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
       ipcRenderer.invoke("chapters:getOriginalPdf", seriesId, categoryId, volumeId, chapterId),
+    getOriginalText: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
+      ipcRenderer.invoke("chapters:getOriginalText", seriesId, categoryId, volumeId, chapterId),
     chooseImage: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
       ipcRenderer.invoke("chapters:chooseImage", seriesId, categoryId, volumeId, chapterId),
     getProgress: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>

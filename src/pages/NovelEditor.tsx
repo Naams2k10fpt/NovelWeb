@@ -38,6 +38,12 @@ type ChapterOriginalPdf = {
   fileName: string;
 };
 
+type ChapterOriginalText = {
+  text: string;
+  fileName: string;
+  fileType: "md";
+};
+
 type RendererApi = {
   chapters: {
     getContent: (
@@ -59,6 +65,12 @@ type RendererApi = {
       volumeId: string | null,
       chapterId: string
     ) => Promise<ApiResponse<ChapterOriginalPdf | null>>;
+    getOriginalText: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string
+    ) => Promise<ApiResponse<ChapterOriginalText | null>>;
     chooseImage: (
       seriesId: string,
       categoryId: string,
@@ -404,7 +416,9 @@ export default function NovelEditor({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [originalPdf, setOriginalPdf] = useState<ChapterOriginalPdf | null>(null);
+  const [originalText, setOriginalText] = useState<ChapterOriginalText | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [textError, setTextError] = useState<string | null>(null);
   const [status, setStatus] = useState<EditorStatus>("loading");
   const [title, setTitle] = useState("");
   const [linkHref, setLinkHref] = useState("");
@@ -477,7 +491,9 @@ export default function NovelEditor({
     setStatus("loading");
     setError(null);
     setOriginalPdf(null);
+    setOriginalText(null);
     setPdfError(null);
+    setTextError(null);
     setTitle("");
     setLinkHref("");
     titleRef.current = "";
@@ -516,6 +532,19 @@ export default function NovelEditor({
       .catch((loadPdfError) => {
         if (isMounted) {
           setPdfError(String(loadPdfError));
+        }
+      });
+
+    void api.chapters
+      .getOriginalText(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
+      .then((response) => {
+        if (isMounted) {
+          setOriginalText(unwrap(response));
+        }
+      })
+      .catch((loadTextError) => {
+        if (isMounted) {
+          setTextError(String(loadTextError));
         }
       });
 
@@ -741,9 +770,10 @@ export default function NovelEditor({
   const textStyle = (editor?.getAttributes("textStyle") ?? {}) as TextStyleAttributes;
   const selectedFontFamily = cleanFontFamily(textStyle.fontFamily) ?? "";
   const selectedFontSize = cleanFontSize(textStyle.fontSize) ?? "";
+  const hasOriginalSource = !!(originalPdf || originalText);
 
   return (
-    <section className={originalPdf ? "novel-editor novel-editor-split" : "novel-editor"}>
+    <section className={hasOriginalSource ? "novel-editor novel-editor-split" : "novel-editor"}>
       <button className="plain-action" onClick={onBack} type="button">
         Back
       </button>
@@ -993,20 +1023,33 @@ export default function NovelEditor({
 
       {error ? <p className="error-text">{error}</p> : null}
       {pdfError ? <p className="error-text">{pdfError}</p> : null}
+      {textError ? <p className="error-text">{textError}</p> : null}
 
-      {originalPdf ? (
+      {hasOriginalSource ? (
         <div className="pdf-split-view">
-          <section className="pdf-pane" aria-label="Original PDF">
-            <div className="pdf-pane-header">
-              <span>Original PDF</span>
-              <strong>{originalPdf.fileName}</strong>
-            </div>
-            <iframe
-              className="pdf-frame"
-              src={`${originalPdf.dataUrl}#toolbar=0&navpanes=0&view=FitH`}
-              title={originalPdf.fileName}
-            />
-          </section>
+          {originalPdf ? (
+            <section className="pdf-pane" aria-label="Original PDF">
+              <div className="pdf-pane-header">
+                <span>Original PDF</span>
+                <strong>{originalPdf.fileName}</strong>
+              </div>
+              <iframe
+                className="pdf-frame"
+                src={`${originalPdf.dataUrl}#toolbar=0&navpanes=0&view=FitH`}
+                title={originalPdf.fileName}
+              />
+            </section>
+          ) : null}
+
+          {originalText ? (
+            <section className="pdf-pane markdown-source-pane" aria-label="Original Markdown">
+              <div className="pdf-pane-header">
+                <span>Original Markdown</span>
+                <strong>{originalText.fileName}</strong>
+              </div>
+              <pre className="markdown-source-text">{originalText.text}</pre>
+            </section>
+          ) : null}
 
           <div className="editor-surface editor-surface-split">
             <EditorContent editor={editor} />

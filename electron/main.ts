@@ -291,6 +291,12 @@ type ChapterOriginalPdf = {
   fileName: string;
 };
 
+type ChapterOriginalText = {
+  text: string;
+  fileName: string;
+  fileType: "md";
+};
+
 type ChapterReadingProgress = {
   scrollTop: number;
   updatedAt: string | null;
@@ -1468,6 +1474,21 @@ async function copyImportedPdf(
   await rename(tmpPath, targetPath);
 }
 
+async function copyImportedMarkdown(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string,
+  chapterId: string,
+  sourcePath: string
+): Promise<void> {
+  const targetPath = chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, "original.md");
+  const tmpPath = `${targetPath}.tmp`;
+
+  await copyFile(sourcePath, tmpPath);
+  await rename(tmpPath, targetPath);
+}
+
 async function executeImport(libraryPath: string, importSessionId: unknown, input: unknown): Promise<ImportReport> {
   const session = readImportSession(importSessionId);
   const plan = readImportPlan(input);
@@ -1521,11 +1542,18 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
         title: chapter.title,
         translationStatus: "draft",
         hasOriginalPdf: chapter.sourceFile.fileType === "pdf",
-        originalFileName: chapter.sourceFile.fileType === "pdf" ? basename(chapter.sourceFile.relativePath) : null
+        originalFileName:
+          chapter.sourceFile.fileType === "pdf" || chapter.sourceFile.fileType === "md"
+            ? basename(chapter.sourceFile.relativePath)
+            : null
       });
 
       if (chapter.sourceFile.fileType === "pdf") {
         await copyImportedPdf(libraryPath, series.id, category.id, volume.id, metadata.id, chapter.sourceFile.sourcePath);
+      }
+
+      if (chapter.sourceFile.fileType === "md") {
+        await copyImportedMarkdown(libraryPath, series.id, category.id, volume.id, metadata.id, chapter.sourceFile.sourcePath);
       }
 
       await saveNovelChapterContent(libraryPath, series.id, category.id, volume.id, metadata.id, {
@@ -3170,6 +3198,36 @@ async function readNovelChapterOriginalPdf(
   };
 }
 
+async function readNovelChapterOriginalText(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<ChapterOriginalText | null> {
+  const metadata = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+
+  if (metadata.hasOriginalPdf || extname(metadata.originalFileName ?? "").toLowerCase() !== ".md") {
+    return null;
+  }
+
+  try {
+    return {
+      text: normalizeImportText(
+        await readFile(chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, "original.md"), "utf8")
+      ),
+      fileName: metadata.originalFileName ?? "original.md",
+      fileType: "md"
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
 async function saveNovelChapterContent(
   libraryPath: string,
   seriesId: string,
@@ -4466,6 +4524,31 @@ function registerChapterIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not load chapter PDF.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:getOriginalText",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown
+    ): Promise<ApiResponse<ChapterOriginalText | null>> => {
+      try {
+        return ok(
+          await readNovelChapterOriginalText(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not load original text.", String(error));
       }
     }
   );

@@ -289,6 +289,7 @@ Ghi chú: Đã polish PDF Split View tối thiểu: ẩn menu bar Electron mặc
 Ghi chú: 2026-07-05 đã giảm xuống dòng đột ngột khi import text/PDF: converter nối soft line wrap thành khoảng trắng và chỉ tách paragraph theo dòng trống hoặc dấu kết câu.
 Ghi chú: 2026-07-06 đã giữ format Markdown cơ bản khi import `.md`: heading H1-H3, bold/italic, code, link HTTP(S), quote, list và rule được lưu thành HTML thay vì plain paragraph.
 Ghi chú: 2026-07-06 đã mở rộng hiển thị Markdown theo file Obsidian mẫu: hỗ trợ heading H1-H6, bare URL tự thành link và ảnh remote `![alt](https://...)` khi import `.md`.
+Ghi chú: 2026-07-06 đã lưu bản `.md` gốc khi import và hiển thị split view trong NovelEditor: Markdown gốc bên trái, editor bên phải giống luồng PDF.
 
 ### Tiêu chí hoàn thành
 

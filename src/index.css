@@ -803,6 +803,19 @@ body {
   background: #ffffff;
 }
 
+.markdown-source-text {
+  min-height: 0;
+  margin: 0;
+  padding: 20px;
+  overflow: auto;
+  background: #ffffff;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
 .editor-surface-split {
   height: clamp(560px, calc(100vh - 300px), 760px);
   min-height: 0;
