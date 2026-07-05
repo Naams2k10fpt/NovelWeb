@@ -1241,6 +1241,40 @@ function escapeImportText(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function endsWithSentenceBreak(line: string): boolean {
+  return /[.!?…。！？]["')\]}»”’]*$/.test(line.trim());
+}
+
+function importBlockToParagraphs(block: string): string[] {
+  const paragraphs: string[] = [];
+  const lines = block
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  let paragraph = "";
+
+  for (const line of lines) {
+    if (!paragraph) {
+      paragraph = line;
+      continue;
+    }
+
+    if (endsWithSentenceBreak(paragraph)) {
+      paragraphs.push(paragraph);
+      paragraph = line;
+      continue;
+    }
+
+    paragraph = `${paragraph} ${line}`;
+  }
+
+  if (paragraph) {
+    paragraphs.push(paragraph);
+  }
+
+  return paragraphs;
+}
+
 function importTextToHtml(text: string): string {
   const normalized = normalizeImportText(text).trim();
 
@@ -1250,7 +1284,8 @@ function importTextToHtml(text: string): string {
 
   return normalized
     .split(/\n{2,}/)
-    .map((paragraph) => `<p>${escapeImportText(paragraph.trim()).replace(/\n/g, "<br>")}</p>`)
+    .flatMap(importBlockToParagraphs)
+    .map((paragraph) => `<p>${escapeImportText(paragraph)}</p>`)
     .join("\n");
 }
 

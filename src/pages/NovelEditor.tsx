@@ -87,6 +87,7 @@ type TextStyleAttributes = {
   backgroundColor?: string | null;
   fontFamily?: string | null;
   fontSize?: string | null;
+  textAlign?: string | null;
 };
 type SelectedTextBlock = { node: ProseMirrorNode; pos: number };
 
@@ -167,6 +168,10 @@ const TextStyle = Mark.create({
       fontSize: {
         default: null,
         parseHTML: (element) => cleanFontSize(element.style.fontSize)
+      },
+      textAlign: {
+        default: null,
+        parseHTML: (element) => cleanTextAlign(element.style.textAlign)
       }
     };
   },
@@ -174,12 +179,14 @@ const TextStyle = Mark.create({
     return [{ tag: "span[style]" }];
   },
   renderHTML({ HTMLAttributes }) {
-    const { backgroundColor, color, fontFamily, fontSize, style: _style, ...attributes } = HTMLAttributes;
+    const { backgroundColor, color, fontFamily, fontSize, style: _style, textAlign, ...attributes } = HTMLAttributes;
     const styles = [
       cleanColor(color) ? `color: ${color}` : "",
       cleanColor(backgroundColor) ? `background-color: ${backgroundColor}` : "",
       cleanFontFamily(fontFamily) ? `font-family: ${fontFamily}` : "",
-      cleanFontSize(fontSize) ? `font-size: ${fontSize}` : ""
+      cleanFontSize(fontSize) ? `font-size: ${fontSize}` : "",
+      cleanTextAlign(textAlign) ? "display: block" : "",
+      cleanTextAlign(textAlign) ? `text-align: ${textAlign}` : ""
     ]
       .filter(Boolean)
       .join("; ");
@@ -324,6 +331,12 @@ function blockFormat(editor: Editor | null): BlockFormat {
 function currentTextAlign(editor: Editor | null): string {
   if (!editor) {
     return "left";
+  }
+
+  const inlineTextAlign = cleanTextAlign((editor.getAttributes("textStyle") as TextStyleAttributes).textAlign);
+
+  if (inlineTextAlign) {
+    return inlineTextAlign;
   }
 
   const firstBlock = selectedTextBlocks(editor)[0];
@@ -668,6 +681,12 @@ export default function NovelEditor({
     }
 
     const value = textAlign === "left" ? null : cleanTextAlign(textAlign);
+
+    if (!editor.state.selection.empty) {
+      applyTextStyle("textAlign", value);
+      return;
+    }
+
     const tr = editor.state.tr;
     const blocks = selectedTextBlocks(editor);
 
@@ -691,7 +710,7 @@ export default function NovelEditor({
     const current = editor.getAttributes("textStyle") as TextStyleAttributes;
     const next = { ...current, [attribute]: value };
 
-    if (!next.color && !next.backgroundColor && !next.fontFamily && !next.fontSize) {
+    if (!next.color && !next.backgroundColor && !next.fontFamily && !next.fontSize && !next.textAlign) {
       editor.chain().focus().unsetMark("textStyle").run();
       return;
     }
@@ -1016,7 +1035,14 @@ function ToolbarButton({
   title: string;
 }) {
   return (
-    <button aria-pressed={active} disabled={disabled} onClick={onClick} title={title} type="button">
+    <button
+      aria-pressed={active}
+      disabled={disabled}
+      onClick={onClick}
+      onMouseDown={(event) => event.preventDefault()}
+      title={title}
+      type="button"
+    >
       {label}
     </button>
   );

@@ -234,6 +234,7 @@ Ghi chú: Đã thêm ô title trong editor lưu thành H1 đầu nội dung, tru
 Ghi chú: Đã chỉnh reader chỉ hiện tên truyện căn giữa, giữ sidebar cố định khi cuộn và cho H2 áp dụng cả block đang chọn.
 Ghi chú: Đã đảo cấp chữ giữa tên truyện và title, đồng thời căn giữa title trong editor/reader.
 Ghi chú: 2026-07-05 đã mở rộng NovelEditor thành toolbar gần Word hơn: ribbon nhóm công cụ, font family/size, màu chữ, highlight, underline/strike/code, list số, căn lề theo vùng chọn, link, undo/redo, rule, clear format và giữ render tương ứng trong reader.
+Ghi chú: 2026-07-05 đã sửa align trong NovelEditor: toolbar không làm mất selection khi bấm nút, và khi đang bôi đen text thì căn lề áp vào đúng đoạn chọn thay vì cả paragraph/chapter.
 
 ### Tiêu chí hoàn thành
 
@@ -285,6 +286,7 @@ Ghi chú: Đã thêm import PDF tối thiểu không parser: tạo chapter, copy
 Ghi chú: Đã thêm dependency Phase 6 theo `PLAN.md`: `mammoth`, `pdf-parse`, `pdfjs-dist`; Import Wizard đọc preview text cho DOCX/PDF, cho sửa trước import, PDF parser dùng `pdf-parse` và fallback `pdfjs-dist`.
 Ghi chú: Đã thêm PDF Split View trong NovelEditor: main process đọc `original.pdf` qua API hẹp, renderer hiển thị PDF gốc bên trái bằng iframe và editor text bên phải.
 Ghi chú: Đã polish PDF Split View tối thiểu: ẩn menu bar Electron mặc định, tắt spellcheck trong editor, giảm chrome PDF viewer và cho hai pane dùng chiều cao viewport/cuộn độc lập.
+Ghi chú: 2026-07-05 đã giảm xuống dòng đột ngột khi import text/PDF: converter nối soft line wrap thành khoảng trắng và chỉ tách paragraph theo dòng trống hoặc dấu kết câu.
 
 ### Tiêu chí hoàn thành
 
