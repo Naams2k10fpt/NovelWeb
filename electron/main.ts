@@ -542,6 +542,22 @@ function readOptionalStringArray(record: JsonRecord, fieldName: string, fallback
   return value.map((item) => item.trim()).filter(Boolean);
 }
 
+function readRequiredIdArray(record: JsonRecord, fieldName: string): string[] {
+  const value = record[fieldName];
+
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an id array.`);
+  }
+
+  const ids = value.map((item, index) => assertId(item, `${fieldName}[${index}]`));
+
+  if (new Set(ids).size !== ids.length) {
+    throw new Error(`${fieldName} must not contain duplicates.`);
+  }
+
+  return ids;
+}
+
 function readOptionalNullableNumber(record: JsonRecord, fieldName: string, fallback: number | null): number | null {
   const value = record[fieldName];
 
@@ -3345,6 +3361,30 @@ async function updateMangaChapterMetadata(
   return metadata;
 }
 
+async function writeChapterMetadataOrder(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapters: ChapterMetadata[]
+): Promise<void> {
+  await Promise.all(
+    chapters.map((chapter, index) => {
+      const nextOrder = index + 1;
+
+      if (chapter.order === nextOrder) {
+        return Promise.resolve();
+      }
+
+      return writeJsonFile(
+        chapterMetaPath(libraryPath, seriesId, categoryId, volumeId, chapter.id),
+        { ...chapter, order: nextOrder, updatedAt: new Date().toISOString() },
+        { backup: true }
+      );
+    })
+  );
+}
+
 async function moveMangaChapterToTrash(
   libraryPath: string,
   seriesId: string,
@@ -3365,6 +3405,14 @@ async function moveMangaChapterToTrash(
   );
 
   return { id: chapter.id, trashPath };
+}
+
+function assertExactChapterOrder(chapterOrder: string[], chapters: ChapterMetadata[]): void {
+  const currentIds = new Set(chapters.map((chapter) => chapter.id));
+
+  if (chapterOrder.length !== currentIds.size || chapterOrder.some((chapterId) => !currentIds.has(chapterId))) {
+    throw new Error("chapterOrder must contain every chapter in this container exactly once.");
+  }
 }
 
 async function listChapterMetadata(
@@ -3429,6 +3477,61 @@ async function updateChapterMetadata(
   }
 
   return updateNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId, input);
+}
+
+async function reorderChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  input: unknown
+): Promise<ChapterMetadata[]> {
+  const record = assertRecord(input);
+  const chapterOrder = readRequiredIdArray(record, "chapterOrder");
+  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  const now = new Date().toISOString();
+
+  if (category.type === "manga") {
+    await assertMangaChapterScope(libraryPath, seriesId, categoryId, volumeId);
+    const chapters = await listMangaChapterMetadata(libraryPath, seriesId, categoryId);
+    assertExactChapterOrder(chapterOrder, chapters);
+    const chaptersById = new Map(chapters.map((chapter) => [chapter.id, chapter]));
+    const orderedChapters = chapterOrder.map((chapterId) => chaptersById.get(chapterId)).filter((chapter): chapter is MangaChapterMetadata => !!chapter);
+
+    await writeJsonFile(
+      categoryMetaPath(libraryPath, seriesId, categoryId),
+      { ...category, chapterOrder, updatedAt: now } satisfies CategoryMetadata,
+      { backup: true }
+    );
+    await writeChapterMetadataOrder(libraryPath, seriesId, categoryId, null, orderedChapters);
+    return orderedChapters;
+  }
+
+  const { category: scopedCategory, volume } = await assertNovelChapterScope(libraryPath, seriesId, categoryId, volumeId);
+  const targetMetaPath = volume
+    ? volumeMetaPath(libraryPath, seriesId, categoryId, volume.id)
+    : categoryMetaPath(libraryPath, seriesId, categoryId);
+  const chapters = await listNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId);
+  assertExactChapterOrder(chapterOrder, chapters);
+  const chaptersById = new Map(chapters.map((chapter) => [chapter.id, chapter]));
+  const orderedChapters = chapterOrder.map((chapterId) => chaptersById.get(chapterId)).filter((chapter): chapter is NovelChapterMetadata => !!chapter);
+
+  if (volume) {
+    await writeJsonFile(
+      targetMetaPath,
+      { ...volume, chapterOrder, updatedAt: now } satisfies VolumeMetadata,
+      { backup: true }
+    );
+  } else {
+    await writeJsonFile(
+      targetMetaPath,
+      { ...scopedCategory, chapterOrder, updatedAt: now } satisfies CategoryMetadata,
+      { backup: true }
+    );
+  }
+
+  await writeChapterMetadataOrder(libraryPath, seriesId, categoryId, volumeId, orderedChapters);
+  return orderedChapters;
 }
 
 async function moveChapterToTrash(
@@ -4089,6 +4192,31 @@ function registerChapterIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not update chapter.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:reorder",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<ChapterMetadata[]>> => {
+      try {
+        return ok(
+          await reorderChapterMetadata(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not reorder chapters.", String(error));
       }
     }
   );

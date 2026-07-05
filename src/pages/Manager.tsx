@@ -1,4 +1,13 @@
-import { useEffect, useState, type FormEvent, type MouseEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type FormEvent,
+  type MouseEvent,
+  type PointerEvent
+} from "react";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -81,6 +90,11 @@ type ContextMenuState = {
   nodeKey: string | null;
 };
 
+type ChapterDropState = {
+  nodeKey: string;
+  placement: "before" | "after";
+};
+
 type ManagerFormState = {
   heading: string;
   label: string;
@@ -136,6 +150,12 @@ type RendererApi = {
       chapterId: string,
       input: unknown
     ) => Promise<ApiResponse<unknown>>;
+    reorder?: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      input: unknown
+    ) => Promise<ApiResponse<ChapterMetadata[]>>;
     moveToTrash: (
       seriesId: string,
       categoryId: string,
@@ -216,6 +236,68 @@ function allNodes(series: SeriesNode[]): TreeNode[] {
   ]);
 }
 
+function sameChapterContainer(left: ChapterNode, right: ChapterNode): boolean {
+  return left.seriesId === right.seriesId && left.categoryId === right.categoryId && left.volumeId === right.volumeId;
+}
+
+function chapterSiblings(series: SeriesNode[], chapter: ChapterNode): ChapterNode[] {
+  return allNodes(series).filter(
+    (node): node is ChapterNode => node.kind === "chapter" && sameChapterContainer(node, chapter)
+  );
+}
+
+function movedChapterOrder(chapters: ChapterNode[], draggedId: string, targetId: string, placement: "before" | "after"): string[] {
+  const nextOrder = chapters.map((chapter) => chapter.id).filter((chapterId) => chapterId !== draggedId);
+  const targetIndex = nextOrder.indexOf(targetId);
+
+  if (targetIndex < 0) {
+    return chapters.map((chapter) => chapter.id);
+  }
+
+  nextOrder.splice(placement === "before" ? targetIndex : targetIndex + 1, 0, draggedId);
+  return nextOrder;
+}
+
+function mergeOrderedChapters(chapters: ChapterNode[], orderedMetadata: ChapterMetadata[]): ChapterNode[] {
+  const chaptersById = new Map(chapters.map((chapter) => [chapter.id, chapter]));
+  return orderedMetadata
+    .map((metadata) => {
+      const chapter = chaptersById.get(metadata.id);
+      return chapter ? { ...chapter, ...metadata } : null;
+    })
+    .filter((chapter): chapter is ChapterNode => !!chapter);
+}
+
+function replaceChapterOrder(series: SeriesNode[], target: ChapterNode, orderedMetadata: ChapterMetadata[]): SeriesNode[] {
+  return series.map((seriesNode) => {
+    if (seriesNode.id !== target.seriesId) {
+      return seriesNode;
+    }
+
+    return {
+      ...seriesNode,
+      categories: seriesNode.categories.map((category) => {
+        if (category.id !== target.categoryId) {
+          return category;
+        }
+
+        if (target.volumeId === null) {
+          return { ...category, directChapters: mergeOrderedChapters(category.directChapters, orderedMetadata) };
+        }
+
+        return {
+          ...category,
+          volumes: category.volumes.map((volume) =>
+            volume.id === target.volumeId
+              ? { ...volume, chapters: mergeOrderedChapters(volume.chapters, orderedMetadata) }
+              : volume
+          )
+        };
+      })
+    };
+  });
+}
+
 async function loadCategory(api: RendererApi, seriesId: string, category: CategoryMetadata): Promise<CategoryNode> {
   if (category.type === "manga") {
     return {
@@ -286,6 +368,12 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [form, setForm] = useState<ManagerFormState | null>(null);
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
+  const [draggedChapter, setDraggedChapter] = useState<ChapterNode | null>(null);
+  const [dropTarget, setDropTarget] = useState<ChapterDropState | null>(null);
+  const [treePaneWidth, setTreePaneWidth] = useState(38);
+  const [resizing, setResizing] = useState(false);
+  const managerLayoutRef = useRef<HTMLElement | null>(null);
   const api = getApi();
   const nodes = allNodes(tree.series);
   const selectedNode = nodes.find((node) => nodeKey(node) === selectedKey) ?? null;
@@ -307,11 +395,91 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
   useEffect(() => {
     if (!library.path) {
       setTree({ loading: false, series: [], error: null });
+      setExpandedKeys(new Set());
       return;
     }
 
+    setExpandedKeys(new Set());
     void refreshTree();
   }, [library.path]);
+
+  function toggleExpanded(key: string): void {
+    setExpandedKeys((current) => {
+      const next = new Set(current);
+
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+
+      return next;
+    });
+  }
+
+  function startPanelResize(event: PointerEvent<HTMLButtonElement>): void {
+    event.preventDefault();
+    setResizing(true);
+
+    const handlePointerMove = (moveEvent: globalThis.PointerEvent): void => {
+      const rect = managerLayoutRef.current?.getBoundingClientRect();
+
+      if (!rect) {
+        return;
+      }
+
+      const nextWidth = ((moveEvent.clientX - rect.left) / rect.width) * 100;
+      setTreePaneWidth(Math.min(65, Math.max(24, nextWidth)));
+    };
+
+    const stopResize = (): void => {
+      setResizing(false);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResize);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResize);
+  }
+
+  async function reorderChapters(
+    dragged: ChapterNode | null,
+    target: ChapterNode,
+    placement: "before" | "after"
+  ): Promise<void> {
+    if (!api || !dragged || dragged.id === target.id) {
+      return;
+    }
+
+    const reorder = api.chapters.reorder;
+
+    if (typeof reorder !== "function") {
+      setActionError("Restart the app to load the latest Manager API.");
+      return;
+    }
+
+    if (!sameChapterContainer(dragged, target)) {
+      setActionError("Drag chapters inside the same volume/category for now.");
+      return;
+    }
+
+    const siblings = chapterSiblings(tree.series, target);
+    const chapterOrder = movedChapterOrder(siblings, dragged.id, target.id, placement);
+
+    if (chapterOrder.join("|") === siblings.map((chapter) => chapter.id).join("|")) {
+      return;
+    }
+
+    setContextMenu(null);
+    setActionError(null);
+
+    try {
+      const orderedChapters = unwrap(await reorder(target.seriesId, target.categoryId, target.volumeId, { chapterOrder }));
+      setTree((current) => ({ ...current, series: replaceChapterOrder(current.series, target, orderedChapters) }));
+    } catch (error) {
+      setActionError(String(error));
+    }
+  }
 
   async function runAction(action: () => Promise<void>): Promise<void> {
     setContextMenu(null);
@@ -560,7 +728,12 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
   const selectedActions = actionsFor(selectedNode);
 
   return (
-    <section className="manager-layout" onClick={() => setContextMenu(null)}>
+    <section
+      className={resizing ? "manager-layout manager-layout-resizing" : "manager-layout"}
+      onClick={() => setContextMenu(null)}
+      ref={managerLayoutRef}
+      style={{ "--manager-tree-width": `${treePaneWidth}%` } as CSSProperties}
+    >
       <aside className="manager-tree-panel">
         <div className="manager-panel-header">
           <h2>Tree</h2>
@@ -587,12 +760,51 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                   setContextMenu({ x: event.clientX, y: event.clientY, nodeKey: nodeKey(node) });
                 }}
                 onSelect={(node) => setSelectedKey(nodeKey(node))}
+                expandedKeys={expandedKeys}
+                onToggle={toggleExpanded}
+                draggedChapter={draggedChapter}
+                dropTarget={dropTarget}
+                onChapterDragEnd={() => {
+                  setDraggedChapter(null);
+                  setDropTarget(null);
+                }}
+                onChapterDragOver={(event, node) => {
+                  if (!draggedChapter || !sameChapterContainer(draggedChapter, node) || draggedChapter.id === node.id) {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const placement = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                  setDropTarget({ nodeKey: nodeKey(node), placement });
+                }}
+                onChapterDragStart={(event, node) => {
+                  setDraggedChapter(node);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", nodeKey(node));
+                }}
+                onChapterDrop={(event, node) => {
+                  event.preventDefault();
+                  const placement = dropTarget?.nodeKey === nodeKey(node) ? dropTarget.placement : "before";
+                  void reorderChapters(draggedChapter, node, placement).finally(() => {
+                    setDraggedChapter(null);
+                    setDropTarget(null);
+                  });
+                }}
                 selectedKey={selectedKey}
               />
             ))}
           </div>
         )}
       </aside>
+
+      <button
+        aria-label="Resize Manager panels"
+        className="manager-resize-handle"
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={startPanelResize}
+        type="button"
+      />
 
       <section className="manager-detail-panel">
         <h2>{selectedNode ? selectedNode.title : "Select an item"}</h2>
@@ -913,122 +1125,146 @@ function MangaPageManager({ chapter, onChanged }: { chapter: ChapterNode; onChan
   );
 }
 
-function TreeButton({
-  node,
-  onContextMenu,
-  onSelect,
-  selectedKey
-}: {
-  node: TreeNode;
+type TreeItemSharedProps = {
+  draggedChapter: ChapterNode | null;
+  dropTarget: ChapterDropState | null;
+  expandedKeys: Set<string>;
+  onChapterDragEnd: () => void;
+  onChapterDragOver: (event: DragEvent<HTMLButtonElement>, node: ChapterNode) => void;
+  onChapterDragStart: (event: DragEvent<HTMLButtonElement>, node: ChapterNode) => void;
+  onChapterDrop: (event: DragEvent<HTMLButtonElement>, node: ChapterNode) => void;
   onContextMenu: (event: MouseEvent, node: TreeNode) => void;
   onSelect: (node: TreeNode) => void;
+  onToggle: (key: string) => void;
   selectedKey: string | null;
+};
+
+function TreeButton({
+  expanded,
+  hasChildren = false,
+  node,
+  onChapterDragEnd,
+  onChapterDragOver,
+  onChapterDragStart,
+  onChapterDrop,
+  onContextMenu,
+  onSelect,
+  onToggle,
+  selectedKey,
+  dropTarget
+}: TreeItemSharedProps & {
+  expanded?: boolean;
+  hasChildren?: boolean;
+  node: TreeNode;
 }) {
+  const key = nodeKey(node);
+  const isChapter = node.kind === "chapter";
+  const dropClass =
+    dropTarget?.nodeKey === key ? ` tree-node-drop-${dropTarget.placement}` : "";
+
   return (
-    <button
-      className={selectedKey === nodeKey(node) ? "tree-node tree-node-active" : "tree-node"}
-      onClick={() => onSelect(node)}
-      onContextMenu={(event) => onContextMenu(event, node)}
-      type="button"
-    >
-      <span>{node.title}</span>
-      <small>{node.kind}</small>
-    </button>
+    <div className="tree-row">
+      {hasChildren ? (
+        <button
+          aria-label={expanded ? "Collapse item" : "Expand item"}
+          aria-expanded={expanded}
+          className="tree-caret"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle(key);
+          }}
+          type="button"
+        >
+          <span className="tree-caret-icon" aria-hidden="true" />
+        </button>
+      ) : (
+        <span className="tree-caret tree-caret-empty" />
+      )}
+      <button
+        className={`${selectedKey === key ? "tree-node tree-node-active" : "tree-node"}${dropClass}`}
+        draggable={isChapter}
+        onClick={() => onSelect(node)}
+        onContextMenu={(event) => onContextMenu(event, node)}
+        onDragEnd={isChapter ? onChapterDragEnd : undefined}
+        onDragOver={isChapter ? (event) => onChapterDragOver(event, node) : undefined}
+        onDragStart={isChapter ? (event) => onChapterDragStart(event, node) : undefined}
+        onDrop={isChapter ? (event) => onChapterDrop(event, node) : undefined}
+        type="button"
+      >
+        <span className={isChapter ? "tree-icon tree-icon-chapter" : "tree-icon tree-icon-folder"} aria-hidden="true" />
+        <span>{node.title}</span>
+        <small>{node.kind}</small>
+      </button>
+    </div>
   );
 }
 
 function SeriesTreeItem({
   node,
-  onContextMenu,
-  onSelect,
-  selectedKey
-}: {
+  ...props
+}: TreeItemSharedProps & {
   node: SeriesNode;
-  onContextMenu: (event: MouseEvent, node: TreeNode) => void;
-  onSelect: (node: TreeNode) => void;
-  selectedKey: string | null;
 }) {
+  const expanded = props.expandedKeys.has(nodeKey(node));
+
   return (
-    <div className="tree-group" role="treeitem">
-      <TreeButton node={node} onContextMenu={onContextMenu} onSelect={onSelect} selectedKey={selectedKey} />
-      <div className="tree-children">
-        {node.categories.map((category) => (
-          <CategoryTreeItem
-            key={category.id}
-            node={category}
-            onContextMenu={onContextMenu}
-            onSelect={onSelect}
-            selectedKey={selectedKey}
-          />
-        ))}
-      </div>
+    <div className="tree-group" aria-expanded={expanded} role="treeitem">
+      <TreeButton {...props} expanded={expanded} hasChildren={node.categories.length > 0} node={node} />
+      {expanded ? (
+        <div className="tree-children">
+          {node.categories.map((category) => (
+            <CategoryTreeItem key={category.id} node={category} {...props} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function CategoryTreeItem({
   node,
-  onContextMenu,
-  onSelect,
-  selectedKey
-}: {
+  ...props
+}: TreeItemSharedProps & {
   node: CategoryNode;
-  onContextMenu: (event: MouseEvent, node: TreeNode) => void;
-  onSelect: (node: TreeNode) => void;
-  selectedKey: string | null;
 }) {
+  const expanded = props.expandedKeys.has(nodeKey(node));
+  const hasChildren = node.directChapters.length > 0 || node.volumes.length > 0;
+
   return (
-    <div className="tree-group" role="treeitem">
-      <TreeButton node={node} onContextMenu={onContextMenu} onSelect={onSelect} selectedKey={selectedKey} />
-      <div className="tree-children">
-        {node.directChapters.map((chapter) => (
-          <TreeButton
-            key={chapter.id}
-            node={chapter}
-            onContextMenu={onContextMenu}
-            onSelect={onSelect}
-            selectedKey={selectedKey}
-          />
-        ))}
-        {node.volumes.map((volume) => (
-          <VolumeTreeItem
-            key={volume.id}
-            node={volume}
-            onContextMenu={onContextMenu}
-            onSelect={onSelect}
-            selectedKey={selectedKey}
-          />
-        ))}
-      </div>
+    <div className="tree-group" aria-expanded={expanded} role="treeitem">
+      <TreeButton {...props} expanded={expanded} hasChildren={hasChildren} node={node} />
+      {expanded ? (
+        <div className="tree-children">
+          {node.directChapters.map((chapter) => (
+            <TreeButton key={chapter.id} node={chapter} {...props} />
+          ))}
+          {node.volumes.map((volume) => (
+            <VolumeTreeItem key={volume.id} node={volume} {...props} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function VolumeTreeItem({
   node,
-  onContextMenu,
-  onSelect,
-  selectedKey
-}: {
+  ...props
+}: TreeItemSharedProps & {
   node: VolumeNode;
-  onContextMenu: (event: MouseEvent, node: TreeNode) => void;
-  onSelect: (node: TreeNode) => void;
-  selectedKey: string | null;
 }) {
+  const expanded = props.expandedKeys.has(nodeKey(node));
+
   return (
-    <div className="tree-group" role="treeitem">
-      <TreeButton node={node} onContextMenu={onContextMenu} onSelect={onSelect} selectedKey={selectedKey} />
-      <div className="tree-children">
-        {node.chapters.map((chapter) => (
-          <TreeButton
-            key={chapter.id}
-            node={chapter}
-            onContextMenu={onContextMenu}
-            onSelect={onSelect}
-            selectedKey={selectedKey}
-          />
-        ))}
-      </div>
+    <div className="tree-group" aria-expanded={expanded} role="treeitem">
+      <TreeButton {...props} expanded={expanded} hasChildren={node.chapters.length > 0} node={node} />
+      {expanded ? (
+        <div className="tree-children">
+          {node.chapters.map((chapter) => (
+            <TreeButton key={chapter.id} node={chapter} {...props} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

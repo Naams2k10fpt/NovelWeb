@@ -169,6 +169,7 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 ### Checklist
 
 Ghi chú: Đã thay `window.prompt()` trong Manager bằng form nội bộ vì Electron không hỗ trợ prompt.
+Ghi chú: 2026-07-05 đã tổ chức lại Manager: split pane kéo được, cây thư mục mặc định thu gọn, node có caret mở/đóng kiểu Explorer và chapter kéo thả được để sắp xếp trong cùng volume/category; reorder cập nhật local tree sau khi lưu, không reload toàn bộ thư viện.
 
 - [x] Tạo trang Library.
 - [x] Hiển thị series card.

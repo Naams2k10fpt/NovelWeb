@@ -1281,8 +1281,8 @@ body {
 .manager-layout {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(280px, 38%) 1fr;
-  gap: 20px;
+  grid-template-columns: minmax(260px, var(--manager-tree-width, 38%)) 10px minmax(320px, 1fr);
+  gap: 10px;
   min-height: 520px;
 }
 
@@ -1297,6 +1297,21 @@ body {
 .manager-tree-panel {
   overflow: auto;
   padding: 14px;
+}
+
+.manager-resize-handle {
+  width: 10px;
+  min-width: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.manager-resize-handle:hover,
+.manager-layout-resizing .manager-resize-handle {
+  background: #ddd4c7;
 }
 
 .manager-detail-panel {
@@ -1329,20 +1344,57 @@ body {
 .tree-group,
 .tree-children {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .tree-children {
-  margin-left: 16px;
+  margin-left: 12px;
   padding-left: 10px;
   border-left: 1px solid #ddd4c7;
 }
 
-.tree-node {
-  display: flex;
+.tree-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 2px;
+}
+
+.tree-caret {
+  display: grid;
+  width: 22px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #66707a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.tree-caret-icon {
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+.tree-group[aria-expanded="true"] > .tree-row > .tree-caret .tree-caret-icon {
+  transform: rotate(45deg);
+}
+
+.tree-caret-empty {
+  cursor: default;
+}
+
+.tree-node {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
   min-height: 32px;
   padding: 0 8px;
   border: 0;
@@ -1352,6 +1404,37 @@ body {
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.tree-icon {
+  display: inline-block;
+  width: 14px;
+  height: 12px;
+}
+
+.tree-icon-folder {
+  position: relative;
+  border-radius: 2px;
+  background: #e8b84f;
+}
+
+.tree-icon-folder::before {
+  position: absolute;
+  top: -3px;
+  left: 1px;
+  width: 7px;
+  height: 4px;
+  border-radius: 2px 2px 0 0;
+  background: #d7a43a;
+  content: "";
+}
+
+.tree-icon-chapter {
+  width: 11px;
+  height: 14px;
+  border: 1px solid #9fb4b2;
+  border-radius: 2px;
+  background: #ffffff;
 }
 
 .tree-node:hover,
@@ -1369,6 +1452,33 @@ body {
   flex: 0 0 auto;
   color: #66707a;
   font-size: 11px;
+}
+
+.tree-node[draggable="true"] {
+  cursor: grab;
+}
+
+.tree-node[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.tree-node-drop-before::before,
+.tree-node-drop-after::after {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: #2f6f73;
+  content: "";
+}
+
+.tree-node-drop-before::before {
+  top: -2px;
+}
+
+.tree-node-drop-after::after {
+  bottom: -2px;
 }
 
 .manager-actions {
@@ -1726,6 +1836,14 @@ body {
 
   .manga-page-workspace {
     grid-template-columns: 1fr;
+  }
+
+  .manager-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .manager-resize-handle {
+    display: none;
   }
 
   .pdf-pane,
