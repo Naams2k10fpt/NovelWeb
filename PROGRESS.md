@@ -232,6 +232,7 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 Ghi chú: Đã thêm ô title trong editor lưu thành H1 đầu nội dung, truyền tên truyện vào reader và tinh chỉnh header đọc/edit.
 Ghi chú: Đã chỉnh reader chỉ hiện tên truyện căn giữa, giữ sidebar cố định khi cuộn và cho H2 áp dụng cả block đang chọn.
 Ghi chú: Đã đảo cấp chữ giữa tên truyện và title, đồng thời căn giữa title trong editor/reader.
+Ghi chú: 2026-07-05 đã mở rộng NovelEditor thành toolbar gần Word hơn: ribbon nhóm công cụ, font family/size, màu chữ, highlight, underline/strike/code, list số, căn lề theo vùng chọn, link, undo/redo, rule, clear format và giữ render tương ứng trong reader.
 
 ### Tiêu chí hoàn thành
 

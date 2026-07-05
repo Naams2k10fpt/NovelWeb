@@ -1,4 +1,5 @@
-import { mergeAttributes, Node as TiptapNode } from "@tiptap/core";
+import { Extension, Mark, mergeAttributes, Node as TiptapNode, type Editor } from "@tiptap/core";
+import type { Node as ProseMirrorNode, ResolvedPos } from "@tiptap/pm/model";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useState } from "react";
@@ -70,6 +71,143 @@ type RendererApi = {
 type EditorStatus = "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
 
 const AUTOSAVE_DELAY_MS = 1200;
+const FONT_FAMILIES = ["Inter", "Georgia", "Times New Roman", "Arial", "Verdana", "Courier New"] as const;
+const FONT_SIZES = ["14px", "16px", "18px", "20px", "24px", "28px", "32px"] as const;
+const TEXT_ALIGNMENTS = ["left", "center", "right", "justify"] as const;
+const TEXT_ALIGNMENT_LABELS: Record<(typeof TEXT_ALIGNMENTS)[number], string> = {
+  left: "L",
+  center: "C",
+  right: "R",
+  justify: "J"
+};
+
+type BlockFormat = "paragraph" | "h1" | "h2" | "h3" | "codeBlock";
+type TextStyleAttributes = {
+  color?: string | null;
+  backgroundColor?: string | null;
+  fontFamily?: string | null;
+  fontSize?: string | null;
+};
+type SelectedTextBlock = { node: ProseMirrorNode; pos: number };
+
+function cleanColor(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const color = value.trim();
+
+  if (/^#[0-9a-f]{3,8}$/i.test(color) || /^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(color)) {
+    return color;
+  }
+
+  return null;
+}
+
+function cleanFontSize(value: unknown): string | null {
+  return typeof value === "string" && FONT_SIZES.includes(value as (typeof FONT_SIZES)[number]) ? value : null;
+}
+
+function cleanFontFamily(value: unknown): string | null {
+  return typeof value === "string" && FONT_FAMILIES.includes(value as (typeof FONT_FAMILIES)[number]) ? value : null;
+}
+
+function cleanTextAlign(value: unknown): string | null {
+  return typeof value === "string" && TEXT_ALIGNMENTS.includes(value as (typeof TEXT_ALIGNMENTS)[number])
+    ? value
+    : null;
+}
+
+function colorInputValue(value: unknown, fallback: string): string {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const color = value.trim();
+  const hex = color.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+
+  if (hex) {
+    return hex[1].length === 3
+      ? `#${hex[1]
+          .split("")
+          .map((part) => part + part)
+          .join("")}`
+      : color;
+  }
+
+  const rgb = color.match(/^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/i);
+
+  if (!rgb) {
+    return fallback;
+  }
+
+  return `#${rgb
+    .slice(1)
+    .map((part) => Math.max(0, Math.min(255, Number(part))).toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+const TextStyle = Mark.create({
+  name: "textStyle",
+  priority: 101,
+  addAttributes() {
+    return {
+      color: {
+        default: null,
+        parseHTML: (element) => cleanColor(element.style.color)
+      },
+      backgroundColor: {
+        default: null,
+        parseHTML: (element) => cleanColor(element.style.backgroundColor)
+      },
+      fontFamily: {
+        default: null,
+        parseHTML: (element) => cleanFontFamily(element.style.fontFamily.replace(/"/g, ""))
+      },
+      fontSize: {
+        default: null,
+        parseHTML: (element) => cleanFontSize(element.style.fontSize)
+      }
+    };
+  },
+  parseHTML() {
+    return [{ tag: "span[style]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    const { backgroundColor, color, fontFamily, fontSize, style: _style, ...attributes } = HTMLAttributes;
+    const styles = [
+      cleanColor(color) ? `color: ${color}` : "",
+      cleanColor(backgroundColor) ? `background-color: ${backgroundColor}` : "",
+      cleanFontFamily(fontFamily) ? `font-family: ${fontFamily}` : "",
+      cleanFontSize(fontSize) ? `font-size: ${fontSize}` : ""
+    ]
+      .filter(Boolean)
+      .join("; ");
+
+    return ["span", mergeAttributes(attributes, styles ? { style: styles } : {}), 0];
+  }
+});
+
+const TextAlign = Extension.create({
+  name: "textAlign",
+  addGlobalAttributes() {
+    return [
+      {
+        types: ["heading", "paragraph"],
+        attributes: {
+          textAlign: {
+            default: null,
+            parseHTML: (element) => cleanTextAlign(element.style.textAlign),
+            renderHTML: (attributes) => {
+              const textAlign = cleanTextAlign(attributes.textAlign);
+              return textAlign ? { style: `text-align: ${textAlign}` } : {};
+            }
+          }
+        }
+      }
+    ];
+  }
+});
 
 const InlineImage = TiptapNode.create({
   name: "image",
@@ -159,6 +297,87 @@ function composeChapterHtml(title: string, bodyHtml: string): string {
   return heading ? `<h1>${escapeHtml(heading)}</h1>\n${body}` : body;
 }
 
+function blockFormat(editor: Editor | null): BlockFormat {
+  if (!editor) {
+    return "paragraph";
+  }
+
+  if (editor.isActive("heading", { level: 1 })) {
+    return "h1";
+  }
+
+  if (editor.isActive("heading", { level: 2 })) {
+    return "h2";
+  }
+
+  if (editor.isActive("heading", { level: 3 })) {
+    return "h3";
+  }
+
+  if (editor.isActive("codeBlock")) {
+    return "codeBlock";
+  }
+
+  return "paragraph";
+}
+
+function currentTextAlign(editor: Editor | null): string {
+  if (!editor) {
+    return "left";
+  }
+
+  const firstBlock = selectedTextBlocks(editor)[0];
+
+  if (firstBlock) {
+    return cleanTextAlign(firstBlock.node.attrs.textAlign) ?? "left";
+  }
+
+  return "left";
+}
+
+function normalizedLinkHref(value: string): string {
+  const href = value.trim();
+
+  if (!href) {
+    return "";
+  }
+
+  return /^(https?:|mailto:)/i.test(href) ? href : `https://${href}`;
+}
+
+function isTextBlock(node: ProseMirrorNode): boolean {
+  return node.type.name === "paragraph" || node.type.name === "heading";
+}
+
+function addTextBlockAt(blocks: Map<number, SelectedTextBlock>, position: ResolvedPos): void {
+  for (let depth = position.depth; depth > 0; depth -= 1) {
+    const node = position.node(depth);
+
+    if (isTextBlock(node)) {
+      blocks.set(position.before(depth), { node, pos: position.before(depth) });
+      return;
+    }
+  }
+}
+
+function selectedTextBlocks(editor: Editor): SelectedTextBlock[] {
+  const blocks = new Map<number, SelectedTextBlock>();
+  const { doc, selection } = editor.state;
+
+  addTextBlockAt(blocks, selection.$from);
+  addTextBlockAt(blocks, selection.$to);
+
+  if (!selection.empty) {
+    doc.nodesBetween(selection.from, selection.to, (node, pos) => {
+      if (isTextBlock(node)) {
+        blocks.set(pos, { node, pos });
+      }
+    });
+  }
+
+  return [...blocks.values()].sort((a, b) => a.pos - b.pos);
+}
+
 export default function NovelEditor({
   onBack,
   onDirtyChange,
@@ -175,6 +394,7 @@ export default function NovelEditor({
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [status, setStatus] = useState<EditorStatus>("loading");
   const [title, setTitle] = useState("");
+  const [linkHref, setLinkHref] = useState("");
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadedRef = useRef(false);
   const lastSavedHtmlRef = useRef("");
@@ -183,7 +403,7 @@ export default function NovelEditor({
   const saveAgainRef = useRef(false);
   const titleRef = useRef("");
   const editor = useEditor({
-    extensions: [StarterKit, InlineImage],
+    extensions: [StarterKit.configure({ link: { openOnClick: false } }), TextStyle, TextAlign, InlineImage],
     content: "",
     shouldRerenderOnTransaction: true,
     editorProps: {
@@ -192,6 +412,10 @@ export default function NovelEditor({
         class: "novel-editor-content",
         spellcheck: "false"
       }
+    },
+    onSelectionUpdate: ({ editor: currentEditor }) => {
+      const href = currentEditor.getAttributes("link").href;
+      setLinkHref(typeof href === "string" ? href : "");
     },
     onUpdate: ({ editor: currentEditor }) => {
       if (!isLoadedRef.current) {
@@ -242,6 +466,7 @@ export default function NovelEditor({
     setOriginalPdf(null);
     setPdfError(null);
     setTitle("");
+    setLinkHref("");
     titleRef.current = "";
 
     void api.chapters
@@ -415,17 +640,88 @@ export default function NovelEditor({
     }
   }
 
-  function toggleHeadingBlock(): void {
+  function applyBlockFormat(format: BlockFormat): void {
     if (!editor) {
       return;
     }
 
-    const { doc, selection } = editor.state;
-    const from = doc.resolve(selection.from).start();
-    const to = doc.resolve(selection.to).end();
+    if (format === "paragraph") {
+      editor.chain().focus().setParagraph().run();
+      return;
+    }
 
-    editor.chain().focus().setTextSelection({ from, to }).toggleHeading({ level: 2 }).run();
+    if (format === "codeBlock") {
+      editor.chain().focus().toggleCodeBlock().run();
+      return;
+    }
+
+    editor
+      .chain()
+      .focus()
+      .setHeading({ level: Number(format.replace("h", "")) as 1 | 2 | 3 })
+      .run();
   }
+
+  function applyTextAlign(textAlign: string): void {
+    if (!editor) {
+      return;
+    }
+
+    const value = textAlign === "left" ? null : cleanTextAlign(textAlign);
+    const tr = editor.state.tr;
+    const blocks = selectedTextBlocks(editor);
+
+    if (!blocks.length) {
+      return;
+    }
+
+    for (const block of blocks) {
+      tr.setNodeMarkup(block.pos, undefined, { ...block.node.attrs, textAlign: value });
+    }
+
+    editor.view.dispatch(tr.scrollIntoView());
+    editor.view.focus();
+  }
+
+  function applyTextStyle(attribute: keyof TextStyleAttributes, value: string | null): void {
+    if (!editor) {
+      return;
+    }
+
+    const current = editor.getAttributes("textStyle") as TextStyleAttributes;
+    const next = { ...current, [attribute]: value };
+
+    if (!next.color && !next.backgroundColor && !next.fontFamily && !next.fontSize) {
+      editor.chain().focus().unsetMark("textStyle").run();
+      return;
+    }
+
+    editor.chain().focus().setMark("textStyle", next).run();
+  }
+
+  function applyLink(): void {
+    if (!editor) {
+      return;
+    }
+
+    const href = normalizedLinkHref(linkHref);
+
+    if (!href) {
+      editor.chain().focus().extendMarkRange("link").unsetLink().run();
+      return;
+    }
+
+    setLinkHref(href);
+    editor.chain().focus().extendMarkRange("link").setLink({ href }).run();
+  }
+
+  function clearFormatting(): void {
+    editor?.chain().focus().unsetAllMarks().clearNodes().run();
+  }
+
+  const textStyle = (editor?.getAttributes("textStyle") ?? {}) as TextStyleAttributes;
+  const selectedFontFamily = cleanFontFamily(textStyle.fontFamily) ?? "";
+  const selectedFontSize = cleanFontSize(textStyle.fontSize) ?? "";
 
   return (
     <section className={originalPdf ? "novel-editor novel-editor-split" : "novel-editor"}>
@@ -447,63 +743,233 @@ export default function NovelEditor({
       </header>
 
       <div className="editor-toolbar" aria-label="Editor toolbar">
-        <ToolbarButton
-          active={editor?.isActive("bold") ?? false}
-          disabled={!editor}
-          label="B"
-          onClick={() => editor?.chain().focus().toggleBold().run()}
-          title="Bold"
-        />
-        <ToolbarButton
-          active={editor?.isActive("italic") ?? false}
-          disabled={!editor}
-          label="I"
-          onClick={() => editor?.chain().focus().toggleItalic().run()}
-          title="Italic"
-        />
-        <ToolbarButton
-          active={editor?.isActive("heading", { level: 2 }) ?? false}
-          disabled={!editor}
-          label="H2"
-          onClick={toggleHeadingBlock}
-          title="Heading"
-        />
-        <ToolbarButton
-          active={editor?.isActive("blockquote") ?? false}
-          disabled={!editor}
-          label="Quote"
-          onClick={() => editor?.chain().focus().toggleBlockquote().run()}
-          title="Quote"
-        />
-        <ToolbarButton
-          active={editor?.isActive("bulletList") ?? false}
-          disabled={!editor}
-          label="List"
-          onClick={() => editor?.chain().focus().toggleBulletList().run()}
-          title="List"
-        />
-        <ToolbarButton
-          active={false}
-          disabled={!editor || status === "loading"}
-          label="Image"
-          onClick={() => void insertImage()}
-          title="Insert image"
-        />
+        <div className="toolbar-group toolbar-style-group">
+          <select
+            aria-label="Block format"
+            disabled={!editor}
+            onChange={(event) => applyBlockFormat(event.target.value as BlockFormat)}
+            title="Block format"
+            value={blockFormat(editor)}
+          >
+            <option value="paragraph">Paragraph</option>
+            <option value="h1">Heading 1</option>
+            <option value="h2">Heading 2</option>
+            <option value="h3">Heading 3</option>
+            <option value="codeBlock">Code block</option>
+          </select>
+          <select
+            aria-label="Font family"
+            disabled={!editor}
+            onChange={(event) => applyTextStyle("fontFamily", event.target.value || null)}
+            title="Font family"
+            value={selectedFontFamily}
+          >
+            <option value="">Font</option>
+            {FONT_FAMILIES.map((fontFamily) => (
+              <option key={fontFamily} value={fontFamily}>
+                {fontFamily}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Font size"
+            disabled={!editor}
+            onChange={(event) => applyTextStyle("fontSize", event.target.value || null)}
+            title="Font size"
+            value={selectedFontSize}
+          >
+            <option value="">Size</option>
+            {FONT_SIZES.map((fontSize) => (
+              <option key={fontSize} value={fontSize}>
+                {fontSize}
+              </option>
+            ))}
+          </select>
+        </div>
 
-        <button
-          className="primary-action"
-          disabled={status === "loading" || status === "saving"}
-          onClick={() => void save()}
-          type="button"
-        >
-          Save
-        </button>
-        <button onClick={onRead} type="button">
-          Read
-        </button>
-        <span className={status === "error" ? "editor-status editor-status-error" : "editor-status"}>
-          {statusText(status)}
-        </span>
+        <div className="toolbar-group toolbar-compact-group">
+          <ToolbarButton
+            active={editor?.isActive("bold") ?? false}
+            disabled={!editor}
+            label="B"
+            onClick={() => editor?.chain().focus().toggleBold().run()}
+            title="Bold"
+          />
+          <ToolbarButton
+            active={editor?.isActive("italic") ?? false}
+            disabled={!editor}
+            label="I"
+            onClick={() => editor?.chain().focus().toggleItalic().run()}
+            title="Italic"
+          />
+          <ToolbarButton
+            active={editor?.isActive("underline") ?? false}
+            disabled={!editor}
+            label="U"
+            onClick={() => editor?.chain().focus().toggleUnderline().run()}
+            title="Underline"
+          />
+          <ToolbarButton
+            active={editor?.isActive("strike") ?? false}
+            disabled={!editor}
+            label="S"
+            onClick={() => editor?.chain().focus().toggleStrike().run()}
+            title="Strikethrough"
+          />
+          <label className="toolbar-swatch" title="Text color">
+            <span>A</span>
+            <input
+              aria-label="Text color"
+              disabled={!editor}
+              onChange={(event) => applyTextStyle("color", event.target.value)}
+              type="color"
+              value={colorInputValue(textStyle.color, "#23272f")}
+            />
+          </label>
+          <label className="toolbar-swatch" title="Highlight color">
+            <span>H</span>
+            <input
+              aria-label="Highlight color"
+              disabled={!editor}
+              onChange={(event) => applyTextStyle("backgroundColor", event.target.value)}
+              type="color"
+              value={colorInputValue(textStyle.backgroundColor, "#f7d56f")}
+            />
+          </label>
+          <ToolbarButton
+            active={editor?.isActive("code") ?? false}
+            disabled={!editor}
+            label="Code"
+            onClick={() => editor?.chain().focus().toggleCode().run()}
+            title="Inline code"
+          />
+        </div>
+
+        <div className="toolbar-group toolbar-compact-group">
+          <ToolbarButton
+            active={editor?.isActive("blockquote") ?? false}
+            disabled={!editor}
+            label="Quote"
+            onClick={() => editor?.chain().focus().toggleBlockquote().run()}
+            title="Quote"
+          />
+          <ToolbarButton
+            active={editor?.isActive("bulletList") ?? false}
+            disabled={!editor}
+            label="Bullets"
+            onClick={() => editor?.chain().focus().toggleBulletList().run()}
+            title="Bullet list"
+          />
+          <ToolbarButton
+            active={editor?.isActive("orderedList") ?? false}
+            disabled={!editor}
+            label="Numbered"
+            onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+            title="Numbered list"
+          />
+          <ToolbarButton
+            active={editor?.isActive("codeBlock") ?? false}
+            disabled={!editor}
+            label="Block code"
+            onClick={() => editor?.chain().focus().toggleCodeBlock().run()}
+            title="Code block"
+          />
+          <ToolbarButton
+            active={false}
+            disabled={!editor}
+            label="Rule"
+            onClick={() => editor?.chain().focus().setHorizontalRule().run()}
+            title="Horizontal rule"
+          />
+        </div>
+
+        <div className="toolbar-group toolbar-compact-group">
+          {TEXT_ALIGNMENTS.map((textAlign) => (
+            <ToolbarButton
+              active={currentTextAlign(editor) === textAlign}
+              disabled={!editor}
+              key={textAlign}
+              label={TEXT_ALIGNMENT_LABELS[textAlign]}
+              onClick={() => applyTextAlign(textAlign)}
+              title={`Align ${textAlign}`}
+            />
+          ))}
+        </div>
+
+        <div className="toolbar-group toolbar-link-group">
+          <input
+            aria-label="Link URL"
+            className="editor-link-input"
+            disabled={!editor}
+            onChange={(event) => setLinkHref(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                applyLink();
+              }
+            }}
+            placeholder="https://..."
+            title="Link URL"
+            type="url"
+            value={linkHref}
+          />
+          <ToolbarButton
+            active={editor?.isActive("link") ?? false}
+            disabled={!editor}
+            label="Link"
+            onClick={applyLink}
+            title="Apply link"
+          />
+          <ToolbarButton
+            active={false}
+            disabled={!editor}
+            label="Unlink"
+            onClick={() => editor?.chain().focus().extendMarkRange("link").unsetLink().run()}
+            title="Remove link"
+          />
+        </div>
+
+        <div className="toolbar-group toolbar-compact-group">
+          <ToolbarButton
+            active={false}
+            disabled={!editor || !editor.can().undo()}
+            label="Undo"
+            onClick={() => editor?.chain().focus().undo().run()}
+            title="Undo"
+          />
+          <ToolbarButton
+            active={false}
+            disabled={!editor || !editor.can().redo()}
+            label="Redo"
+            onClick={() => editor?.chain().focus().redo().run()}
+            title="Redo"
+          />
+          <ToolbarButton active={false} disabled={!editor} label="Clear" onClick={clearFormatting} title="Clear formatting" />
+          <ToolbarButton
+            active={false}
+            disabled={!editor || status === "loading"}
+            label="Image"
+            onClick={() => void insertImage()}
+            title="Insert image"
+          />
+        </div>
+
+        <div className="toolbar-actions">
+          <button
+            className="primary-action"
+            disabled={status === "loading" || status === "saving"}
+            onClick={() => void save()}
+            type="button"
+          >
+            Save
+          </button>
+          <button onClick={onRead} type="button">
+            Read
+          </button>
+          <span className={status === "error" ? "editor-status editor-status-error" : "editor-status"}>
+            {statusText(status)}
+          </span>
+        </div>
       </div>
 
       {error ? <p className="error-text">{error}</p> : null}
