@@ -200,6 +200,7 @@ export default function NovelReader({
   const [theme, setTheme] = useState<ReaderTheme>("light");
   const [loading, setLoading] = useState(true);
   const loadedRef = useRef(false);
+  const pendingScrollTopRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function saveProgress(): void {
@@ -216,7 +217,6 @@ export default function NovelReader({
 
   useEffect(() => {
     let isMounted = true;
-    let jumpTimer: number | null = null;
     const api = getApi();
 
     if (!api) {
@@ -247,15 +247,9 @@ export default function NovelReader({
         setHtml(unwrap(contentResponse).html || "<p>No content yet.</p>");
         setBookmark(unwrap(bookmarkResponse));
         setHighlights(unwrap(highlightsResponse));
+        pendingScrollTopRef.current = target.scrollTop ?? unwrap(progressResponse).scrollTop;
         loadedRef.current = true;
         setLoading(false);
-        jumpTimer = window.setTimeout(() => {
-          const didHighlightSearchMatch = target.searchText ? highlightSearchMatch(target.searchText) : false;
-
-          if (!didHighlightSearchMatch) {
-            window.scrollTo({ top: target.scrollTop ?? unwrap(progressResponse).scrollTop });
-          }
-        }, 0);
       })
       .catch((loadError) => {
         if (isMounted) {
@@ -271,11 +265,24 @@ export default function NovelReader({
       if (progressTimerRef.current) {
         clearTimeout(progressTimerRef.current);
       }
-      if (jumpTimer) {
-        clearTimeout(jumpTimer);
-      }
     };
   }, [target.categoryId, target.chapterId, target.scrollTop, target.searchText, target.seriesId, target.volumeId]);
+
+  useEffect(() => {
+    if (loading || !html) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const didHighlightSearchMatch = target.searchText ? highlightSearchMatch(target.searchText) : false;
+
+      if (!didHighlightSearchMatch) {
+        window.scrollTo({ top: pendingScrollTopRef.current });
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [html, loading, target.categoryId, target.chapterId, target.searchText, target.seriesId, target.volumeId]);
 
   useEffect(() => {
     function handleScroll(): void {
