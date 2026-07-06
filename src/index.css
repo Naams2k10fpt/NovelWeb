@@ -1423,10 +1423,20 @@ body {
   background: #f7d56f;
   color: #23272f;
   box-shadow: 0 0 0 2px rgb(247 213 111 / 35%);
+  transition:
+    background-color 450ms ease,
+    box-shadow 450ms ease,
+    color 450ms ease;
 }
 
 .reader-search-hit-active {
   animation: reader-search-pulse 1.3s ease-in-out 2;
+}
+
+.reader-search-hit-fading {
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
 }
 
 @keyframes reader-search-pulse {

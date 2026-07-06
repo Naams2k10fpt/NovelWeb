@@ -414,6 +414,8 @@ Ghi chú: Đã thêm nhóm 3 tối thiểu: Reader lưu đoạn text đang chọ
 - [x] Search/Reader: click search result mở đúng vị trí đoạn match và tô sáng tạm thời đoạn đó.
 - [x] Highlight mới: đổi highlight cũ thành marker "cần sửa" trong Reader, lưu note và cho Editor nhảy tới marker để sửa.
 
+Ghi chú: Search highlight trong Reader chỉ dùng để định vị nhanh, tự fade rồi gỡ khỏi nội dung sau vài giây để không vướng khi đọc tiếp.
+
 ### Tiêu chí hoàn thành
 
 - [x] Search không cần quét toàn bộ file mỗi lần với thư viện vừa/lớn.

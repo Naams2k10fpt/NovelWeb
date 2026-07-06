@@ -104,19 +104,24 @@ function formatDate(value: string): string {
   return new Date(value).toLocaleString();
 }
 
+function unwrapReaderSearchHit(hit: Element): void {
+  const parent = hit.parentNode;
+
+  if (!parent) {
+    return;
+  }
+
+  while (hit.firstChild) {
+    parent.insertBefore(hit.firstChild, hit);
+  }
+
+  parent.removeChild(hit);
+  parent.normalize();
+}
+
 function unwrapReaderSearchHits(root: Element): void {
   for (const hit of Array.from(root.querySelectorAll("mark.reader-search-hit"))) {
-    const parent = hit.parentNode;
-
-    if (!parent) {
-      continue;
-    }
-
-    while (hit.firstChild) {
-      parent.insertBefore(hit.firstChild, hit);
-    }
-
-    parent.removeChild(hit);
+    unwrapReaderSearchHit(hit);
   }
 
   root.normalize();
@@ -172,7 +177,11 @@ function highlightSearchMatch(searchText: string): boolean {
   mark.append(range.extractContents());
   range.insertNode(mark);
   mark.scrollIntoView({ block: "center", behavior: "smooth" });
-  window.setTimeout(() => mark.classList.remove("reader-search-hit-active"), 2600);
+  window.setTimeout(() => {
+    mark.classList.remove("reader-search-hit-active");
+    mark.classList.add("reader-search-hit-fading");
+    window.setTimeout(() => unwrapReaderSearchHit(mark), 450);
+  }, 4200);
 
   return true;
 }
