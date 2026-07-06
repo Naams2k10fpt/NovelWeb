@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld("api", {
   },
   import: {
     chooseSourceFolder: () => ipcRenderer.invoke("import:chooseSourceFolder"),
+    chooseSourceFiles: () => ipcRenderer.invoke("import:chooseSourceFiles"),
     scan: (importSessionId: string) => ipcRenderer.invoke("import:scan", importSessionId),
     readText: (importSessionId: string, fileId: string) => ipcRenderer.invoke("import:readText", importSessionId, fileId),
     execute: (importSessionId: string, input: unknown) => ipcRenderer.invoke("import:execute", importSessionId, input)

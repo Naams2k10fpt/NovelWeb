@@ -8,6 +8,7 @@ import {
   type MouseEvent,
   type PointerEvent
 } from "react";
+import ImportWizard, { type ImportPreview, type ImportSource, type ImportTargetPreset } from "./ImportWizard";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -103,6 +104,13 @@ type ManagerFormState = {
   submit: (title: string, categoryType: CategoryType | null) => Promise<void>;
 };
 
+type ManagerImportState = {
+  heading: string;
+  preview: ImportPreview;
+  source: ImportSource;
+  target: ImportTargetPreset;
+};
+
 type MangaPageSummary = {
   fileName: string;
   thumbnailFileName: string;
@@ -119,6 +127,11 @@ type MangaPageData = {
   fileName: string;
   dataUrl: string;
   sizeBytes: number;
+};
+
+type ManagerAction = {
+  label: string;
+  run: () => Promise<void | false>;
 };
 
 type RendererApi = {
@@ -190,6 +203,11 @@ type RendererApi = {
       chapterId: string,
       input: unknown
     ) => Promise<ApiResponse<MangaChapterPages>>;
+  };
+  import: {
+    chooseSourceFolder: () => Promise<ApiResponse<ImportSource | null>>;
+    chooseSourceFiles: () => Promise<ApiResponse<ImportSource | null>>;
+    scan: (importSessionId: string) => Promise<ApiResponse<ImportPreview>>;
   };
 };
 
@@ -368,6 +386,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [form, setForm] = useState<ManagerFormState | null>(null);
+  const [importPanel, setImportPanel] = useState<ManagerImportState | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
   const [draggedChapter, setDraggedChapter] = useState<ChapterNode | null>(null);
   const [dropTarget, setDropTarget] = useState<ChapterDropState | null>(null);
@@ -379,12 +398,15 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
   const selectedNode = nodes.find((node) => nodeKey(node) === selectedKey) ?? null;
   const menuNode = nodes.find((node) => nodeKey(node) === contextMenu?.nodeKey) ?? null;
 
-  async function refreshTree(): Promise<void> {
+  async function refreshTree(options: { quiet?: boolean } = {}): Promise<void> {
     if (!api || !library.path) {
       return;
     }
 
-    setTree((current) => ({ ...current, loading: true, error: null }));
+    if (!options.quiet) {
+      setTree((current) => ({ ...current, loading: true, error: null }));
+    }
+
     try {
       setTree({ loading: false, series: await loadTree(api), error: null });
     } catch (error) {
@@ -481,13 +503,15 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     }
   }
 
-  async function runAction(action: () => Promise<void>): Promise<void> {
+  async function runAction(action: ManagerAction["run"]): Promise<void> {
     setContextMenu(null);
     setActionError(null);
 
     try {
-      await action();
-      await refreshTree();
+      const shouldRefresh = await action();
+      if (shouldRefresh !== false) {
+        await refreshTree();
+      }
     } catch (error) {
       setActionError(String(error));
     }
@@ -500,7 +524,25 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     submit: ManagerFormState["submit"],
     categoryType: CategoryType | null = null
   ): void {
+    setImportPanel(null);
     setForm({ heading, label, title, categoryType, submit });
+  }
+
+  async function openImport(heading: string, target: ImportTargetPreset, sourceKind: "folder" | "files" = "folder"): Promise<void> {
+    if (!api) {
+      throw new Error("App API is unavailable. Restart the app or check the preload script.");
+    }
+
+    const source = unwrap(
+      await (sourceKind === "files" ? api.import.chooseSourceFiles() : api.import.chooseSourceFolder())
+    );
+    if (!source) {
+      return;
+    }
+
+    const preview = unwrap(await api.import.scan(source.importSessionId));
+    setForm(null);
+    setImportPanel({ heading, preview, source, target });
   }
 
   async function submitForm(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -521,7 +563,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     });
   }
 
-  function actionsFor(node: TreeNode | null): Array<{ label: string; run: () => Promise<void> }> {
+  function actionsFor(node: TreeNode | null): ManagerAction[] {
     if (!api) {
       return [];
     }
@@ -531,9 +573,17 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
         {
           label: "Add series",
           run: async () => {
+            await openImport("Import new series", { mode: "new", label: "New series from selected folder" });
+            return false;
+          }
+        },
+        {
+          label: "Add empty series",
+          run: async () => {
             openForm("Add series", "Series title", "", async (title) => {
               unwrap(await api.series.create({ title }));
             });
+            return false;
           }
         }
       ];
@@ -553,6 +603,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
               },
               "light-novel"
             );
+            return false;
           }
         },
         {
@@ -561,6 +612,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
             openForm("Rename series", "Series title", node.title, async (title) => {
               unwrap(await api.series.update(node.id, { title }));
             });
+            return false;
           }
         },
         {
@@ -570,6 +622,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
               unwrap(await api.series.moveToTrash(node.id));
               setSelectedKey(null);
               setForm(null);
+              setImportPanel(null);
             }
           }
         }
@@ -577,26 +630,46 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     }
 
     if (node.kind === "category") {
-      const actions: Array<{ label: string; run: () => Promise<void> }> = [];
+      const actions: ManagerAction[] = [];
 
       if (node.type !== "manga") {
         actions.push({
-          label: "Add volume",
+          label: node.type === "web-novel" ? "Import chapters" : "Import volumes/chapters",
+          run: async () => {
+            await openImport(
+              `Import into ${node.title}`,
+              {
+                mode: "existing",
+                seriesId: node.seriesId,
+                categoryId: node.id,
+                volumeMode: node.type === "web-novel" ? "none" : "source",
+                volumeId: null,
+                label: `${node.title} (${formatLabel(node.type)})`
+              },
+              node.type === "web-novel" ? "files" : "folder"
+            );
+            return false;
+          }
+        });
+        actions.push({
+          label: "Add empty volume",
           run: async () => {
             openForm("Add volume", "Volume title", `Volume ${node.volumes.length + 1}`, async (title) => {
               unwrap(await api.volumes.create(node.seriesId, node.id, { title }));
             });
+            return false;
           }
         });
       }
 
       if (node.type === "web-novel" || node.type === "manga") {
         actions.push({
-          label: "Add chapter",
+          label: "Add empty chapter",
           run: async () => {
             openForm("Add chapter", "Chapter title", `Chapter ${node.directChapters.length + 1}`, async (title) => {
               unwrap(await api.chapters.create(node.seriesId, node.id, null, { title }));
             });
+            return false;
           }
         });
       }
@@ -609,6 +682,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
             openForm("Rename category", "Category title", node.title, async (title) => {
               unwrap(await api.categories.update(node.seriesId, node.id, { title }));
             });
+            return false;
           }
         },
         {
@@ -618,6 +692,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
               unwrap(await api.categories.moveToTrash(node.seriesId, node.id));
               setSelectedKey(null);
               setForm(null);
+              setImportPanel(null);
             }
           }
         }
@@ -627,11 +702,30 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     if (node.kind === "volume") {
       return [
         {
-          label: "Add chapter",
+          label: "Import chapters",
+          run: async () => {
+            await openImport(
+              `Import into ${node.title}`,
+              {
+                mode: "existing",
+                seriesId: node.seriesId,
+                categoryId: node.categoryId,
+                volumeMode: "existing",
+                volumeId: node.id,
+                label: node.title
+              },
+              "files"
+            );
+            return false;
+          }
+        },
+        {
+          label: "Add empty chapter",
           run: async () => {
             openForm("Add chapter", "Chapter title", `Chapter ${node.chapters.length + 1}`, async (title) => {
               unwrap(await api.chapters.create(node.seriesId, node.categoryId, node.id, { title }));
             });
+            return false;
           }
         },
         {
@@ -640,6 +734,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
             openForm("Rename volume", "Volume title", node.title, async (title) => {
               unwrap(await api.volumes.update(node.seriesId, node.categoryId, node.id, { title }));
             });
+            return false;
           }
         },
         {
@@ -649,6 +744,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
               unwrap(await api.volumes.moveToTrash(node.seriesId, node.categoryId, node.id));
               setSelectedKey(null);
               setForm(null);
+              setImportPanel(null);
             }
           }
         }
@@ -662,6 +758,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
           openForm("Rename chapter", "Chapter title", node.title, async (title) => {
             unwrap(await api.chapters.update(node.seriesId, node.categoryId, node.volumeId, node.id, { title }));
           });
+          return false;
         }
       },
       {
@@ -671,6 +768,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
             unwrap(await api.chapters.moveToTrash(node.seriesId, node.categoryId, node.volumeId, node.id));
             setSelectedKey(null);
             setForm(null);
+            setImportPanel(null);
           }
         }
       }
@@ -812,11 +910,30 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
 
         {actionError ? <p className="error-text">{actionError}</p> : null}
 
-        {selectedNode?.kind === "chapter" && selectedNode.categoryType === "manga" ? (
+        {!importPanel && !form && selectedNode?.kind === "chapter" && selectedNode.categoryType === "manga" ? (
           <MangaPageManager chapter={selectedNode} onChanged={refreshTree} />
         ) : null}
 
-        {form ? (
+        {importPanel ? (
+          <div className="manager-import-panel">
+            <div className="manager-panel-header">
+              <h3>{importPanel.heading}</h3>
+              <button onClick={() => setImportPanel(null)} type="button">
+                Close
+              </button>
+            </div>
+            <ImportWizard
+              key={importPanel.source.importSessionId}
+              initialPreview={importPanel.preview}
+              initialSource={importPanel.source}
+              library={library}
+              onCancel={() => setImportPanel(null)}
+              onImported={() => void refreshTree({ quiet: true })}
+              onOpenSettings={onOpenSettings}
+              targetPreset={importPanel.target}
+            />
+          </div>
+        ) : form ? (
           <form className="manager-form" onSubmit={(event) => void submitForm(event)}>
             <h3>{form.heading}</h3>
             {form.categoryType ? (

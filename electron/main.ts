@@ -104,8 +104,18 @@ type LibrarySettings = {
 
 type ImportSession = {
   id: string;
-  sourceFolderPath: string;
+  sourceFolderPath?: string;
+  sourceFiles?: ImportSessionFile[];
   createdAt: string;
+};
+
+type ImportSessionFile = {
+  fileId: string;
+  name: string;
+  relativePath: string;
+  sourcePath: string;
+  fileType: ImportFileType;
+  sizeBytes: number;
 };
 
 type ImportFileType = (typeof IMPORT_FILE_TYPES)[keyof typeof IMPORT_FILE_TYPES];
@@ -157,6 +167,21 @@ type ImportPlanChapter = {
   volumeTitle: string;
   text: string;
 };
+
+type ImportVolumeMode = "source" | "existing" | "none";
+
+type ImportTarget =
+  | {
+      mode: "new";
+      seriesTitle: string;
+    }
+  | {
+      mode: "existing";
+      seriesId: string;
+      categoryId: string;
+      volumeMode: ImportVolumeMode;
+      volumeId: string | null;
+    };
 
 type ImportLogEntry = {
   status: "imported" | "unsupported" | "skipped" | "failed";
@@ -1123,18 +1148,107 @@ async function chooseImportSourceFolder(window: BrowserWindow | null): Promise<{
 
   return {
     importSessionId: session.id,
-    path: session.sourceFolderPath,
-    name: basename(session.sourceFolderPath)
+    path: sourceFolderPath,
+    name: basename(sourceFolderPath)
   };
+}
+
+function uniqueImportRelativePath(filePath: string, usedPaths: Set<string>): string {
+  const fileName = basename(filePath);
+
+  if (!usedPaths.has(fileName)) {
+    usedPaths.add(fileName);
+    return fileName;
+  }
+
+  const extension = extname(fileName);
+  const nameWithoutExtension = fileName.slice(0, fileName.length - extension.length);
+  let index = 2;
+
+  while (usedPaths.has(`${nameWithoutExtension} (${index})${extension}`)) {
+    index += 1;
+  }
+
+  const relativePath = `${nameWithoutExtension} (${index})${extension}`;
+  usedPaths.add(relativePath);
+  return relativePath;
+}
+
+async function chooseImportSourceFiles(window: BrowserWindow | null): Promise<{ importSessionId: string; path: string; name: string } | null> {
+  const options: OpenDialogOptions = {
+    title: "Choose chapter files",
+    properties: ["openFile", "multiSelections"],
+    filters: [{ name: "Novel chapter files", extensions: ["txt", "md", "docx", "pdf"] }]
+  };
+  const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const usedPaths = new Set<string>();
+  const sourceFiles: ImportSessionFile[] = [];
+
+  for (const filePath of result.filePaths.map((item) => resolve(item))) {
+    const fileType = importFileType(filePath);
+    const sourceStat = await stat(filePath);
+
+    if (!fileType || !sourceStat.isFile()) {
+      continue;
+    }
+
+    const relativePath = uniqueImportRelativePath(filePath, usedPaths);
+    sourceFiles.push({
+      fileId: importFileId(relativePath),
+      name: basename(filePath),
+      relativePath,
+      sourcePath: filePath,
+      fileType,
+      sizeBytes: sourceStat.size
+    });
+  }
+
+  if (sourceFiles.length === 0) {
+    throw new Error("No supported chapter files were selected.");
+  }
+
+  const session: ImportSession = {
+    id: randomUUID(),
+    sourceFiles,
+    createdAt: new Date().toISOString()
+  };
+  importSessions.set(session.id, session);
+
+  return {
+    importSessionId: session.id,
+    path: sourceFiles.length === 1 ? sourceFiles[0].sourcePath : dirname(sourceFiles[0].sourcePath),
+    name: sourceFiles.length === 1 ? sourceFiles[0].name : `${sourceFiles.length} chapter files`
+  };
+}
+
+function scanImportFiles(session: ImportSession): ImportPreviewNode[] {
+  return (session.sourceFiles ?? []).map((sourceFile) => ({
+    id: sourceFile.fileId,
+    name: sourceFile.name,
+    relativePath: sourceFile.relativePath,
+    kind: "chapter",
+    fileType: sourceFile.fileType,
+    sizeBytes: sourceFile.sizeBytes
+  }));
 }
 
 async function scanImportSession(importSessionId: unknown): Promise<ImportPreview> {
   const session = readImportSession(importSessionId);
-  const nodes = await scanImportDirectory(session.sourceFolderPath);
+  const nodes = session.sourceFolderPath ? await scanImportDirectory(session.sourceFolderPath) : scanImportFiles(session);
+  const sourceName = session.sourceFolderPath
+    ? basename(session.sourceFolderPath)
+    : session.sourceFiles?.length === 1
+      ? session.sourceFiles[0].name
+      : `${session.sourceFiles?.length ?? 0} chapter files`;
 
   return {
     importSessionId: session.id,
-    sourceFolderName: basename(session.sourceFolderPath),
+    sourceFolderName: sourceName,
     generatedAt: new Date().toISOString(),
     nodes,
     counts: countImportPreview(nodes)
@@ -1143,6 +1257,26 @@ async function scanImportSession(importSessionId: unknown): Promise<ImportPrevie
 
 async function readImportSourceFile(session: ImportSession, fileId: unknown): Promise<ImportSourceFile> {
   const safeFileId = assertId(fileId, "fileId");
+
+  if (session.sourceFiles) {
+    const sourceFile = session.sourceFiles.find((item) => item.fileId === safeFileId);
+
+    if (!sourceFile) {
+      throw new Error("Import source file not found.");
+    }
+
+    return {
+      fileId: safeFileId,
+      relativePath: sourceFile.relativePath,
+      sourcePath: sourceFile.sourcePath,
+      fileType: sourceFile.fileType
+    };
+  }
+
+  if (!session.sourceFolderPath) {
+    throw new Error("Import session has no source folder.");
+  }
+
   const relativePath = importRelativePathFromId(safeFileId);
   const sourcePath = sourceChildPath(session.sourceFolderPath, ...relativePath.split("/"));
   const sourceStat = await stat(sourcePath);
@@ -1445,7 +1579,49 @@ function readImportPlanChapter(input: unknown): ImportPlanChapter {
   };
 }
 
-function readImportPlan(input: unknown): { seriesTitle: string; chapters: ImportPlanChapter[] } {
+function readImportVolumeMode(value: unknown): ImportVolumeMode {
+  if (value === undefined) {
+    return "source";
+  }
+
+  if (value === "source" || value === "existing" || value === "none") {
+    return value;
+  }
+
+  throw new Error("volumeMode is invalid.");
+}
+
+function readImportTarget(rootRecord: JsonRecord): ImportTarget {
+  if (rootRecord.target === undefined) {
+    return { mode: "new", seriesTitle: readRequiredString(rootRecord, "seriesTitle") };
+  }
+
+  const record = assertRecord(rootRecord.target);
+  const mode = readRequiredText(record, "mode").trim();
+
+  if (mode === "new") {
+    const seriesTitle =
+      typeof record.seriesTitle === "string" && record.seriesTitle.trim()
+        ? record.seriesTitle.trim()
+        : readRequiredString(rootRecord, "seriesTitle");
+    return { mode, seriesTitle };
+  }
+
+  if (mode === "existing") {
+    const volumeMode = readImportVolumeMode(record.volumeMode);
+    return {
+      mode,
+      seriesId: assertId(record.seriesId, "seriesId"),
+      categoryId: assertId(record.categoryId, "categoryId"),
+      volumeMode,
+      volumeId: volumeMode === "existing" ? assertId(record.volumeId, "volumeId") : null
+    };
+  }
+
+  throw new Error("target.mode is invalid.");
+}
+
+function readImportPlan(input: unknown): { target: ImportTarget; chapters: ImportPlanChapter[] } {
   const record = assertRecord(input);
   const chapters = record.chapters;
 
@@ -1454,7 +1630,7 @@ function readImportPlan(input: unknown): { seriesTitle: string; chapters: Import
   }
 
   return {
-    seriesTitle: readRequiredString(record, "seriesTitle"),
+    target: readImportTarget(record),
     chapters: chapters.map(readImportPlanChapter)
   };
 }
@@ -1463,7 +1639,7 @@ async function copyImportedPdf(
   libraryPath: string,
   seriesId: string,
   categoryId: string,
-  volumeId: string,
+  volumeId: string | null,
   chapterId: string,
   sourcePath: string
 ): Promise<void> {
@@ -1478,7 +1654,7 @@ async function copyImportedMarkdown(
   libraryPath: string,
   seriesId: string,
   categoryId: string,
-  volumeId: string,
+  volumeId: string | null,
   chapterId: string,
   sourcePath: string
 ): Promise<void> {
@@ -1487,6 +1663,47 @@ async function copyImportedMarkdown(
 
   await copyFile(sourcePath, tmpPath);
   await rename(tmpPath, targetPath);
+}
+
+async function prepareImportDestination(
+  libraryPath: string,
+  target: ImportTarget
+): Promise<{
+  series: SeriesMetadata;
+  category: CategoryMetadata;
+  volumeMode: ImportVolumeMode;
+  fixedVolume: VolumeMetadata | null;
+  volumes: Map<string, VolumeMetadata>;
+}> {
+  if (target.mode === "new") {
+    const series = await createSeriesMetadata(libraryPath, { title: target.seriesTitle });
+    const category = await createCategoryMetadata(libraryPath, series.id, { type: "light-novel", title: "Light Novel" });
+    return { series, category, volumeMode: "source", fixedVolume: null, volumes: new Map() };
+  }
+
+  const series = await readSeriesMetadata(libraryPath, target.seriesId);
+  const category = await readCategoryMetadata(libraryPath, series.id, target.categoryId);
+  assertNovelCategory(category);
+
+  if (target.volumeMode === "none") {
+    if (category.type !== "web-novel") {
+      throw new Error("Direct category import is only for web-novel categories.");
+    }
+
+    return { series, category, volumeMode: "none", fixedVolume: null, volumes: new Map() };
+  }
+
+  if (target.volumeMode === "existing") {
+    if (!target.volumeId) {
+      throw new Error("volumeId is required when importing into an existing volume.");
+    }
+
+    const fixedVolume = await readVolumeMetadata(libraryPath, series.id, category.id, target.volumeId);
+    return { series, category, volumeMode: "existing", fixedVolume, volumes: new Map([[fixedVolume.title, fixedVolume]]) };
+  }
+
+  const volumes = new Map((await listVolumeMetadata(libraryPath, series.id, category.id)).map((volume) => [volume.title, volume]));
+  return { series, category, volumeMode: "source", fixedVolume: null, volumes };
 }
 
 async function executeImport(libraryPath: string, importSessionId: unknown, input: unknown): Promise<ImportReport> {
@@ -1521,24 +1738,29 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
   }
 
   if (importableChapters.length === 0) {
-    throw new Error("No TXT, MD, or PDF chapters could be imported.");
+    throw new Error("No TXT, MD, DOCX, or PDF chapters could be imported.");
   }
 
-  const series = await createSeriesMetadata(libraryPath, { title: plan.seriesTitle });
-  const category = await createCategoryMetadata(libraryPath, series.id, { type: "light-novel", title: "Light Novel" });
-  const volumes = new Map<string, VolumeMetadata>();
+  const destination = await prepareImportDestination(libraryPath, plan.target);
+  const { series, category, volumes } = destination;
   let imported = 0;
 
   for (const chapter of importableChapters) {
     try {
-      let volume = volumes.get(chapter.volumeTitle);
+      let volume: VolumeMetadata | null = destination.fixedVolume;
 
-      if (!volume) {
+      if (!volume && destination.volumeMode === "source") {
+        volume = volumes.get(chapter.volumeTitle) ?? null;
+      }
+
+      if (!volume && destination.volumeMode === "source") {
         volume = await createVolumeMetadata(libraryPath, series.id, category.id, { title: chapter.volumeTitle });
         volumes.set(chapter.volumeTitle, volume);
       }
 
-      const metadata = await createNovelChapterMetadata(libraryPath, series.id, category.id, volume.id, {
+      const volumeId = volume?.id ?? null;
+
+      const metadata = await createNovelChapterMetadata(libraryPath, series.id, category.id, volumeId, {
         title: chapter.title,
         translationStatus: "draft",
         hasOriginalPdf: chapter.sourceFile.fileType === "pdf",
@@ -1549,14 +1771,14 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
       });
 
       if (chapter.sourceFile.fileType === "pdf") {
-        await copyImportedPdf(libraryPath, series.id, category.id, volume.id, metadata.id, chapter.sourceFile.sourcePath);
+        await copyImportedPdf(libraryPath, series.id, category.id, volumeId, metadata.id, chapter.sourceFile.sourcePath);
       }
 
       if (chapter.sourceFile.fileType === "md") {
-        await copyImportedMarkdown(libraryPath, series.id, category.id, volume.id, metadata.id, chapter.sourceFile.sourcePath);
+        await copyImportedMarkdown(libraryPath, series.id, category.id, volumeId, metadata.id, chapter.sourceFile.sourcePath);
       }
 
-      await saveNovelChapterContent(libraryPath, series.id, category.id, volume.id, metadata.id, {
+      await saveNovelChapterContent(libraryPath, series.id, category.id, volumeId, metadata.id, {
         html: importChapterTextToHtml(chapter.text, chapter.sourceFile.fileType)
       });
       imported += 1;
@@ -4857,6 +5079,17 @@ function registerImportIpc(): void {
         return ok(await chooseImportSourceFolder(BrowserWindow.fromWebContents(event.sender)));
       } catch (error) {
         return fail(ErrorCode.IMPORT_FAILED, "Could not choose import source folder.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "import:chooseSourceFiles",
+    async (event): Promise<ApiResponse<{ importSessionId: string; path: string; name: string } | null>> => {
+      try {
+        return ok(await chooseImportSourceFiles(BrowserWindow.fromWebContents(event.sender)));
+      } catch (error) {
+        return fail(ErrorCode.IMPORT_FAILED, "Could not choose import chapter files.", String(error));
       }
     }
   );

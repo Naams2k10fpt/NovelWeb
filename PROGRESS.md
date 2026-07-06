@@ -290,6 +290,11 @@ Ghi chú: 2026-07-05 đã giảm xuống dòng đột ngột khi import text/PDF
 Ghi chú: 2026-07-06 đã giữ format Markdown cơ bản khi import `.md`: heading H1-H3, bold/italic, code, link HTTP(S), quote, list và rule được lưu thành HTML thay vì plain paragraph.
 Ghi chú: 2026-07-06 đã mở rộng hiển thị Markdown theo file Obsidian mẫu: hỗ trợ heading H1-H6, bare URL tự thành link và ảnh remote `![alt](https://...)` khi import `.md`.
 Ghi chú: 2026-07-06 đã lưu bản `.md` gốc khi import và hiển thị split view trong NovelEditor: Markdown gốc bên trái, editor bên phải giống luồng PDF.
+Ghi chú: 2026-07-06 đã cho Import Wizard nhận target cố định để import vào series/category có sẵn, gồm tạo/reuse volume theo folder nguồn hoặc thêm chapter vào volume đã có.
+Ghi chú: 2026-07-06 đã đưa điểm vào import sang Manager: Add series import truyện mới từ folder, category LN/WN import vào đúng category, volume import chapter vào đúng volume.
+Ghi chú: 2026-07-06 đã sửa Manager import không còn mở dialog chọn folder 2 lần bằng cách chọn source trong action click trước khi render Import Wizard.
+Ghi chú: 2026-07-06 đã sửa `Import chapters` trong Manager dùng file picker chọn TXT/MD/DOCX/PDF thay vì bắt chọn folder.
+Ghi chú: 2026-07-06 đã bỏ tab Import riêng khỏi sidebar; Import Wizard vẫn được giữ làm panel nội bộ trong Manager.
 
 ### Tiêu chí hoàn thành
 

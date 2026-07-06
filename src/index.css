@@ -1549,6 +1549,19 @@ body {
   font: inherit;
 }
 
+.manager-import-panel,
+.manager-import-panel .import-wizard {
+  display: grid;
+  gap: 12px;
+  max-width: none;
+}
+
+.manager-import-panel .import-panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
 .manager-actions button,
 .context-menu button {
   min-height: 34px;

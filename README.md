@@ -25,7 +25,7 @@ Phase tiếp theo là Phase 8: Manga reader.
 ## Tính năng đã có
 
 - App desktop Electron chạy bằng `electron-vite`.
-- Renderer React với các tab Library, Search, Manager, Import và Settings.
+- Renderer React với các tab Library, Search, Manager và Settings; import chạy từ Manager.
 - Chọn và đổi Library folder bằng Electron dialog.
 - Lưu `currentLibraryPath` trong `app.getPath("userData")`.
 - Tạo cấu trúc Library folder tự động:
@@ -53,7 +53,7 @@ Phase tiếp theo là Phase 8: Manga reader.
 - TipTap editor với toolbar cơ bản, autosave, Ctrl+S và trạng thái lưu.
 - Lưu `content.html`, sinh `content.txt`, sanitize HTML và hỗ trợ ảnh inline.
 - NovelReader với font size, reading width, theme và progress theo scroll.
-- Import Wizard cho TXT, MD, DOCX và PDF qua import session từ Electron dialog.
+- Import Wizard trong Manager cho TXT, MD, DOCX và PDF qua import session từ Electron dialog.
 - PDF split view để đối chiếu PDF gốc với text/editor.
 - Manga chapter/page management với file picker, drag/drop, thumbnail grid, preview và reorder.
 - Search qua `search-index.json`, bookmark, highlight/note và recent reading.
