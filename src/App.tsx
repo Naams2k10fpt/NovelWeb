@@ -153,9 +153,14 @@ export default function App() {
     setSelectedSeriesId(seriesId);
   }
 
-  function openChapter(target: ChapterTarget, nextMode: ChapterMode): void {
+  function openChapter(target: ChapterTarget, nextMode: ChapterMode, keepLibraryContext = false): void {
     if (!confirmLeaveChapter()) {
       return;
+    }
+
+    if (keepLibraryContext) {
+      setMode("library");
+      setSelectedSeriesId(target.seriesId);
     }
 
     setChapterDirty(false);
@@ -239,7 +244,7 @@ export default function App() {
       return (
         <Search
           library={library}
-          onOpenChapter={(target) => openChapter(target, "read")}
+          onOpenChapter={(target) => openChapter(target, "read", true)}
           onOpenSettings={() => openMode("settings")}
         />
       );

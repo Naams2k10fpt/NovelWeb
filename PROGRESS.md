@@ -415,6 +415,7 @@ Ghi chú: Đã thêm nhóm 3 tối thiểu: Reader lưu đoạn text đang chọ
 - [x] Highlight mới: đổi highlight cũ thành marker "cần sửa" trong Reader, lưu note và cho Editor nhảy tới marker để sửa.
 
 Ghi chú: Search highlight trong Reader chỉ dùng để định vị nhanh, tự fade rồi gỡ khỏi nội dung sau vài giây để không vướng khi đọc tiếp.
+Ghi chú: Khi mở kết quả Search, app chuyển sang context Library và giữ series hiện tại để Back quay về trang truyện thay vì trang Search.
 
 ### Tiêu chí hoàn thành
 
