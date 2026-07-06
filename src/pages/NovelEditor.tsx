@@ -491,8 +491,7 @@ function editorMarkerDecorations(doc: ProseMirrorNode, highlights: HighlightEntr
     return [
       Decoration.inline(range.from, range.to, {
         class: "editor-edit-marker",
-        "data-note": highlight.note || "Needs edit",
-        title: highlight.note || "Needs edit"
+        "data-note": highlight.note || "Needs edit"
       })
     ];
   });

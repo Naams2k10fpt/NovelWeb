@@ -245,7 +245,6 @@ function markReaderText(root: Element, highlight: HighlightEntry): void {
   range.setEnd(end.node, end.offset);
   mark.className = "reader-edit-marker";
   mark.setAttribute("data-note", highlight.note || "Needs edit");
-  mark.setAttribute("title", highlight.note || "Needs edit");
   mark.append(range.extractContents());
   range.insertNode(mark);
 }

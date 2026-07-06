@@ -420,6 +420,7 @@ Ghi chú: Series Detail đổi danh sách volume/chapter thành accordion thu g�
 Ghi chú: NovelReader có toolbar dọc cho prev/home/list/mark/bookmark/next, panel nhảy nhanh chapter và marker "cần sửa" hiện trực tiếp trên đoạn đã đánh dấu.
 Ghi chú: Toolbar NovelReader được chuyển xuống góc dưới bên phải để bớt che vùng đọc chính.
 Ghi chú: Mark trong Reader đổi sang popup note tại vị trí bôi đen; bỏ danh sách Need edit trên đầu, hover highlight hiện note và Editor tự tô lại marker của chapter.
+Ghi chú: Bỏ native tooltip `title` khỏi Reader/Editor marker để hover note chỉ hiện một popup.
 
 ### Tiêu chí hoàn thành
 
