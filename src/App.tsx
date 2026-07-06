@@ -153,9 +153,14 @@ export default function App() {
     setSelectedSeriesId(seriesId);
   }
 
-  function openChapter(target: ChapterTarget, nextMode: ChapterMode): void {
+  function openChapter(target: ChapterTarget, nextMode: ChapterMode, keepLibraryContext = false): void {
     if (!confirmLeaveChapter()) {
       return;
+    }
+
+    if (keepLibraryContext) {
+      setMode("library");
+      setSelectedSeriesId(target.seriesId);
     }
 
     setChapterDirty(false);
@@ -163,7 +168,7 @@ export default function App() {
     setSelectedChapter(target);
   }
 
-  function closeChapter(): void {
+  function closeChapter(seriesId?: string): void {
     if (!confirmLeaveChapter()) {
       return;
     }
@@ -171,6 +176,10 @@ export default function App() {
     setChapterDirty(false);
     setChapterMode("read");
     setSelectedChapter(null);
+    if (seriesId) {
+      setMode("library");
+      setSelectedSeriesId(seriesId);
+    }
   }
 
   function confirmLeaveChapter(): boolean {
@@ -203,7 +212,9 @@ export default function App() {
       return (
         <NovelReader
           onBack={closeChapter}
-          onEdit={() => openChapter(selectedChapter, "edit")}
+          onBackToSeries={() => closeChapter(selectedChapter.seriesId)}
+          onEdit={(target) => openChapter(target ?? selectedChapter, "edit")}
+          onOpenChapter={(target) => openChapter(target, "read")}
           target={selectedChapter}
         />
       );
@@ -239,7 +250,7 @@ export default function App() {
       return (
         <Search
           library={library}
-          onOpenChapter={(target) => openChapter(target, "read")}
+          onOpenChapter={(target) => openChapter(target, "read", true)}
           onOpenSettings={() => openMode("settings")}
         />
       );

@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("api", {
     get: (seriesId: string) => ipcRenderer.invoke("series:get", seriesId),
     create: (input: unknown) => ipcRenderer.invoke("series:create", input),
     update: (seriesId: string, input: unknown) => ipcRenderer.invoke("series:update", seriesId, input),
+    chooseCover: (seriesId: string) => ipcRenderer.invoke("series:chooseCover", seriesId),
     moveToTrash: (seriesId: string) => ipcRenderer.invoke("series:moveToTrash", seriesId)
   },
   categories: {
@@ -44,6 +45,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("chapters:update", seriesId, categoryId, volumeId, chapterId, input),
     reorder: (seriesId: string, categoryId: string, volumeId: string | null, input: unknown) =>
       ipcRenderer.invoke("chapters:reorder", seriesId, categoryId, volumeId, input),
+    move: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>
+      ipcRenderer.invoke("chapters:move", seriesId, categoryId, volumeId, chapterId, input),
     getContent: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
       ipcRenderer.invoke("chapters:getContent", seriesId, categoryId, volumeId, chapterId),
     saveContent: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>

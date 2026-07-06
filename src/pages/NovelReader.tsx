@@ -9,6 +9,12 @@ type ChapterContent = {
   html: string;
 };
 
+type ChapterMetadata = {
+  id: string;
+  title: string;
+  translationStatus?: string;
+};
+
 type ChapterReadingProgress = {
   scrollTop: number;
   updatedAt: string | null;
@@ -24,6 +30,8 @@ type HighlightColor = "yellow" | "green" | "pink" | "blue";
 type HighlightEntry = {
   id: string;
   text: string;
+  textStart?: number;
+  textEnd?: number;
   color: HighlightColor;
   note: string;
   scrollTop: number;
@@ -33,8 +41,18 @@ type HighlightEntry = {
 
 type ReaderTheme = "light" | "dark";
 
+type PendingMarker = {
+  left: number;
+  scrollTop: number;
+  text: string;
+  textStart: number;
+  textEnd: number;
+  top: number;
+};
+
 type RendererApi = {
   chapters: {
+    list: (seriesId: string, categoryId: string, volumeId?: string | null) => Promise<ApiResponse<ChapterMetadata[]>>;
     getContent: (
       seriesId: string,
       categoryId: string,
@@ -100,34 +118,230 @@ function unwrap<T>(response: ApiResponse<T>): T {
   return response.data;
 }
 
-function formatDate(value: string): string {
-  return new Date(value).toLocaleString();
+function normalizedMarkerText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function unwrapReaderSearchHit(hit: Element): void {
+  const parent = hit.parentNode;
+
+  if (!parent) {
+    return;
+  }
+
+  while (hit.firstChild) {
+    parent.insertBefore(hit.firstChild, hit);
+  }
+
+  parent.removeChild(hit);
+  parent.normalize();
+}
+
+function unwrapReaderSearchHits(root: Element): void {
+  for (const hit of Array.from(root.querySelectorAll("mark.reader-search-hit"))) {
+    unwrapReaderSearchHit(hit);
+  }
+
+  root.normalize();
+}
+
+function unwrapReaderEditMarker(marker: Element): void {
+  const parent = marker.parentNode;
+
+  if (!parent) {
+    return;
+  }
+
+  while (marker.firstChild) {
+    parent.insertBefore(marker.firstChild, marker);
+  }
+
+  parent.removeChild(marker);
+  parent.normalize();
+}
+
+function unwrapReaderEditMarkers(root: Element): void {
+  for (const marker of Array.from(root.querySelectorAll("mark.reader-edit-marker"))) {
+    unwrapReaderEditMarker(marker);
+  }
+
+  root.normalize();
+}
+
+function textPosition(root: Element, offset: number): { node: Text; offset: number } | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let remaining = offset;
+  let node = walker.nextNode();
+
+  while (node) {
+    const text = node.textContent ?? "";
+
+    if (remaining <= text.length) {
+      return { node: node as Text, offset: remaining };
+    }
+
+    remaining -= text.length;
+    node = walker.nextNode();
+  }
+
+  return null;
+}
+
+function textRangeByOffsets(
+  root: Element,
+  startOffset: number | undefined,
+  endOffset: number | undefined,
+  expectedText: string
+): { start: { node: Text; offset: number }; end: { node: Text; offset: number } } | null {
+  const text = root.textContent ?? "";
+
+  if (
+    startOffset === undefined ||
+    endOffset === undefined ||
+    !Number.isInteger(startOffset) ||
+    !Number.isInteger(endOffset) ||
+    startOffset < 0 ||
+    endOffset <= startOffset ||
+    endOffset > text.length
+  ) {
+    return null;
+  }
+
+  if (normalizedMarkerText(text.slice(startOffset, endOffset)) !== normalizedMarkerText(expectedText)) {
+    return null;
+  }
+
+  const start = textPosition(root, startOffset);
+  const end = textPosition(root, endOffset);
+
+  return start && end ? { start, end } : null;
+}
+
+function textRangeBySearch(
+  root: Element,
+  searchText: string
+): { start: { node: Text; offset: number }; end: { node: Text; offset: number } } | null {
+  const needle = searchText.trim().toLowerCase();
+
+  if (!needle) {
+    return null;
+  }
+
+  const index = (root.textContent ?? "").toLowerCase().indexOf(needle);
+  if (index === -1) {
+    return null;
+  }
+
+  const start = textPosition(root, index);
+  const end = textPosition(root, index + needle.length);
+
+  return start && end ? { start, end } : null;
+}
+
+function highlightSearchMatch(searchText: string): boolean {
+  const root = document.querySelector(".reader-content");
+  const needle = searchText.trim().toLowerCase();
+
+  if (!root || !needle) {
+    return false;
+  }
+
+  unwrapReaderSearchHits(root);
+
+  const index = (root.textContent ?? "").toLowerCase().indexOf(needle);
+  if (index === -1) {
+    return false;
+  }
+
+  const start = textPosition(root, index);
+  const end = textPosition(root, index + needle.length);
+
+  if (!start || !end) {
+    return false;
+  }
+
+  const range = document.createRange();
+  const mark = document.createElement("mark");
+
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset);
+  mark.className = "reader-search-hit reader-search-hit-active";
+  mark.append(range.extractContents());
+  range.insertNode(mark);
+  mark.scrollIntoView({ block: "center", behavior: "smooth" });
+  window.setTimeout(() => {
+    mark.classList.remove("reader-search-hit-active");
+    mark.classList.add("reader-search-hit-fading");
+    window.setTimeout(() => unwrapReaderSearchHit(mark), 450);
+  }, 4200);
+
+  return true;
+}
+
+function markReaderText(root: Element, highlight: HighlightEntry): void {
+  const textRange =
+    textRangeByOffsets(root, highlight.textStart, highlight.textEnd, highlight.text) ??
+    textRangeBySearch(root, highlight.text);
+
+  if (!textRange) {
+    return;
+  }
+
+  const range = document.createRange();
+  const mark = document.createElement("mark");
+
+  range.setStart(textRange.start.node, textRange.start.offset);
+  range.setEnd(textRange.end.node, textRange.end.offset);
+  mark.className = "reader-edit-marker";
+  mark.setAttribute("data-note", highlight.note || "Needs edit");
+  mark.append(range.extractContents());
+  range.insertNode(mark);
+}
+
+function applyReaderEditMarkers(highlights: HighlightEntry[]): void {
+  const root = document.querySelector(".reader-content");
+
+  if (!root) {
+    return;
+  }
+
+  unwrapReaderEditMarkers(root);
+  for (const highlight of highlights) {
+    markReaderText(root, highlight);
+  }
 }
 
 export default function NovelReader({
   onBack,
+  onBackToSeries,
   onEdit,
+  onOpenChapter,
   target
 }: {
   onBack: () => void;
-  onEdit: () => void;
+  onBackToSeries: () => void;
+  onEdit: (target?: ChapterTarget) => void;
+  onOpenChapter: (target: ChapterTarget) => void;
   target: ChapterTarget;
 }) {
+  const [chapterList, setChapterList] = useState<ChapterMetadata[]>([]);
+  const [chapterListOpen, setChapterListOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bookmark, setBookmark] = useState<BookmarkEntry | null>(null);
   const [bookmarkError, setBookmarkError] = useState<string | null>(null);
   const [bookmarkSaving, setBookmarkSaving] = useState(false);
-  const [highlightColor, setHighlightColor] = useState<HighlightColor>("yellow");
   const [highlightError, setHighlightError] = useState<string | null>(null);
-  const [highlightNote, setHighlightNote] = useState("");
   const [highlightSaving, setHighlightSaving] = useState(false);
   const [highlights, setHighlights] = useState<HighlightEntry[]>([]);
+  const [pendingMarker, setPendingMarker] = useState<PendingMarker | null>(null);
+  const [pendingNote, setPendingNote] = useState("");
   const [fontSize, setFontSize] = useState(18);
   const [html, setHtml] = useState("");
   const [readingWidth, setReadingWidth] = useState(760);
   const [theme, setTheme] = useState<ReaderTheme>("light");
   const [loading, setLoading] = useState(true);
   const loadedRef = useRef(false);
+  const pendingScrollTopRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function saveProgress(): void {
@@ -156,9 +370,14 @@ export default function NovelReader({
     loadedRef.current = false;
     setError(null);
     setHighlightError(null);
+    setChapterList([]);
+    setChapterListOpen(false);
     setHighlights([]);
+    setPendingMarker(null);
+    setPendingNote("");
 
     void Promise.all([
+      api.chapters.list(target.seriesId, target.categoryId, target.volumeId),
       api.chapters.getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId),
       api.chapters.getProgress(target.seriesId, target.categoryId, target.volumeId, target.chapterId),
       api.bookmarks?.get(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
@@ -166,17 +385,18 @@ export default function NovelReader({
       api.highlights?.listForChapter(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
         Promise.resolve({ ok: true, data: [] } as ApiResponse<HighlightEntry[]>)
     ])
-      .then(([contentResponse, progressResponse, bookmarkResponse, highlightsResponse]) => {
+      .then(([chaptersResponse, contentResponse, progressResponse, bookmarkResponse, highlightsResponse]) => {
         if (!isMounted) {
           return;
         }
 
+        setChapterList(unwrap(chaptersResponse));
         setHtml(unwrap(contentResponse).html || "<p>No content yet.</p>");
         setBookmark(unwrap(bookmarkResponse));
         setHighlights(unwrap(highlightsResponse));
+        pendingScrollTopRef.current = target.scrollTop ?? unwrap(progressResponse).scrollTop;
         loadedRef.current = true;
         setLoading(false);
-        window.setTimeout(() => window.scrollTo({ top: target.scrollTop ?? unwrap(progressResponse).scrollTop }), 0);
       })
       .catch((loadError) => {
         if (isMounted) {
@@ -193,7 +413,32 @@ export default function NovelReader({
         clearTimeout(progressTimerRef.current);
       }
     };
-  }, [target.categoryId, target.chapterId, target.scrollTop, target.seriesId, target.volumeId]);
+  }, [target.categoryId, target.chapterId, target.scrollTop, target.searchText, target.seriesId, target.volumeId]);
+
+  useEffect(() => {
+    if (loading || !html) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const didHighlightSearchMatch = target.searchText ? highlightSearchMatch(target.searchText) : false;
+
+      if (!didHighlightSearchMatch) {
+        window.scrollTo({ top: pendingScrollTopRef.current });
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [html, loading, target.categoryId, target.chapterId, target.searchText, target.seriesId, target.volumeId]);
+
+  useEffect(() => {
+    if (loading || !html) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => applyReaderEditMarkers(highlights));
+    return () => window.cancelAnimationFrame(frame);
+  }, [highlights, html, loading]);
 
   useEffect(() => {
     function handleScroll(): void {
@@ -208,6 +453,47 @@ export default function NovelReader({
 
     return () => window.removeEventListener("scroll", handleScroll);
   });
+
+  function selectedMarkerTarget(): PendingMarker | null {
+    const selection = window.getSelection();
+    const readerContent = document.querySelector(".reader-content");
+
+    if (!selection || selection.isCollapsed || !readerContent || !selection.anchorNode || !selection.focusNode) {
+      return null;
+    }
+
+    if (!readerContent.contains(selection.anchorNode) || !readerContent.contains(selection.focusNode)) {
+      return null;
+    }
+
+    const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+    const rawText = range?.toString() ?? "";
+    const text = rawText.trim();
+    const firstRect = range ? Array.from(range.getClientRects()).find((rect) => rect.width || rect.height) : null;
+    const rect = firstRect ?? range?.getBoundingClientRect();
+
+    if (!range || !text || !rect) {
+      return null;
+    }
+
+    const prefixRange = document.createRange();
+    const leadingTrim = rawText.length - rawText.trimStart().length;
+
+    prefixRange.selectNodeContents(readerContent);
+    prefixRange.setEnd(range.startContainer, range.startOffset);
+
+    const textStart = prefixRange.toString().length + leadingTrim;
+    const textEnd = textStart + text.length;
+
+    return {
+      left: Math.max(12, Math.min(window.innerWidth - 320, rect.left)),
+      scrollTop: window.scrollY,
+      text,
+      textStart,
+      textEnd,
+      top: Math.max(12, Math.min(window.innerHeight - 180, rect.bottom + 8))
+    };
+  }
 
   async function toggleBookmark(): Promise<void> {
     const api = getApi();
@@ -235,32 +521,24 @@ export default function NovelReader({
     }
   }
 
-  function selectedReaderText(): string {
-    const selection = window.getSelection();
-    const readerContent = document.querySelector(".reader-content");
+  function openMarkerComposer(): void {
+    const marker = selectedMarkerTarget();
 
-    if (!selection || selection.isCollapsed || !readerContent || !selection.anchorNode || !selection.focusNode) {
-      return "";
-    }
-
-    if (!readerContent.contains(selection.anchorNode) || !readerContent.contains(selection.focusNode)) {
-      return "";
-    }
-
-    return selection.toString().replace(/\s+/g, " ").trim();
-  }
-
-  async function createHighlight(): Promise<void> {
-    const api = getApi();
-
-    if (!api?.highlights || !loadedRef.current) {
-      setHighlightError("Highlight API is unavailable. Restart the app or check the preload script.");
+    if (!marker) {
+      setHighlightError("Select text in the chapter first.");
       return;
     }
 
-    const text = selectedReaderText();
-    if (!text) {
-      setHighlightError("Select text in the chapter first.");
+    setHighlightError(null);
+    setPendingMarker(marker);
+    setPendingNote("");
+  }
+
+  async function createEditMarker(): Promise<void> {
+    const api = getApi();
+
+    if (!api?.highlights || !loadedRef.current || !pendingMarker) {
+      setHighlightError("Highlight API is unavailable. Restart the app or check the preload script.");
       return;
     }
 
@@ -270,14 +548,17 @@ export default function NovelReader({
     try {
       const created = unwrap(
         await api.highlights.create(target.seriesId, target.categoryId, target.volumeId, target.chapterId, {
-          text,
-          color: highlightColor,
-          note: highlightNote,
-          scrollTop: window.scrollY
+          text: pendingMarker.text,
+          textStart: pendingMarker.textStart,
+          textEnd: pendingMarker.textEnd,
+          color: "yellow",
+          note: pendingNote,
+          scrollTop: pendingMarker.scrollTop
         })
       );
       setHighlights((current) => [created, ...current]);
-      setHighlightNote("");
+      setPendingMarker(null);
+      setPendingNote("");
       window.getSelection()?.removeAllRanges();
     } catch (createError) {
       setHighlightError(String(createError));
@@ -286,21 +567,29 @@ export default function NovelReader({
     }
   }
 
-  async function deleteHighlight(highlightId: string): Promise<void> {
-    const api = getApi();
+  function chapterTarget(chapter: ChapterMetadata): ChapterTarget {
+    return {
+      categoryId: target.categoryId,
+      categoryType: target.categoryType,
+      chapterId: chapter.id,
+      seriesId: target.seriesId,
+      seriesTitle: target.seriesTitle,
+      title: chapter.title,
+      volumeId: target.volumeId
+    };
+  }
 
-    if (!api?.highlights) {
-      setHighlightError("Highlight API is unavailable. Restart the app or check the preload script.");
-      return;
-    }
+  function openReaderChapter(chapter: ChapterMetadata): void {
+    setChapterListOpen(false);
+    onOpenChapter(chapterTarget(chapter));
+  }
 
-    setHighlightError(null);
+  function openAdjacentChapter(delta: number): void {
+    const currentIndex = chapterList.findIndex((chapter) => chapter.id === target.chapterId);
+    const chapter = currentIndex >= 0 ? chapterList[currentIndex + delta] : null;
 
-    try {
-      unwrap(await api.highlights.delete(target.seriesId, highlightId));
-      setHighlights((current) => current.filter((item) => item.id !== highlightId));
-    } catch (deleteError) {
-      setHighlightError(String(deleteError));
+    if (chapter) {
+      openReaderChapter(chapter);
     }
   }
 
@@ -325,13 +614,130 @@ export default function NovelReader({
     );
   }
 
+  const currentChapterIndex = chapterList.findIndex((chapter) => chapter.id === target.chapterId);
+  const hasPreviousChapter = currentChapterIndex > 0;
+  const hasNextChapter = currentChapterIndex >= 0 && currentChapterIndex < chapterList.length - 1;
+
   return (
     <section className={`novel-reader novel-reader-${theme}`}>
-      <div className="reader-toolbar">
-        <button className="plain-action" onClick={onBack} type="button">
-          Back
+      <div className="reader-side-toolbar" aria-label="Reader toolbar">
+        <button
+          aria-label="Previous chapter"
+          disabled={!hasPreviousChapter}
+          onClick={() => openAdjacentChapter(-1)}
+          title="Previous chapter"
+          type="button"
+        >
+          {"<<"}
         </button>
-        <button className="plain-action" onClick={onEdit} type="button">
+        <button aria-label="Back to chapter list" onClick={onBackToSeries} title="Back to chapter list" type="button">
+          Home
+        </button>
+        <button
+          aria-label="Open chapter list"
+          aria-pressed={chapterListOpen}
+          onClick={() => setChapterListOpen((current) => !current)}
+          title="Chapter list"
+          type="button"
+        >
+          List
+        </button>
+        <button
+          aria-label="Highlight selected text"
+          disabled={highlightSaving}
+          onClick={openMarkerComposer}
+          onMouseDown={(event) => {
+            event.preventDefault();
+          }}
+          title="Highlight selected text"
+          type="button"
+        >
+          Mark
+        </button>
+        <button
+          aria-label={bookmark ? "Remove bookmark" : "Bookmark"}
+          disabled={bookmarkSaving}
+          onClick={() => void toggleBookmark()}
+          title={bookmark ? "Remove bookmark" : "Bookmark"}
+          type="button"
+        >
+          {bookmark ? "Saved" : "Book"}
+        </button>
+        <button
+          aria-label="Next chapter"
+          disabled={!hasNextChapter}
+          onClick={() => openAdjacentChapter(1)}
+          title="Next chapter"
+          type="button"
+        >
+          {">>"}
+        </button>
+      </div>
+
+      {pendingMarker ? (
+        <form
+          className="reader-note-popover"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void createEditMarker();
+          }}
+          style={{ left: pendingMarker.left, top: pendingMarker.top }}
+        >
+          <label>
+            <span>Note</span>
+            <textarea
+              autoFocus
+              onChange={(event) => setPendingNote(event.target.value)}
+              placeholder="What needs fixing?"
+              rows={3}
+              value={pendingNote}
+            />
+          </label>
+          <div>
+            <button disabled={highlightSaving} type="submit">
+              {highlightSaving ? "Saving" : "Save"}
+            </button>
+            <button
+              disabled={highlightSaving}
+              onClick={() => {
+                setPendingMarker(null);
+                setPendingNote("");
+              }}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      {chapterListOpen ? (
+        <aside className="reader-chapter-jump" aria-label="Chapter list">
+          <div className="reader-panel-header">
+            <strong>Chapters</strong>
+            <button onClick={() => setChapterListOpen(false)} type="button">
+              Close
+            </button>
+          </div>
+          <ol>
+            {chapterList.map((chapter) => (
+              <li key={chapter.id}>
+                <button
+                  aria-current={chapter.id === target.chapterId ? "page" : undefined}
+                  onClick={() => openReaderChapter(chapter)}
+                  type="button"
+                >
+                  <span>{chapter.title}</span>
+                  <small>{chapter.translationStatus ?? "draft"}</small>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </aside>
+      ) : null}
+
+      <div className="reader-settings-bar">
+        <button className="plain-action" onClick={() => onEdit()} type="button">
           Edit
         </button>
         <label>
@@ -352,59 +758,14 @@ export default function NovelReader({
         <button onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))} type="button">
           {theme === "light" ? "Dark" : "Light"}
         </button>
-        <button disabled={bookmarkSaving} onClick={() => void toggleBookmark()} type="button">
-          {bookmark ? "Bookmarked" : "Bookmark"}
-        </button>
       </div>
 
       <header className="reader-heading" style={{ maxWidth: readingWidth }}>
         <span>{target.seriesTitle ?? target.title}</span>
       </header>
 
-      <div className="highlight-toolbar" aria-label="Highlight tools">
-        <label>
-          Color
-          <select onChange={(event) => setHighlightColor(event.target.value as HighlightColor)} value={highlightColor}>
-            <option value="yellow">Yellow</option>
-            <option value="green">Green</option>
-            <option value="pink">Pink</option>
-            <option value="blue">Blue</option>
-          </select>
-        </label>
-        <input
-          onChange={(event) => setHighlightNote(event.target.value)}
-          placeholder="Note"
-          type="text"
-          value={highlightNote}
-        />
-        <button disabled={highlightSaving} onClick={() => void createHighlight()} type="button">
-          {highlightSaving ? "Saving" : "Highlight selection"}
-        </button>
-      </div>
-
       {bookmarkError ? <p className="error-text">{bookmarkError}</p> : null}
       {highlightError ? <p className="error-text">{highlightError}</p> : null}
-
-      {highlights.length > 0 ? (
-        <section className="chapter-highlights" aria-label="Chapter highlights">
-          <h3>Highlights</h3>
-          <ol>
-            {highlights.map((item) => (
-              <li key={item.id}>
-                <span className={`highlight-dot highlight-dot-${item.color}`} aria-hidden="true" />
-                <div>
-                  <blockquote>{item.text}</blockquote>
-                  {item.note ? <p>{item.note}</p> : null}
-                  <small>{formatDate(item.updatedAt)}</small>
-                </div>
-                <button onClick={() => void deleteHighlight(item.id)} type="button">
-                  Delete
-                </button>
-              </li>
-            ))}
-          </ol>
-        </section>
-      ) : null}
 
       <article className="reader-page" style={{ maxWidth: readingWidth }}>
         <div

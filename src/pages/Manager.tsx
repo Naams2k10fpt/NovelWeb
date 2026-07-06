@@ -62,6 +62,7 @@ type VolumeNode = VolumeMetadata & {
   kind: "volume";
   seriesId: string;
   categoryId: string;
+  categoryType: CategoryType;
   chapters: ChapterNode[];
 };
 
@@ -95,6 +96,8 @@ type ChapterDropState = {
   nodeKey: string;
   placement: "before" | "after";
 };
+
+type ChapterFolderNode = CategoryNode | VolumeNode;
 
 type ManagerFormState = {
   heading: string;
@@ -169,6 +172,13 @@ type RendererApi = {
       volumeId: string | null,
       input: unknown
     ) => Promise<ApiResponse<ChapterMetadata[]>>;
+    move?: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string,
+      input: unknown
+    ) => Promise<ApiResponse<ChapterMetadata>>;
     moveToTrash: (
       seriesId: string,
       categoryId: string,
@@ -258,6 +268,28 @@ function sameChapterContainer(left: ChapterNode, right: ChapterNode): boolean {
   return left.seriesId === right.seriesId && left.categoryId === right.categoryId && left.volumeId === right.volumeId;
 }
 
+function folderTarget(node: ChapterFolderNode): { seriesId: string; categoryId: string; volumeId: string | null } {
+  return {
+    seriesId: node.seriesId,
+    categoryId: node.kind === "category" ? node.id : node.categoryId,
+    volumeId: node.kind === "volume" ? node.id : null
+  };
+}
+
+function canDropChapterInFolder(chapter: ChapterNode | null, folder: ChapterFolderNode): boolean {
+  if (!chapter || chapter.categoryType === "manga" || chapter.seriesId !== folder.seriesId) {
+    return false;
+  }
+
+  const target = folderTarget(folder);
+
+  if (chapter.categoryId === target.categoryId && chapter.volumeId === target.volumeId) {
+    return false;
+  }
+
+  return folder.kind === "volume" ? folder.categoryType !== "manga" : folder.type === "web-novel";
+}
+
 function chapterSiblings(series: SeriesNode[], chapter: ChapterNode): ChapterNode[] {
   return allNodes(series).filter(
     (node): node is ChapterNode => node.kind === "chapter" && sameChapterContainer(node, chapter)
@@ -341,6 +373,7 @@ async function loadCategory(api: RendererApi, seriesId: string, category: Catego
       kind: "volume",
       seriesId,
       categoryId: category.id,
+      categoryType: category.type,
       chapters: unwrap(await api.chapters.list(seriesId, category.id, volume.id)).map((chapter) => ({
         ...chapter,
         kind: "chapter",
@@ -390,6 +423,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
   const [draggedChapter, setDraggedChapter] = useState<ChapterNode | null>(null);
   const [dropTarget, setDropTarget] = useState<ChapterDropState | null>(null);
+  const [folderDropKey, setFolderDropKey] = useState<string | null>(null);
   const [treePaneWidth, setTreePaneWidth] = useState(38);
   const [resizing, setResizing] = useState(false);
   const managerLayoutRef = useRef<HTMLElement | null>(null);
@@ -498,6 +532,43 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     try {
       const orderedChapters = unwrap(await reorder(target.seriesId, target.categoryId, target.volumeId, { chapterOrder }));
       setTree((current) => ({ ...current, series: replaceChapterOrder(current.series, target, orderedChapters) }));
+    } catch (error) {
+      setActionError(String(error));
+    }
+  }
+
+  async function moveChapterToFolder(dragged: ChapterNode | null, folder: ChapterFolderNode): Promise<void> {
+    if (!api || !dragged) {
+      return;
+    }
+
+    const move = api.chapters.move;
+
+    if (typeof move !== "function") {
+      setActionError("Restart the app to load the latest Manager API.");
+      return;
+    }
+
+    if (!canDropChapterInFolder(dragged, folder)) {
+      return;
+    }
+
+    const target = folderTarget(folder);
+    const nextSelectedKey = `chapter:${dragged.seriesId}:${target.categoryId}:${target.volumeId ?? "direct"}:${dragged.id}`;
+
+    setContextMenu(null);
+    setActionError(null);
+
+    try {
+      unwrap(
+        await move(dragged.seriesId, dragged.categoryId, dragged.volumeId, dragged.id, {
+          targetCategoryId: target.categoryId,
+          targetVolumeId: target.volumeId
+        })
+      );
+      setExpandedKeys((current) => new Set(current).add(nodeKey(folder)));
+      await refreshTree({ quiet: true });
+      setSelectedKey(nextSelectedKey);
     } catch (error) {
       setActionError(String(error));
     }
@@ -862,9 +933,11 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                 onToggle={toggleExpanded}
                 draggedChapter={draggedChapter}
                 dropTarget={dropTarget}
+                folderDropKey={folderDropKey}
                 onChapterDragEnd={() => {
                   setDraggedChapter(null);
                   setDropTarget(null);
+                  setFolderDropKey(null);
                 }}
                 onChapterDragOver={(event, node) => {
                   if (!draggedChapter || !sameChapterContainer(draggedChapter, node) || draggedChapter.id === node.id) {
@@ -872,6 +945,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                   }
 
                   event.preventDefault();
+                  setFolderDropKey(null);
                   const rect = event.currentTarget.getBoundingClientRect();
                   const placement = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
                   setDropTarget({ nodeKey: nodeKey(node), placement });
@@ -887,6 +961,28 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                   void reorderChapters(draggedChapter, node, placement).finally(() => {
                     setDraggedChapter(null);
                     setDropTarget(null);
+                  });
+                }}
+                onFolderDragLeave={(node) => {
+                  if (folderDropKey === nodeKey(node)) {
+                    setFolderDropKey(null);
+                  }
+                }}
+                onFolderDragOver={(event, node) => {
+                  if (!canDropChapterInFolder(draggedChapter, node)) {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  setDropTarget(null);
+                  setFolderDropKey(nodeKey(node));
+                }}
+                onFolderDrop={(event, node) => {
+                  event.preventDefault();
+                  void moveChapterToFolder(draggedChapter, node).finally(() => {
+                    setDraggedChapter(null);
+                    setDropTarget(null);
+                    setFolderDropKey(null);
                   });
                 }}
                 selectedKey={selectedKey}
@@ -1246,11 +1342,15 @@ type TreeItemSharedProps = {
   draggedChapter: ChapterNode | null;
   dropTarget: ChapterDropState | null;
   expandedKeys: Set<string>;
+  folderDropKey: string | null;
   onChapterDragEnd: () => void;
   onChapterDragOver: (event: DragEvent<HTMLButtonElement>, node: ChapterNode) => void;
   onChapterDragStart: (event: DragEvent<HTMLButtonElement>, node: ChapterNode) => void;
   onChapterDrop: (event: DragEvent<HTMLButtonElement>, node: ChapterNode) => void;
   onContextMenu: (event: MouseEvent, node: TreeNode) => void;
+  onFolderDragLeave: (node: ChapterFolderNode) => void;
+  onFolderDragOver: (event: DragEvent<HTMLButtonElement>, node: ChapterFolderNode) => void;
+  onFolderDrop: (event: DragEvent<HTMLButtonElement>, node: ChapterFolderNode) => void;
   onSelect: (node: TreeNode) => void;
   onToggle: (key: string) => void;
   selectedKey: string | null;
@@ -1265,10 +1365,14 @@ function TreeButton({
   onChapterDragStart,
   onChapterDrop,
   onContextMenu,
+  onFolderDragLeave,
+  onFolderDragOver,
+  onFolderDrop,
   onSelect,
   onToggle,
   selectedKey,
-  dropTarget
+  dropTarget,
+  folderDropKey
 }: TreeItemSharedProps & {
   expanded?: boolean;
   hasChildren?: boolean;
@@ -1276,8 +1380,13 @@ function TreeButton({
 }) {
   const key = nodeKey(node);
   const isChapter = node.kind === "chapter";
+  const isFolder = node.kind === "category" || node.kind === "volume";
   const dropClass =
-    dropTarget?.nodeKey === key ? ` tree-node-drop-${dropTarget.placement}` : "";
+    dropTarget?.nodeKey === key
+      ? ` tree-node-drop-${dropTarget.placement}`
+      : folderDropKey === key
+        ? " tree-node-drop-folder"
+        : "";
 
   return (
     <div className="tree-row">
@@ -1303,9 +1412,10 @@ function TreeButton({
         onClick={() => onSelect(node)}
         onContextMenu={(event) => onContextMenu(event, node)}
         onDragEnd={isChapter ? onChapterDragEnd : undefined}
-        onDragOver={isChapter ? (event) => onChapterDragOver(event, node) : undefined}
         onDragStart={isChapter ? (event) => onChapterDragStart(event, node) : undefined}
-        onDrop={isChapter ? (event) => onChapterDrop(event, node) : undefined}
+        onDragLeave={isFolder ? () => onFolderDragLeave(node) : undefined}
+        onDragOver={isChapter ? (event) => onChapterDragOver(event, node) : isFolder ? (event) => onFolderDragOver(event, node) : undefined}
+        onDrop={isChapter ? (event) => onChapterDrop(event, node) : isFolder ? (event) => onFolderDrop(event, node) : undefined}
         type="button"
       >
         <span className={isChapter ? "tree-icon tree-icon-chapter" : "tree-icon tree-icon-folder"} aria-hidden="true" />

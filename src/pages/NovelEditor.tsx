@@ -1,5 +1,7 @@
 import { Extension, Mark, mergeAttributes, Node as TiptapNode, type Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode, ResolvedPos } from "@tiptap/pm/model";
+import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useState } from "react";
@@ -16,6 +18,7 @@ export type ChapterTarget = {
   volumeId: string | null;
   chapterId: string;
   title: string;
+  searchText?: string;
   scrollTop?: number;
 };
 
@@ -42,6 +45,14 @@ type ChapterOriginalText = {
   text: string;
   fileName: string;
   fileType: "md";
+};
+
+type HighlightEntry = {
+  id: string;
+  text: string;
+  textStart?: number;
+  textEnd?: number;
+  note: string;
 };
 
 type RendererApi = {
@@ -78,6 +89,14 @@ type RendererApi = {
       chapterId: string
     ) => Promise<ApiResponse<ChapterImageAsset | null>>;
   };
+  highlights?: {
+    listForChapter: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string
+    ) => Promise<ApiResponse<HighlightEntry[]>>;
+  };
 };
 
 type EditorStatus = "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
@@ -92,6 +111,7 @@ const TEXT_ALIGNMENT_LABELS: Record<(typeof TEXT_ALIGNMENTS)[number], string> = 
   right: "R",
   justify: "J"
 };
+const editMarkerPluginKey = new PluginKey<DecorationSet>("editMarkerOverlay");
 
 type BlockFormat = "paragraph" | "h1" | "h2" | "h3" | "codeBlock";
 type TextStyleAttributes = {
@@ -256,6 +276,36 @@ const InlineImage = TiptapNode.create({
   }
 });
 
+const EditMarkerOverlay = Extension.create({
+  name: "editMarkerOverlay",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: editMarkerPluginKey,
+        props: {
+          decorations(state) {
+            return editMarkerPluginKey.getState(state);
+          }
+        },
+        state: {
+          init() {
+            return DecorationSet.empty;
+          },
+          apply(transaction, decorations) {
+            const highlights = transaction.getMeta(editMarkerPluginKey) as HighlightEntry[] | undefined;
+
+            if (highlights) {
+              return DecorationSet.create(transaction.doc, editorMarkerDecorations(transaction.doc, highlights));
+            }
+
+            return decorations.map(transaction.mapping, transaction.doc);
+          }
+        }
+      })
+    ];
+  }
+});
+
 function getApi(): RendererApi | null {
   return (window as unknown as { api?: RendererApi }).api ?? null;
 }
@@ -403,6 +453,124 @@ function selectedTextBlocks(editor: Editor): SelectedTextBlock[] {
   return [...blocks.values()].sort((a, b) => a.pos - b.pos);
 }
 
+function normalizedMarkerText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function docPlainText(doc: ProseMirrorNode): string {
+  let text = "";
+
+  doc.descendants((node) => {
+    if (node.isText && node.text) {
+      text += node.text;
+    }
+
+    return true;
+  });
+
+  return text;
+}
+
+function docPositionAtTextOffset(doc: ProseMirrorNode, targetOffset: number): number | null {
+  let textOffset = 0;
+  let position: number | null = null;
+
+  doc.descendants((node, pos) => {
+    if (position !== null || !node.isText || !node.text) {
+      return position === null;
+    }
+
+    const nextOffset = textOffset + node.text.length;
+
+    if (targetOffset >= textOffset && targetOffset <= nextOffset) {
+      position = pos + targetOffset - textOffset;
+      return false;
+    }
+
+    textOffset = nextOffset;
+    return true;
+  });
+
+  return position;
+}
+
+function findTextRangeInDoc(
+  doc: ProseMirrorNode,
+  searchText: string,
+  textStart?: number,
+  textEnd?: number
+): { from: number; to: number } | null {
+  const needle = searchText.trim().toLowerCase();
+  const plainText = docPlainText(doc);
+
+  if (!needle) {
+    return null;
+  }
+
+  if (
+    textStart !== undefined &&
+    textEnd !== undefined &&
+    Number.isInteger(textStart) &&
+    Number.isInteger(textEnd) &&
+    textStart >= 0 &&
+    textEnd > textStart &&
+    textEnd <= plainText.length &&
+    normalizedMarkerText(plainText.slice(textStart, textEnd)) === normalizedMarkerText(searchText)
+  ) {
+    const from = docPositionAtTextOffset(doc, textStart);
+    const to = docPositionAtTextOffset(doc, textEnd);
+
+    if (from !== null && to !== null) {
+      return { from, to };
+    }
+  }
+
+  const index = plainText.toLowerCase().indexOf(needle);
+  if (index === -1) {
+    return null;
+  }
+
+  const from = docPositionAtTextOffset(doc, index);
+  const to = docPositionAtTextOffset(doc, index + needle.length);
+
+  return from !== null && to !== null ? { from, to } : null;
+}
+
+function findEditorTextRange(editor: Editor, searchText: string): { from: number; to: number } | null {
+  return findTextRangeInDoc(editor.state.doc, searchText);
+}
+
+function editorMarkerDecorations(doc: ProseMirrorNode, highlights: HighlightEntry[]): Decoration[] {
+  return highlights.flatMap((highlight) => {
+    const range = findTextRangeInDoc(doc, highlight.text, highlight.textStart, highlight.textEnd);
+
+    if (!range) {
+      return [];
+    }
+
+    return [
+      Decoration.inline(range.from, range.to, {
+        class: "editor-edit-marker",
+        "data-note": highlight.note || "Needs edit"
+      })
+    ];
+  });
+}
+
+function jumpToEditorText(editor: Editor, searchText: string): boolean {
+  const range = findEditorTextRange(editor, searchText);
+
+  if (!range) {
+    return false;
+  }
+
+  const selection = TextSelection.create(editor.state.doc, range.from, range.to);
+  editor.view.dispatch(editor.state.tr.setSelection(selection).scrollIntoView());
+  editor.view.focus();
+
+  return true;
+}
+
 export default function NovelEditor({
   onBack,
   onDirtyChange,
@@ -430,7 +598,7 @@ export default function NovelEditor({
   const saveAgainRef = useRef(false);
   const titleRef = useRef("");
   const editor = useEditor({
-    extensions: [StarterKit.configure({ link: { openOnClick: false } }), TextStyle, TextAlign, InlineImage],
+    extensions: [StarterKit.configure({ link: { openOnClick: false } }), TextStyle, TextAlign, InlineImage, EditMarkerOverlay],
     content: "",
     shouldRerenderOnTransaction: true,
     editorProps: {
@@ -475,6 +643,7 @@ export default function NovelEditor({
     }
 
     let isMounted = true;
+    let markerJumpTimer: number | null = null;
     const api = getApi();
 
     if (!api) {
@@ -498,22 +667,36 @@ export default function NovelEditor({
     setLinkHref("");
     titleRef.current = "";
 
-    void api.chapters
-      .getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
-      .then((response) => {
+    void Promise.all([
+      api.chapters.getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId),
+      api.highlights?.listForChapter(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
+        Promise.resolve({ ok: true, data: [] } as ApiResponse<HighlightEntry[]>)
+    ])
+      .then(([response, highlightsResponse]) => {
         if (!isMounted) {
           return;
         }
 
         const content = unwrap(response);
+        const highlights = unwrap(highlightsResponse);
         const nextContent = splitTitleHtml(content.html);
         setTitle(nextContent.title);
         titleRef.current = nextContent.title;
         editor.commands.setContent(nextContent.bodyHtml, { emitUpdate: false });
+        editor.view.dispatch(editor.state.tr.setMeta(editMarkerPluginKey, highlights));
         lastSavedHtmlRef.current = composeChapterHtml(nextContent.title, editor.getHTML());
         latestHtmlRef.current = lastSavedHtmlRef.current;
         isLoadedRef.current = true;
         setStatus("ready");
+        markerJumpTimer = window.setTimeout(() => {
+          if (!target.searchText || jumpToEditorText(editor, target.searchText)) {
+            return;
+          }
+
+          if (typeof target.scrollTop === "number") {
+            window.scrollTo({ top: target.scrollTop });
+          }
+        }, 0);
       })
       .catch((loadError) => {
         if (isMounted) {
@@ -550,11 +733,23 @@ export default function NovelEditor({
 
     return () => {
       isMounted = false;
+      if (markerJumpTimer) {
+        clearTimeout(markerJumpTimer);
+      }
       clearAutosave();
       isLoadedRef.current = false;
       onDirtyChange(false);
     };
-  }, [editor, onDirtyChange, target.categoryId, target.chapterId, target.seriesId, target.volumeId]);
+  }, [
+    editor,
+    onDirtyChange,
+    target.categoryId,
+    target.chapterId,
+    target.scrollTop,
+    target.searchText,
+    target.seriesId,
+    target.volumeId
+  ]);
 
   function updateTitle(value: string): void {
     setTitle(value);

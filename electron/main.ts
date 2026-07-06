@@ -208,6 +208,7 @@ type SeriesIndex = {
     id: string;
     title: string;
     author?: string | null;
+    genres?: string[];
     status?: SeriesStatus;
     coverImage?: string | null;
     updatedAt?: string;
@@ -219,7 +220,12 @@ type SeriesCard = {
   id: string;
   title: string;
   author: string | null;
+  genres: string[];
   status: SeriesStatus;
+  coverDataUrl: string | null;
+};
+
+type SeriesDetailData = SeriesMetadata & {
   coverDataUrl: string | null;
 };
 
@@ -285,6 +291,8 @@ type SeriesBookmarks = {
 type HighlightEntry = ReadingListEntry & {
   id: string;
   text: string;
+  textStart?: number;
+  textEnd?: number;
   color: HighlightColor;
   note: string;
   createdAt: string;
@@ -1915,6 +1923,9 @@ async function rebuildSeriesIndex(libraryPath: string): Promise<void> {
               : typeof metadata.translator === "string"
                 ? metadata.translator
                 : null,
+          genres: Array.isArray(metadata.genres)
+            ? metadata.genres.filter((genre): genre is string => typeof genre === "string")
+            : [],
           status:
             typeof metadata.status === "string" && (SERIES_STATUSES as readonly string[]).includes(metadata.status)
               ? (metadata.status as SeriesStatus)
@@ -2475,6 +2486,25 @@ function readHighlightScrollTop(record: JsonRecord): number {
   return scrollTop;
 }
 
+function readHighlightTextRange(record: JsonRecord): { textStart?: number; textEnd?: number } {
+  if (record.textStart === undefined && record.textEnd === undefined) {
+    return {};
+  }
+
+  if (record.textStart === undefined || record.textEnd === undefined) {
+    throw new Error("textStart and textEnd must be provided together.");
+  }
+
+  const textStart = readOptionalNonNegativeInteger(record, "textStart", 0);
+  const textEnd = readOptionalNonNegativeInteger(record, "textEnd", 0);
+
+  if (textEnd <= textStart) {
+    throw new Error("textEnd must be greater than textStart.");
+  }
+
+  return { textStart, textEnd };
+}
+
 async function readSeriesHighlights(libraryPath: string, seriesId: string): Promise<SeriesHighlights> {
   try {
     const highlights = await readJsonFile<SeriesHighlights>(seriesHighlightsPath(libraryPath, seriesId));
@@ -2519,10 +2549,12 @@ async function createHighlight(
   return withResourceWriteLock(filePath, async () => {
     const highlights = await readSeriesHighlights(libraryPath, seriesId);
     const now = new Date().toISOString();
+    const textRange = readHighlightTextRange(record);
     const entry: HighlightEntry = {
       ...reference,
       id: randomUUID(),
       text,
+      ...textRange,
       color: readHighlightColor(record),
       note,
       scrollTop: readHighlightScrollTop(record),
@@ -2621,6 +2653,58 @@ async function deleteHighlight(libraryPath: string, seriesId: string, highlightI
   });
 }
 
+function moveReadingEntryReference<T extends ReadingListEntry>(
+  entry: T,
+  oldReference: ChapterReference,
+  newReference: ChapterReference
+): T {
+  return sameChapterReference(entry, oldReference) ? { ...entry, ...newReference } : entry;
+}
+
+async function updateChapterReadingReferences(
+  libraryPath: string,
+  oldReference: ChapterReference,
+  newReference: ChapterReference
+): Promise<void> {
+  const oldProgressKey = chapterProgressKey(oldReference.categoryId, oldReference.volumeId, oldReference.chapterId);
+  const newProgressKey = chapterProgressKey(newReference.categoryId, newReference.volumeId, newReference.chapterId);
+  const progress = await readSeriesProgress(libraryPath, oldReference.seriesId);
+
+  if (progress.chapters[oldProgressKey]) {
+    const chapters = { ...progress.chapters, [newProgressKey]: progress.chapters[oldProgressKey] };
+    delete chapters[oldProgressKey];
+    await writeJsonFile(seriesProgressPath(libraryPath, oldReference.seriesId), { ...progress, chapters }, { backup: true });
+  }
+
+  const bookmarks = await readSeriesBookmarks(libraryPath, oldReference.seriesId);
+  if (bookmarks.entries.some((entry) => sameChapterReference(entry, oldReference))) {
+    await writeJsonFile(
+      seriesBookmarksPath(libraryPath, oldReference.seriesId),
+      {
+        ...bookmarks,
+        entries: bookmarks.entries
+          .map((entry) => moveReadingEntryReference(entry, oldReference, newReference))
+          .sort(compareReadingListEntries)
+      } satisfies SeriesBookmarks,
+      { backup: true }
+    );
+  }
+
+  const highlights = await readSeriesHighlights(libraryPath, oldReference.seriesId);
+  if (highlights.entries.some((entry) => sameChapterReference(entry, oldReference))) {
+    await writeJsonFile(
+      seriesHighlightsPath(libraryPath, oldReference.seriesId),
+      {
+        ...highlights,
+        entries: highlights.entries
+          .map((entry) => moveReadingEntryReference(entry, oldReference, newReference))
+          .sort(compareReadingListEntries)
+      } satisfies SeriesHighlights,
+      { backup: true }
+    );
+  }
+}
+
 function parseSeriesCreateInput(input: unknown): SeriesMetadata {
   const record = assertRecord(input);
   const now = new Date().toISOString();
@@ -2681,6 +2765,12 @@ async function readSeriesIndex(libraryPath: string): Promise<SeriesIndex> {
   try {
     const index = await readJsonFile<SeriesIndex>(seriesIndexPath(libraryPath));
     assertSupportedSchemaVersion("series-index.json", index);
+
+    if (index.series.some((entry) => !Array.isArray(entry.genres))) {
+      await rebuildSeriesIndex(libraryPath);
+      return readJsonFile<SeriesIndex>(seriesIndexPath(libraryPath));
+    }
+
     return index;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -2757,8 +2847,20 @@ async function toSeriesCard(libraryPath: string, entry: SeriesIndexEntry): Promi
     id: entry.id,
     title: entry.title,
     author: entry.author ?? null,
+    genres: entry.genres ?? [],
     status: entry.status ?? "planning",
     coverDataUrl: await readSeriesCoverDataUrl(libraryPath, entry)
+  };
+}
+
+async function toSeriesDetailData(libraryPath: string, metadata: SeriesMetadata): Promise<SeriesDetailData> {
+  return {
+    ...metadata,
+    coverDataUrl: await readSeriesCoverDataUrl(libraryPath, {
+      id: metadata.id,
+      title: metadata.title,
+      coverImage: metadata.coverImage
+    })
   };
 }
 
@@ -2784,6 +2886,49 @@ async function updateSeriesMetadata(libraryPath: string, seriesId: string, input
   await rebuildSearchIndex(libraryPath);
   await rebuildRecentIndex(libraryPath);
   return metadata;
+}
+
+async function chooseSeriesCover(
+  window: BrowserWindow | null,
+  libraryPath: string,
+  seriesId: string
+): Promise<SeriesDetailData | null> {
+  await readSeriesMetadata(libraryPath, seriesId);
+
+  const options: OpenDialogOptions = {
+    title: "Choose series cover",
+    properties: ["openFile"],
+    filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png", "webp", "gif"] }]
+  };
+  const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+
+  if (result.canceled || !result.filePaths[0]) {
+    return null;
+  }
+
+  const sourcePath = result.filePaths[0];
+  const sourceStat = await stat(sourcePath);
+
+  if (!sourceStat.isFile()) {
+    throw new Error("Selected cover is not a file.");
+  }
+
+  const extension = extname(sourcePath).toLowerCase();
+
+  if (!IMAGE_FILE_EXTENSIONS.has(extension)) {
+    throw new Error("Selected cover type is not supported.");
+  }
+
+  return withResourceWriteLock(seriesDirectoryPath(libraryPath, seriesId), async () => {
+    const fileName = `cover${extension}`;
+    const targetPath = libraryChildPath(libraryPath, "series", seriesId, fileName);
+    const tmpPath = `${targetPath}.tmp`;
+
+    await copyFile(sourcePath, tmpPath);
+    await rename(tmpPath, targetPath);
+
+    return toSeriesDetailData(libraryPath, await updateSeriesMetadata(libraryPath, seriesId, { coverImage: fileName }));
+  });
 }
 
 async function moveSeriesToTrash(libraryPath: string, seriesId: string): Promise<{ id: string; trashPath: string }> {
@@ -3677,6 +3822,100 @@ async function moveNovelChapterToTrash(
   return { id: chapter.id, trashPath };
 }
 
+async function moveNovelChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  targetCategoryId: string,
+  targetVolumeId: string | null
+): Promise<NovelChapterMetadata> {
+  if (categoryId === targetCategoryId && volumeId === targetVolumeId) {
+    return readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  }
+
+  return withResourceWriteLock(seriesDirectoryPath(libraryPath, seriesId), async () => {
+    const source = await assertNovelChapterScope(libraryPath, seriesId, categoryId, volumeId);
+    const target = await assertNovelChapterScope(libraryPath, seriesId, targetCategoryId, targetVolumeId);
+    const chapter = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+    const oldReference = await readChapterReference(libraryPath, seriesId, categoryId, volumeId, chapterId);
+    const now = new Date().toISOString();
+    const targetPath = chapterDirectoryPath(libraryPath, seriesId, targetCategoryId, targetVolumeId, chapter.id);
+
+    await mkdir(dirname(targetPath), { recursive: true });
+    await rename(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapter.id), targetPath);
+
+    if (source.volume) {
+      await writeJsonFile(
+        volumeMetaPath(libraryPath, seriesId, categoryId, source.volume.id),
+        {
+          ...source.volume,
+          chapterOrder: source.volume.chapterOrder.filter((id) => id !== chapter.id),
+          updatedAt: now
+        } satisfies VolumeMetadata,
+        { backup: true }
+      );
+    } else {
+      await writeJsonFile(
+        categoryMetaPath(libraryPath, seriesId, categoryId),
+        {
+          ...source.category,
+          chapterOrder: source.category.chapterOrder.filter((id) => id !== chapter.id),
+          updatedAt: now
+        } satisfies CategoryMetadata,
+        { backup: true }
+      );
+    }
+
+    if (target.volume) {
+      await writeJsonFile(
+        volumeMetaPath(libraryPath, seriesId, targetCategoryId, target.volume.id),
+        {
+          ...target.volume,
+          chapterOrder: [...target.volume.chapterOrder.filter((id) => id !== chapter.id), chapter.id],
+          updatedAt: now
+        } satisfies VolumeMetadata,
+        { backup: true }
+      );
+    } else {
+      await writeJsonFile(
+        categoryMetaPath(libraryPath, seriesId, targetCategoryId),
+        {
+          ...target.category,
+          chapterOrder: [...target.category.chapterOrder.filter((id) => id !== chapter.id), chapter.id],
+          updatedAt: now
+        } satisfies CategoryMetadata,
+        { backup: true }
+      );
+    }
+
+    await writeChapterMetadataOrder(
+      libraryPath,
+      seriesId,
+      categoryId,
+      volumeId,
+      await listNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId)
+    );
+    await writeChapterMetadataOrder(
+      libraryPath,
+      seriesId,
+      targetCategoryId,
+      targetVolumeId,
+      await listNovelChapterMetadata(libraryPath, seriesId, targetCategoryId, targetVolumeId)
+    );
+    await updateChapterReadingReferences(
+      libraryPath,
+      oldReference,
+      await readChapterReference(libraryPath, seriesId, targetCategoryId, targetVolumeId, chapter.id)
+    );
+    await rebuildSearchIndex(libraryPath);
+    await rebuildRecentIndex(libraryPath);
+
+    return readNovelChapterMetadata(libraryPath, seriesId, targetCategoryId, targetVolumeId, chapter.id);
+  });
+}
+
 function assertMangaCategory(category: CategoryMetadata): void {
   if (category.type !== "manga") {
     throw new Error("Manga pages are only available for manga categories.");
@@ -3984,6 +4223,32 @@ async function reorderChapterMetadata(
 
   await writeChapterMetadataOrder(libraryPath, seriesId, categoryId, volumeId, orderedChapters);
   return orderedChapters;
+}
+
+async function moveChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  input: unknown
+): Promise<ChapterMetadata> {
+  const record = assertRecord(input);
+  const sourceCategory = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+
+  if (sourceCategory.type === "manga") {
+    throw new Error("Manga chapters do not support folder moves.");
+  }
+
+  return moveNovelChapterMetadata(
+    libraryPath,
+    seriesId,
+    categoryId,
+    volumeId,
+    chapterId,
+    assertId(record.targetCategoryId, "targetCategoryId"),
+    optionalVolumeId(record.targetVolumeId)
+  );
 }
 
 async function moveChapterToTrash(
@@ -4322,9 +4587,10 @@ function registerSeriesIpc(): void {
     }
   });
 
-  ipcMain.handle("series:get", async (_event, seriesId: unknown): Promise<ApiResponse<SeriesMetadata>> => {
+  ipcMain.handle("series:get", async (_event, seriesId: unknown): Promise<ApiResponse<SeriesDetailData>> => {
     try {
-      return ok(await readSeriesMetadata(await currentLibraryPathOrThrow(), assertId(seriesId, "seriesId")));
+      const libraryPath = await currentLibraryPathOrThrow();
+      return ok(await toSeriesDetailData(libraryPath, await readSeriesMetadata(libraryPath, assertId(seriesId, "seriesId"))));
     } catch (error) {
       return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not load series.", String(error));
     }
@@ -4340,11 +4606,29 @@ function registerSeriesIpc(): void {
 
   ipcMain.handle(
     "series:update",
-    async (_event, seriesId: unknown, input: unknown): Promise<ApiResponse<SeriesMetadata>> => {
+    async (_event, seriesId: unknown, input: unknown): Promise<ApiResponse<SeriesDetailData>> => {
       try {
-        return ok(await updateSeriesMetadata(await currentLibraryPathOrThrow(), assertId(seriesId, "seriesId"), input));
+        const libraryPath = await currentLibraryPathOrThrow();
+        return ok(await toSeriesDetailData(libraryPath, await updateSeriesMetadata(libraryPath, assertId(seriesId, "seriesId"), input)));
       } catch (error) {
         return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not update series.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "series:chooseCover",
+    async (event, seriesId: unknown): Promise<ApiResponse<SeriesDetailData | null>> => {
+      try {
+        return ok(
+          await chooseSeriesCover(
+            BrowserWindow.fromWebContents(event.sender),
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not choose series cover.", String(error));
       }
     }
   );
@@ -4669,6 +4953,33 @@ function registerChapterIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not reorder chapters.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:move",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<ChapterMetadata>> => {
+      try {
+        return ok(
+          await moveChapterMetadata(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId"),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not move chapter.", String(error));
       }
     }
   );

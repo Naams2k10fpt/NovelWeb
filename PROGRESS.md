@@ -404,6 +404,25 @@ Ghi chú: Đã thêm MangaReader mở từ Series Detail, hỗ trợ long strip/
 Ghi chú: Đã thêm nhóm 2 tối thiểu: Reader có nút bookmark tại vị trí cuộn hiện tại; Library hiển thị Recent và Bookmarks để mở lại đúng chapter/vị trí.
 Ghi chú: Đã thêm nhóm 3 tối thiểu: Reader lưu đoạn text đang chọn kèm màu/note/vị trí vào `highlights.json`; Reader và Library hiển thị danh sách highlight/note, mở lại đúng chapter/vị trí và cho xóa.
 
+### Nhánh `library-feedback-polish` - phản hồi Library 2026-07-06
+
+- [x] Library: bỏ khu vực Highlights khỏi trang chính.
+- [x] Library: Recent chỉ lấy tối đa 6 mục, mỗi lần hiển thị tối đa 3 mục và có nút chuyển.
+- [x] Library: chỉnh card truyện gọn hơn, cover ổn định hơn khi tên dài.
+- [x] Series metadata: thêm form sửa tên truyện, tác giả, mô tả, tình trạng, ảnh bìa và thể loại dạng list chọn/thêm mới.
+- [x] Manager: cho kéo chapter sang volume/category khác cho LN/WN, main process cập nhật metadata và thứ tự an toàn.
+- [x] Search/Reader: click search result mở đúng vị trí đoạn match và tô sáng tạm thời đoạn đó.
+- [x] Highlight mới: đổi highlight cũ thành marker "cần sửa" trong Reader, lưu note và cho Editor nhảy tới marker để sửa.
+
+Ghi chú: Search highlight trong Reader chỉ dùng để định vị nhanh, tự fade rồi gỡ khỏi nội dung sau vài giây để không vướng khi đọc tiếp.
+Ghi chú: Khi mở kết quả Search, app chuyển sang context Library và giữ series hiện tại để Back quay về trang truyện thay vì trang Search.
+Ghi chú: Series Detail đổi danh sách volume/chapter thành accordion thu gọn/mở rộng để không chiếm quá nhiều chiều dọc.
+Ghi chú: NovelReader có toolbar dọc cho prev/home/list/mark/bookmark/next, panel nhảy nhanh chapter và marker "cần sửa" hiện trực tiếp trên đoạn đã đánh dấu.
+Ghi chú: Toolbar NovelReader được chuyển xuống góc dưới bên phải để bớt che vùng đọc chính.
+Ghi chú: Mark trong Reader đổi sang popup note tại vị trí bôi đen; bỏ danh sách Need edit trên đầu, hover highlight hiện note và Editor tự tô lại marker của chapter.
+Ghi chú: Bỏ native tooltip `title` khỏi Reader/Editor marker để hover note chỉ hiện một popup.
+Ghi chú: Marker mới lưu thêm offset đoạn bôi đen để Reader/Editor tô đúng occurrence, tránh tô nhầm đoạn text giống nhau ở phía trên.
+
 ### Tiêu chí hoàn thành
 
 - [x] Search không cần quét toàn bộ file mỗi lần với thư viện vừa/lớn.
