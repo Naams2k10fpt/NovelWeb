@@ -208,6 +208,7 @@ type SeriesIndex = {
     id: string;
     title: string;
     author?: string | null;
+    genres?: string[];
     status?: SeriesStatus;
     coverImage?: string | null;
     updatedAt?: string;
@@ -219,7 +220,12 @@ type SeriesCard = {
   id: string;
   title: string;
   author: string | null;
+  genres: string[];
   status: SeriesStatus;
+  coverDataUrl: string | null;
+};
+
+type SeriesDetailData = SeriesMetadata & {
   coverDataUrl: string | null;
 };
 
@@ -1915,6 +1921,9 @@ async function rebuildSeriesIndex(libraryPath: string): Promise<void> {
               : typeof metadata.translator === "string"
                 ? metadata.translator
                 : null,
+          genres: Array.isArray(metadata.genres)
+            ? metadata.genres.filter((genre): genre is string => typeof genre === "string")
+            : [],
           status:
             typeof metadata.status === "string" && (SERIES_STATUSES as readonly string[]).includes(metadata.status)
               ? (metadata.status as SeriesStatus)
@@ -2681,6 +2690,12 @@ async function readSeriesIndex(libraryPath: string): Promise<SeriesIndex> {
   try {
     const index = await readJsonFile<SeriesIndex>(seriesIndexPath(libraryPath));
     assertSupportedSchemaVersion("series-index.json", index);
+
+    if (index.series.some((entry) => !Array.isArray(entry.genres))) {
+      await rebuildSeriesIndex(libraryPath);
+      return readJsonFile<SeriesIndex>(seriesIndexPath(libraryPath));
+    }
+
     return index;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -2757,8 +2772,20 @@ async function toSeriesCard(libraryPath: string, entry: SeriesIndexEntry): Promi
     id: entry.id,
     title: entry.title,
     author: entry.author ?? null,
+    genres: entry.genres ?? [],
     status: entry.status ?? "planning",
     coverDataUrl: await readSeriesCoverDataUrl(libraryPath, entry)
+  };
+}
+
+async function toSeriesDetailData(libraryPath: string, metadata: SeriesMetadata): Promise<SeriesDetailData> {
+  return {
+    ...metadata,
+    coverDataUrl: await readSeriesCoverDataUrl(libraryPath, {
+      id: metadata.id,
+      title: metadata.title,
+      coverImage: metadata.coverImage
+    })
   };
 }
 
@@ -2784,6 +2811,49 @@ async function updateSeriesMetadata(libraryPath: string, seriesId: string, input
   await rebuildSearchIndex(libraryPath);
   await rebuildRecentIndex(libraryPath);
   return metadata;
+}
+
+async function chooseSeriesCover(
+  window: BrowserWindow | null,
+  libraryPath: string,
+  seriesId: string
+): Promise<SeriesDetailData | null> {
+  await readSeriesMetadata(libraryPath, seriesId);
+
+  const options: OpenDialogOptions = {
+    title: "Choose series cover",
+    properties: ["openFile"],
+    filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png", "webp", "gif"] }]
+  };
+  const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+
+  if (result.canceled || !result.filePaths[0]) {
+    return null;
+  }
+
+  const sourcePath = result.filePaths[0];
+  const sourceStat = await stat(sourcePath);
+
+  if (!sourceStat.isFile()) {
+    throw new Error("Selected cover is not a file.");
+  }
+
+  const extension = extname(sourcePath).toLowerCase();
+
+  if (!IMAGE_FILE_EXTENSIONS.has(extension)) {
+    throw new Error("Selected cover type is not supported.");
+  }
+
+  return withResourceWriteLock(seriesDirectoryPath(libraryPath, seriesId), async () => {
+    const fileName = `cover${extension}`;
+    const targetPath = libraryChildPath(libraryPath, "series", seriesId, fileName);
+    const tmpPath = `${targetPath}.tmp`;
+
+    await copyFile(sourcePath, tmpPath);
+    await rename(tmpPath, targetPath);
+
+    return toSeriesDetailData(libraryPath, await updateSeriesMetadata(libraryPath, seriesId, { coverImage: fileName }));
+  });
 }
 
 async function moveSeriesToTrash(libraryPath: string, seriesId: string): Promise<{ id: string; trashPath: string }> {
@@ -4322,9 +4392,10 @@ function registerSeriesIpc(): void {
     }
   });
 
-  ipcMain.handle("series:get", async (_event, seriesId: unknown): Promise<ApiResponse<SeriesMetadata>> => {
+  ipcMain.handle("series:get", async (_event, seriesId: unknown): Promise<ApiResponse<SeriesDetailData>> => {
     try {
-      return ok(await readSeriesMetadata(await currentLibraryPathOrThrow(), assertId(seriesId, "seriesId")));
+      const libraryPath = await currentLibraryPathOrThrow();
+      return ok(await toSeriesDetailData(libraryPath, await readSeriesMetadata(libraryPath, assertId(seriesId, "seriesId"))));
     } catch (error) {
       return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not load series.", String(error));
     }
@@ -4340,11 +4411,29 @@ function registerSeriesIpc(): void {
 
   ipcMain.handle(
     "series:update",
-    async (_event, seriesId: unknown, input: unknown): Promise<ApiResponse<SeriesMetadata>> => {
+    async (_event, seriesId: unknown, input: unknown): Promise<ApiResponse<SeriesDetailData>> => {
       try {
-        return ok(await updateSeriesMetadata(await currentLibraryPathOrThrow(), assertId(seriesId, "seriesId"), input));
+        const libraryPath = await currentLibraryPathOrThrow();
+        return ok(await toSeriesDetailData(libraryPath, await updateSeriesMetadata(libraryPath, assertId(seriesId, "seriesId"), input)));
       } catch (error) {
         return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not update series.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "series:chooseCover",
+    async (event, seriesId: unknown): Promise<ApiResponse<SeriesDetailData | null>> => {
+      try {
+        return ok(
+          await chooseSeriesCover(
+            BrowserWindow.fromWebContents(event.sender),
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not choose series cover.", String(error));
       }
     }
   );

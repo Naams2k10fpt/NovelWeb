@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("api", {
     get: (seriesId: string) => ipcRenderer.invoke("series:get", seriesId),
     create: (input: unknown) => ipcRenderer.invoke("series:create", input),
     update: (seriesId: string, input: unknown) => ipcRenderer.invoke("series:update", seriesId, input),
+    chooseCover: (seriesId: string) => ipcRenderer.invoke("series:chooseCover", seriesId),
     moveToTrash: (seriesId: string) => ipcRenderer.invoke("series:moveToTrash", seriesId)
   },
   categories: {
