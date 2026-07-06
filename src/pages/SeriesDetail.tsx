@@ -580,8 +580,13 @@ function ChapterList({
   }
 
   return (
-    <section className="chapter-group">
-      <h4>{title}</h4>
+    <details className="chapter-group">
+      <summary>
+        <span className="chapter-group-title">{title}</span>
+        <span className="chapter-group-count">
+          {chapters.length} {chapters.length === 1 ? "chapter" : "chapters"}
+        </span>
+      </summary>
       {chapters.length === 0 ? (
         <p className="muted-text">No chapters yet.</p>
       ) : (
@@ -603,7 +608,7 @@ function ChapterList({
           ))}
         </ol>
       )}
-    </section>
+    </details>
   );
 }
 
@@ -637,8 +642,13 @@ function MangaChapterList({
   }
 
   return (
-    <section className="chapter-group">
-      <h4>Chapters</h4>
+    <details className="chapter-group">
+      <summary>
+        <span className="chapter-group-title">Chapters</span>
+        <span className="chapter-group-count">
+          {chapters.length} {chapters.length === 1 ? "chapter" : "chapters"}
+        </span>
+      </summary>
       <ol>
         {chapters.map((chapter) => (
           <li key={chapter.id}>
@@ -649,6 +659,6 @@ function MangaChapterList({
           </li>
         ))}
       </ol>
-    </section>
+    </details>
   );
 }
