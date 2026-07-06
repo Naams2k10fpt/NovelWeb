@@ -1716,6 +1716,12 @@ body {
   bottom: -2px;
 }
 
+.tree-node-drop-folder {
+  outline: 2px solid #2f6f73;
+  outline-offset: -2px;
+  background: #e0efed;
+}
+
 .manager-actions {
   display: flex;
   flex-wrap: wrap;

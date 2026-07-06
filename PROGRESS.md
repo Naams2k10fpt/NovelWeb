@@ -410,7 +410,7 @@ Ghi chú: Đã thêm nhóm 3 tối thiểu: Reader lưu đoạn text đang chọ
 - [x] Library: Recent chỉ lấy tối đa 6 mục, mỗi lần hiển thị tối đa 3 mục và có nút chuyển.
 - [x] Library: chỉnh card truyện gọn hơn, cover ổn định hơn khi tên dài.
 - [x] Series metadata: thêm form sửa tên truyện, tác giả, mô tả, tình trạng, ảnh bìa và thể loại dạng list chọn/thêm mới.
-- [ ] Manager: cho kéo chapter sang volume/category khác cho LN/WN, main process cập nhật metadata và thứ tự an toàn.
+- [x] Manager: cho kéo chapter sang volume/category khác cho LN/WN, main process cập nhật metadata và thứ tự an toàn.
 - [ ] Search/Reader: click search result mở đúng vị trí đoạn match và tô sáng tạm thời đoạn đó.
 - [ ] Highlight mới: đổi highlight cũ thành marker "cần sửa" trong Reader, lưu note và cho Editor nhảy tới marker để sửa.
 

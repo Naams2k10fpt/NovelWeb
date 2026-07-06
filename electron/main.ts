@@ -2630,6 +2630,58 @@ async function deleteHighlight(libraryPath: string, seriesId: string, highlightI
   });
 }
 
+function moveReadingEntryReference<T extends ReadingListEntry>(
+  entry: T,
+  oldReference: ChapterReference,
+  newReference: ChapterReference
+): T {
+  return sameChapterReference(entry, oldReference) ? { ...entry, ...newReference } : entry;
+}
+
+async function updateChapterReadingReferences(
+  libraryPath: string,
+  oldReference: ChapterReference,
+  newReference: ChapterReference
+): Promise<void> {
+  const oldProgressKey = chapterProgressKey(oldReference.categoryId, oldReference.volumeId, oldReference.chapterId);
+  const newProgressKey = chapterProgressKey(newReference.categoryId, newReference.volumeId, newReference.chapterId);
+  const progress = await readSeriesProgress(libraryPath, oldReference.seriesId);
+
+  if (progress.chapters[oldProgressKey]) {
+    const chapters = { ...progress.chapters, [newProgressKey]: progress.chapters[oldProgressKey] };
+    delete chapters[oldProgressKey];
+    await writeJsonFile(seriesProgressPath(libraryPath, oldReference.seriesId), { ...progress, chapters }, { backup: true });
+  }
+
+  const bookmarks = await readSeriesBookmarks(libraryPath, oldReference.seriesId);
+  if (bookmarks.entries.some((entry) => sameChapterReference(entry, oldReference))) {
+    await writeJsonFile(
+      seriesBookmarksPath(libraryPath, oldReference.seriesId),
+      {
+        ...bookmarks,
+        entries: bookmarks.entries
+          .map((entry) => moveReadingEntryReference(entry, oldReference, newReference))
+          .sort(compareReadingListEntries)
+      } satisfies SeriesBookmarks,
+      { backup: true }
+    );
+  }
+
+  const highlights = await readSeriesHighlights(libraryPath, oldReference.seriesId);
+  if (highlights.entries.some((entry) => sameChapterReference(entry, oldReference))) {
+    await writeJsonFile(
+      seriesHighlightsPath(libraryPath, oldReference.seriesId),
+      {
+        ...highlights,
+        entries: highlights.entries
+          .map((entry) => moveReadingEntryReference(entry, oldReference, newReference))
+          .sort(compareReadingListEntries)
+      } satisfies SeriesHighlights,
+      { backup: true }
+    );
+  }
+}
+
 function parseSeriesCreateInput(input: unknown): SeriesMetadata {
   const record = assertRecord(input);
   const now = new Date().toISOString();
@@ -3747,6 +3799,100 @@ async function moveNovelChapterToTrash(
   return { id: chapter.id, trashPath };
 }
 
+async function moveNovelChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  targetCategoryId: string,
+  targetVolumeId: string | null
+): Promise<NovelChapterMetadata> {
+  if (categoryId === targetCategoryId && volumeId === targetVolumeId) {
+    return readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  }
+
+  return withResourceWriteLock(seriesDirectoryPath(libraryPath, seriesId), async () => {
+    const source = await assertNovelChapterScope(libraryPath, seriesId, categoryId, volumeId);
+    const target = await assertNovelChapterScope(libraryPath, seriesId, targetCategoryId, targetVolumeId);
+    const chapter = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+    const oldReference = await readChapterReference(libraryPath, seriesId, categoryId, volumeId, chapterId);
+    const now = new Date().toISOString();
+    const targetPath = chapterDirectoryPath(libraryPath, seriesId, targetCategoryId, targetVolumeId, chapter.id);
+
+    await mkdir(dirname(targetPath), { recursive: true });
+    await rename(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapter.id), targetPath);
+
+    if (source.volume) {
+      await writeJsonFile(
+        volumeMetaPath(libraryPath, seriesId, categoryId, source.volume.id),
+        {
+          ...source.volume,
+          chapterOrder: source.volume.chapterOrder.filter((id) => id !== chapter.id),
+          updatedAt: now
+        } satisfies VolumeMetadata,
+        { backup: true }
+      );
+    } else {
+      await writeJsonFile(
+        categoryMetaPath(libraryPath, seriesId, categoryId),
+        {
+          ...source.category,
+          chapterOrder: source.category.chapterOrder.filter((id) => id !== chapter.id),
+          updatedAt: now
+        } satisfies CategoryMetadata,
+        { backup: true }
+      );
+    }
+
+    if (target.volume) {
+      await writeJsonFile(
+        volumeMetaPath(libraryPath, seriesId, targetCategoryId, target.volume.id),
+        {
+          ...target.volume,
+          chapterOrder: [...target.volume.chapterOrder.filter((id) => id !== chapter.id), chapter.id],
+          updatedAt: now
+        } satisfies VolumeMetadata,
+        { backup: true }
+      );
+    } else {
+      await writeJsonFile(
+        categoryMetaPath(libraryPath, seriesId, targetCategoryId),
+        {
+          ...target.category,
+          chapterOrder: [...target.category.chapterOrder.filter((id) => id !== chapter.id), chapter.id],
+          updatedAt: now
+        } satisfies CategoryMetadata,
+        { backup: true }
+      );
+    }
+
+    await writeChapterMetadataOrder(
+      libraryPath,
+      seriesId,
+      categoryId,
+      volumeId,
+      await listNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId)
+    );
+    await writeChapterMetadataOrder(
+      libraryPath,
+      seriesId,
+      targetCategoryId,
+      targetVolumeId,
+      await listNovelChapterMetadata(libraryPath, seriesId, targetCategoryId, targetVolumeId)
+    );
+    await updateChapterReadingReferences(
+      libraryPath,
+      oldReference,
+      await readChapterReference(libraryPath, seriesId, targetCategoryId, targetVolumeId, chapter.id)
+    );
+    await rebuildSearchIndex(libraryPath);
+    await rebuildRecentIndex(libraryPath);
+
+    return readNovelChapterMetadata(libraryPath, seriesId, targetCategoryId, targetVolumeId, chapter.id);
+  });
+}
+
 function assertMangaCategory(category: CategoryMetadata): void {
   if (category.type !== "manga") {
     throw new Error("Manga pages are only available for manga categories.");
@@ -4054,6 +4200,32 @@ async function reorderChapterMetadata(
 
   await writeChapterMetadataOrder(libraryPath, seriesId, categoryId, volumeId, orderedChapters);
   return orderedChapters;
+}
+
+async function moveChapterMetadata(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  input: unknown
+): Promise<ChapterMetadata> {
+  const record = assertRecord(input);
+  const sourceCategory = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+
+  if (sourceCategory.type === "manga") {
+    throw new Error("Manga chapters do not support folder moves.");
+  }
+
+  return moveNovelChapterMetadata(
+    libraryPath,
+    seriesId,
+    categoryId,
+    volumeId,
+    chapterId,
+    assertId(record.targetCategoryId, "targetCategoryId"),
+    optionalVolumeId(record.targetVolumeId)
+  );
 }
 
 async function moveChapterToTrash(
@@ -4758,6 +4930,33 @@ function registerChapterIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not reorder chapters.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "chapters:move",
+    async (
+      _event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown,
+      input: unknown
+    ): Promise<ApiResponse<ChapterMetadata>> => {
+      try {
+        return ok(
+          await moveChapterMetadata(
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId"),
+            input
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not move chapter.", String(error));
       }
     }
   );

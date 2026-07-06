@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("chapters:update", seriesId, categoryId, volumeId, chapterId, input),
     reorder: (seriesId: string, categoryId: string, volumeId: string | null, input: unknown) =>
       ipcRenderer.invoke("chapters:reorder", seriesId, categoryId, volumeId, input),
+    move: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>
+      ipcRenderer.invoke("chapters:move", seriesId, categoryId, volumeId, chapterId, input),
     getContent: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
       ipcRenderer.invoke("chapters:getContent", seriesId, categoryId, volumeId, chapterId),
     saveContent: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>
