@@ -168,7 +168,7 @@ export default function App() {
     setSelectedChapter(target);
   }
 
-  function closeChapter(): void {
+  function closeChapter(seriesId?: string): void {
     if (!confirmLeaveChapter()) {
       return;
     }
@@ -176,6 +176,10 @@ export default function App() {
     setChapterDirty(false);
     setChapterMode("read");
     setSelectedChapter(null);
+    if (seriesId) {
+      setMode("library");
+      setSelectedSeriesId(seriesId);
+    }
   }
 
   function confirmLeaveChapter(): boolean {
@@ -208,7 +212,9 @@ export default function App() {
       return (
         <NovelReader
           onBack={closeChapter}
+          onBackToSeries={() => closeChapter(selectedChapter.seriesId)}
           onEdit={(target) => openChapter(target ?? selectedChapter, "edit")}
+          onOpenChapter={(target) => openChapter(target, "read")}
           target={selectedChapter}
         />
       );

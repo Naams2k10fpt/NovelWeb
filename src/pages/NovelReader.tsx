@@ -9,6 +9,12 @@ type ChapterContent = {
   html: string;
 };
 
+type ChapterMetadata = {
+  id: string;
+  title: string;
+  translationStatus?: string;
+};
+
 type ChapterReadingProgress = {
   scrollTop: number;
   updatedAt: string | null;
@@ -35,6 +41,7 @@ type ReaderTheme = "light" | "dark";
 
 type RendererApi = {
   chapters: {
+    list: (seriesId: string, categoryId: string, volumeId?: string | null) => Promise<ApiResponse<ChapterMetadata[]>>;
     getContent: (
       seriesId: string,
       categoryId: string,
@@ -127,6 +134,29 @@ function unwrapReaderSearchHits(root: Element): void {
   root.normalize();
 }
 
+function unwrapReaderEditMarker(marker: Element): void {
+  const parent = marker.parentNode;
+
+  if (!parent) {
+    return;
+  }
+
+  while (marker.firstChild) {
+    parent.insertBefore(marker.firstChild, marker);
+  }
+
+  parent.removeChild(marker);
+  parent.normalize();
+}
+
+function unwrapReaderEditMarkers(root: Element): void {
+  for (const marker of Array.from(root.querySelectorAll("mark.reader-edit-marker"))) {
+    unwrapReaderEditMarker(marker);
+  }
+
+  root.normalize();
+}
+
 function textPosition(root: Element, offset: number): { node: Text; offset: number } | null {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let remaining = offset;
@@ -186,15 +216,63 @@ function highlightSearchMatch(searchText: string): boolean {
   return true;
 }
 
+function markReaderText(root: Element, text: string): void {
+  const needle = text.trim().toLowerCase();
+
+  if (!needle) {
+    return;
+  }
+
+  const index = (root.textContent ?? "").toLowerCase().indexOf(needle);
+  if (index === -1) {
+    return;
+  }
+
+  const start = textPosition(root, index);
+  const end = textPosition(root, index + needle.length);
+
+  if (!start || !end) {
+    return;
+  }
+
+  const range = document.createRange();
+  const mark = document.createElement("mark");
+
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset);
+  mark.className = "reader-edit-marker";
+  mark.append(range.extractContents());
+  range.insertNode(mark);
+}
+
+function applyReaderEditMarkers(highlights: HighlightEntry[]): void {
+  const root = document.querySelector(".reader-content");
+
+  if (!root) {
+    return;
+  }
+
+  unwrapReaderEditMarkers(root);
+  for (const highlight of highlights) {
+    markReaderText(root, highlight.text);
+  }
+}
+
 export default function NovelReader({
   onBack,
+  onBackToSeries,
   onEdit,
+  onOpenChapter,
   target
 }: {
   onBack: () => void;
+  onBackToSeries: () => void;
   onEdit: (target?: ChapterTarget) => void;
+  onOpenChapter: (target: ChapterTarget) => void;
   target: ChapterTarget;
 }) {
+  const [chapterList, setChapterList] = useState<ChapterMetadata[]>([]);
+  const [chapterListOpen, setChapterListOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bookmark, setBookmark] = useState<BookmarkEntry | null>(null);
   const [bookmarkError, setBookmarkError] = useState<string | null>(null);
@@ -211,6 +289,7 @@ export default function NovelReader({
   const loadedRef = useRef(false);
   const pendingScrollTopRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedTextRef = useRef("");
 
   function saveProgress(): void {
     const api = getApi();
@@ -238,9 +317,13 @@ export default function NovelReader({
     loadedRef.current = false;
     setError(null);
     setHighlightError(null);
+    setChapterList([]);
+    setChapterListOpen(false);
     setHighlights([]);
+    selectedTextRef.current = "";
 
     void Promise.all([
+      api.chapters.list(target.seriesId, target.categoryId, target.volumeId),
       api.chapters.getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId),
       api.chapters.getProgress(target.seriesId, target.categoryId, target.volumeId, target.chapterId),
       api.bookmarks?.get(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
@@ -248,11 +331,12 @@ export default function NovelReader({
       api.highlights?.listForChapter(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
         Promise.resolve({ ok: true, data: [] } as ApiResponse<HighlightEntry[]>)
     ])
-      .then(([contentResponse, progressResponse, bookmarkResponse, highlightsResponse]) => {
+      .then(([chaptersResponse, contentResponse, progressResponse, bookmarkResponse, highlightsResponse]) => {
         if (!isMounted) {
           return;
         }
 
+        setChapterList(unwrap(chaptersResponse));
         setHtml(unwrap(contentResponse).html || "<p>No content yet.</p>");
         setBookmark(unwrap(bookmarkResponse));
         setHighlights(unwrap(highlightsResponse));
@@ -294,6 +378,15 @@ export default function NovelReader({
   }, [html, loading, target.categoryId, target.chapterId, target.searchText, target.seriesId, target.volumeId]);
 
   useEffect(() => {
+    if (loading || !html) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => applyReaderEditMarkers(highlights));
+    return () => window.cancelAnimationFrame(frame);
+  }, [highlights, html, loading]);
+
+  useEffect(() => {
     function handleScroll(): void {
       if (progressTimerRef.current) {
         clearTimeout(progressTimerRef.current);
@@ -305,6 +398,35 @@ export default function NovelReader({
     window.addEventListener("scroll", handleScroll);
 
     return () => window.removeEventListener("scroll", handleScroll);
+  });
+
+  function currentReaderSelection(): string {
+    const selection = window.getSelection();
+    const readerContent = document.querySelector(".reader-content");
+
+    if (!selection || selection.isCollapsed || !readerContent || !selection.anchorNode || !selection.focusNode) {
+      return "";
+    }
+
+    if (!readerContent.contains(selection.anchorNode) || !readerContent.contains(selection.focusNode)) {
+      return "";
+    }
+
+    return selection.toString().replace(/\s+/g, " ").trim();
+  }
+
+  function rememberReaderSelection(): void {
+    const text = currentReaderSelection();
+
+    if (text) {
+      selectedTextRef.current = text;
+    }
+  }
+
+  useEffect(() => {
+    document.addEventListener("selectionchange", rememberReaderSelection);
+
+    return () => document.removeEventListener("selectionchange", rememberReaderSelection);
   });
 
   async function toggleBookmark(): Promise<void> {
@@ -333,21 +455,6 @@ export default function NovelReader({
     }
   }
 
-  function selectedReaderText(): string {
-    const selection = window.getSelection();
-    const readerContent = document.querySelector(".reader-content");
-
-    if (!selection || selection.isCollapsed || !readerContent || !selection.anchorNode || !selection.focusNode) {
-      return "";
-    }
-
-    if (!readerContent.contains(selection.anchorNode) || !readerContent.contains(selection.focusNode)) {
-      return "";
-    }
-
-    return selection.toString().replace(/\s+/g, " ").trim();
-  }
-
   async function createEditMarker(): Promise<void> {
     const api = getApi();
 
@@ -356,7 +463,7 @@ export default function NovelReader({
       return;
     }
 
-    const text = selectedReaderText();
+    const text = currentReaderSelection() || selectedTextRef.current;
     if (!text) {
       setHighlightError("Select text in the chapter first.");
       return;
@@ -376,6 +483,7 @@ export default function NovelReader({
       );
       setHighlights((current) => [created, ...current]);
       setHighlightNote("");
+      selectedTextRef.current = "";
       window.getSelection()?.removeAllRanges();
     } catch (createError) {
       setHighlightError(String(createError));
@@ -411,6 +519,32 @@ export default function NovelReader({
     }
   }
 
+  function chapterTarget(chapter: ChapterMetadata): ChapterTarget {
+    return {
+      categoryId: target.categoryId,
+      categoryType: target.categoryType,
+      chapterId: chapter.id,
+      seriesId: target.seriesId,
+      seriesTitle: target.seriesTitle,
+      title: chapter.title,
+      volumeId: target.volumeId
+    };
+  }
+
+  function openReaderChapter(chapter: ChapterMetadata): void {
+    setChapterListOpen(false);
+    onOpenChapter(chapterTarget(chapter));
+  }
+
+  function openAdjacentChapter(delta: number): void {
+    const currentIndex = chapterList.findIndex((chapter) => chapter.id === target.chapterId);
+    const chapter = currentIndex >= 0 ? chapterList[currentIndex + delta] : null;
+
+    if (chapter) {
+      openReaderChapter(chapter);
+    }
+  }
+
   if (loading) {
     return (
       <section className="empty-state">
@@ -432,12 +566,93 @@ export default function NovelReader({
     );
   }
 
+  const currentChapterIndex = chapterList.findIndex((chapter) => chapter.id === target.chapterId);
+  const hasPreviousChapter = currentChapterIndex > 0;
+  const hasNextChapter = currentChapterIndex >= 0 && currentChapterIndex < chapterList.length - 1;
+
   return (
     <section className={`novel-reader novel-reader-${theme}`}>
-      <div className="reader-toolbar">
-        <button className="plain-action" onClick={onBack} type="button">
-          Back
+      <div className="reader-side-toolbar" aria-label="Reader toolbar">
+        <button
+          aria-label="Previous chapter"
+          disabled={!hasPreviousChapter}
+          onClick={() => openAdjacentChapter(-1)}
+          title="Previous chapter"
+          type="button"
+        >
+          {"<<"}
         </button>
+        <button aria-label="Back to chapter list" onClick={onBackToSeries} title="Back to chapter list" type="button">
+          Home
+        </button>
+        <button
+          aria-label="Open chapter list"
+          aria-pressed={chapterListOpen}
+          onClick={() => setChapterListOpen((current) => !current)}
+          title="Chapter list"
+          type="button"
+        >
+          List
+        </button>
+        <button
+          aria-label="Highlight selected text"
+          disabled={highlightSaving}
+          onClick={() => void createEditMarker()}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            rememberReaderSelection();
+          }}
+          title="Highlight selected text"
+          type="button"
+        >
+          Mark
+        </button>
+        <button
+          aria-label={bookmark ? "Remove bookmark" : "Bookmark"}
+          disabled={bookmarkSaving}
+          onClick={() => void toggleBookmark()}
+          title={bookmark ? "Remove bookmark" : "Bookmark"}
+          type="button"
+        >
+          {bookmark ? "Saved" : "Book"}
+        </button>
+        <button
+          aria-label="Next chapter"
+          disabled={!hasNextChapter}
+          onClick={() => openAdjacentChapter(1)}
+          title="Next chapter"
+          type="button"
+        >
+          {">>"}
+        </button>
+      </div>
+
+      {chapterListOpen ? (
+        <aside className="reader-chapter-jump" aria-label="Chapter list">
+          <div className="reader-panel-header">
+            <strong>Chapters</strong>
+            <button onClick={() => setChapterListOpen(false)} type="button">
+              Close
+            </button>
+          </div>
+          <ol>
+            {chapterList.map((chapter) => (
+              <li key={chapter.id}>
+                <button
+                  aria-current={chapter.id === target.chapterId ? "page" : undefined}
+                  onClick={() => openReaderChapter(chapter)}
+                  type="button"
+                >
+                  <span>{chapter.title}</span>
+                  <small>{chapter.translationStatus ?? "draft"}</small>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </aside>
+      ) : null}
+
+      <div className="reader-settings-bar">
         <button className="plain-action" onClick={() => onEdit()} type="button">
           Edit
         </button>
@@ -459,9 +674,6 @@ export default function NovelReader({
         <button onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))} type="button">
           {theme === "light" ? "Dark" : "Light"}
         </button>
-        <button disabled={bookmarkSaving} onClick={() => void toggleBookmark()} type="button">
-          {bookmark ? "Bookmarked" : "Bookmark"}
-        </button>
       </div>
 
       <header className="reader-heading" style={{ maxWidth: readingWidth }}>
@@ -475,7 +687,15 @@ export default function NovelReader({
           type="text"
           value={highlightNote}
         />
-        <button disabled={highlightSaving} onClick={() => void createEditMarker()} type="button">
+        <button
+          disabled={highlightSaving}
+          onClick={() => void createEditMarker()}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            rememberReaderSelection();
+          }}
+          type="button"
+        >
           {highlightSaving ? "Saving" : "Mark needs edit"}
         </button>
       </div>
@@ -484,8 +704,11 @@ export default function NovelReader({
       {highlightError ? <p className="error-text">{highlightError}</p> : null}
 
       {highlights.length > 0 ? (
-        <section className="chapter-highlights" aria-label="Needs edit markers">
-          <h3>Needs edit</h3>
+        <details className="chapter-highlights" aria-label="Needs edit markers">
+          <summary>
+            <span>Needs edit</span>
+            <strong>{highlights.length}</strong>
+          </summary>
           <ol>
             {highlights.map((item) => (
               <li key={item.id}>
@@ -506,7 +729,7 @@ export default function NovelReader({
               </li>
             ))}
           </ol>
-        </section>
+        </details>
       ) : null}
 
       <article className="reader-page" style={{ maxWidth: readingWidth }}>
