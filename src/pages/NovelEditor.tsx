@@ -1,5 +1,6 @@
 import { Extension, Mark, mergeAttributes, Node as TiptapNode, type Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode, ResolvedPos } from "@tiptap/pm/model";
+import { TextSelection } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useState } from "react";
@@ -16,6 +17,7 @@ export type ChapterTarget = {
   volumeId: string | null;
   chapterId: string;
   title: string;
+  markerNote?: string;
   searchText?: string;
   scrollTop?: number;
 };
@@ -404,6 +406,45 @@ function selectedTextBlocks(editor: Editor): SelectedTextBlock[] {
   return [...blocks.values()].sort((a, b) => a.pos - b.pos);
 }
 
+function findEditorTextRange(editor: Editor, searchText: string): { from: number; to: number } | null {
+  const needle = searchText.trim().toLowerCase();
+  let range: { from: number; to: number } | null = null;
+
+  if (!needle) {
+    return null;
+  }
+
+  editor.state.doc.descendants((node, pos) => {
+    if (range || !node.isText || !node.text) {
+      return !range;
+    }
+
+    const index = node.text.toLowerCase().indexOf(needle);
+    if (index === -1) {
+      return true;
+    }
+
+    range = { from: pos + index, to: pos + index + needle.length };
+    return false;
+  });
+
+  return range;
+}
+
+function jumpToEditorText(editor: Editor, searchText: string): boolean {
+  const range = findEditorTextRange(editor, searchText);
+
+  if (!range) {
+    return false;
+  }
+
+  const selection = TextSelection.create(editor.state.doc, range.from, range.to);
+  editor.view.dispatch(editor.state.tr.setSelection(selection).scrollIntoView());
+  editor.view.focus();
+
+  return true;
+}
+
 export default function NovelEditor({
   onBack,
   onDirtyChange,
@@ -476,6 +517,7 @@ export default function NovelEditor({
     }
 
     let isMounted = true;
+    let markerJumpTimer: number | null = null;
     const api = getApi();
 
     if (!api) {
@@ -515,6 +557,15 @@ export default function NovelEditor({
         latestHtmlRef.current = lastSavedHtmlRef.current;
         isLoadedRef.current = true;
         setStatus("ready");
+        markerJumpTimer = window.setTimeout(() => {
+          if (!target.searchText || jumpToEditorText(editor, target.searchText)) {
+            return;
+          }
+
+          if (typeof target.scrollTop === "number") {
+            window.scrollTo({ top: target.scrollTop });
+          }
+        }, 0);
       })
       .catch((loadError) => {
         if (isMounted) {
@@ -551,11 +602,23 @@ export default function NovelEditor({
 
     return () => {
       isMounted = false;
+      if (markerJumpTimer) {
+        clearTimeout(markerJumpTimer);
+      }
       clearAutosave();
       isLoadedRef.current = false;
       onDirtyChange(false);
     };
-  }, [editor, onDirtyChange, target.categoryId, target.chapterId, target.seriesId, target.volumeId]);
+  }, [
+    editor,
+    onDirtyChange,
+    target.categoryId,
+    target.chapterId,
+    target.scrollTop,
+    target.searchText,
+    target.seriesId,
+    target.volumeId
+  ]);
 
   function updateTitle(value: string): void {
     setTitle(value);
@@ -772,6 +835,7 @@ export default function NovelEditor({
   const selectedFontFamily = cleanFontFamily(textStyle.fontFamily) ?? "";
   const selectedFontSize = cleanFontSize(textStyle.fontSize) ?? "";
   const hasOriginalSource = !!(originalPdf || originalText);
+  const hasEditMarker = target.markerNote !== undefined;
 
   return (
     <section className={hasOriginalSource ? "novel-editor novel-editor-split" : "novel-editor"}>
@@ -1025,6 +1089,14 @@ export default function NovelEditor({
       {error ? <p className="error-text">{error}</p> : null}
       {pdfError ? <p className="error-text">{pdfError}</p> : null}
       {textError ? <p className="error-text">{textError}</p> : null}
+
+      {hasEditMarker ? (
+        <section className="editor-marker-note" aria-label="Needs edit marker">
+          <strong>Needs edit</strong>
+          {target.searchText ? <blockquote>{target.searchText}</blockquote> : null}
+          {target.markerNote ? <p>{target.markerNote}</p> : null}
+        </section>
+      ) : null}
 
       {hasOriginalSource ? (
         <div className="pdf-split-view">

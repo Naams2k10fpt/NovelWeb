@@ -412,7 +412,7 @@ Ghi chú: Đã thêm nhóm 3 tối thiểu: Reader lưu đoạn text đang chọ
 - [x] Series metadata: thêm form sửa tên truyện, tác giả, mô tả, tình trạng, ảnh bìa và thể loại dạng list chọn/thêm mới.
 - [x] Manager: cho kéo chapter sang volume/category khác cho LN/WN, main process cập nhật metadata và thứ tự an toàn.
 - [x] Search/Reader: click search result mở đúng vị trí đoạn match và tô sáng tạm thời đoạn đó.
-- [ ] Highlight mới: đổi highlight cũ thành marker "cần sửa" trong Reader, lưu note và cho Editor nhảy tới marker để sửa.
+- [x] Highlight mới: đổi highlight cũ thành marker "cần sửa" trong Reader, lưu note và cho Editor nhảy tới marker để sửa.
 
 ### Tiêu chí hoàn thành
 

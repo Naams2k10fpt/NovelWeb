@@ -183,14 +183,13 @@ export default function NovelReader({
   target
 }: {
   onBack: () => void;
-  onEdit: () => void;
+  onEdit: (target?: ChapterTarget) => void;
   target: ChapterTarget;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [bookmark, setBookmark] = useState<BookmarkEntry | null>(null);
   const [bookmarkError, setBookmarkError] = useState<string | null>(null);
   const [bookmarkSaving, setBookmarkSaving] = useState(false);
-  const [highlightColor, setHighlightColor] = useState<HighlightColor>("yellow");
   const [highlightError, setHighlightError] = useState<string | null>(null);
   const [highlightNote, setHighlightNote] = useState("");
   const [highlightSaving, setHighlightSaving] = useState(false);
@@ -333,7 +332,7 @@ export default function NovelReader({
     return selection.toString().replace(/\s+/g, " ").trim();
   }
 
-  async function createHighlight(): Promise<void> {
+  async function createEditMarker(): Promise<void> {
     const api = getApi();
 
     if (!api?.highlights || !loadedRef.current) {
@@ -354,7 +353,7 @@ export default function NovelReader({
       const created = unwrap(
         await api.highlights.create(target.seriesId, target.categoryId, target.volumeId, target.chapterId, {
           text,
-          color: highlightColor,
+          color: "yellow",
           note: highlightNote,
           scrollTop: window.scrollY
         })
@@ -367,6 +366,15 @@ export default function NovelReader({
     } finally {
       setHighlightSaving(false);
     }
+  }
+
+  function openMarkerInEditor(marker: HighlightEntry): void {
+    onEdit({
+      ...target,
+      markerNote: marker.note,
+      scrollTop: marker.scrollTop,
+      searchText: marker.text
+    });
   }
 
   async function deleteHighlight(highlightId: string): Promise<void> {
@@ -414,7 +422,7 @@ export default function NovelReader({
         <button className="plain-action" onClick={onBack} type="button">
           Back
         </button>
-        <button className="plain-action" onClick={onEdit} type="button">
+        <button className="plain-action" onClick={() => onEdit()} type="button">
           Edit
         </button>
         <label>
@@ -444,24 +452,15 @@ export default function NovelReader({
         <span>{target.seriesTitle ?? target.title}</span>
       </header>
 
-      <div className="highlight-toolbar" aria-label="Highlight tools">
-        <label>
-          Color
-          <select onChange={(event) => setHighlightColor(event.target.value as HighlightColor)} value={highlightColor}>
-            <option value="yellow">Yellow</option>
-            <option value="green">Green</option>
-            <option value="pink">Pink</option>
-            <option value="blue">Blue</option>
-          </select>
-        </label>
+      <div className="highlight-toolbar" aria-label="Needs edit marker tools">
         <input
           onChange={(event) => setHighlightNote(event.target.value)}
-          placeholder="Note"
+          placeholder="Note what needs fixing"
           type="text"
           value={highlightNote}
         />
-        <button disabled={highlightSaving} onClick={() => void createHighlight()} type="button">
-          {highlightSaving ? "Saving" : "Highlight selection"}
+        <button disabled={highlightSaving} onClick={() => void createEditMarker()} type="button">
+          {highlightSaving ? "Saving" : "Mark needs edit"}
         </button>
       </div>
 
@@ -469,20 +468,25 @@ export default function NovelReader({
       {highlightError ? <p className="error-text">{highlightError}</p> : null}
 
       {highlights.length > 0 ? (
-        <section className="chapter-highlights" aria-label="Chapter highlights">
-          <h3>Highlights</h3>
+        <section className="chapter-highlights" aria-label="Needs edit markers">
+          <h3>Needs edit</h3>
           <ol>
             {highlights.map((item) => (
               <li key={item.id}>
-                <span className={`highlight-dot highlight-dot-${item.color}`} aria-hidden="true" />
+                <span className="highlight-dot highlight-dot-yellow" aria-hidden="true" />
                 <div>
                   <blockquote>{item.text}</blockquote>
                   {item.note ? <p>{item.note}</p> : null}
                   <small>{formatDate(item.updatedAt)}</small>
                 </div>
-                <button onClick={() => void deleteHighlight(item.id)} type="button">
-                  Delete
-                </button>
+                <div className="chapter-highlight-actions">
+                  <button onClick={() => openMarkerInEditor(item)} type="button">
+                    Edit
+                  </button>
+                  <button className="danger-action" onClick={() => void deleteHighlight(item.id)} type="button">
+                    Delete
+                  </button>
+                </div>
               </li>
             ))}
           </ol>

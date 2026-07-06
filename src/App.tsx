@@ -203,7 +203,7 @@ export default function App() {
       return (
         <NovelReader
           onBack={closeChapter}
-          onEdit={() => openChapter(selectedChapter, "edit")}
+          onEdit={(target) => openChapter(target ?? selectedChapter, "edit")}
           target={selectedChapter}
         />
       );
