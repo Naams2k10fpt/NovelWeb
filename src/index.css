@@ -992,29 +992,6 @@ body {
   color: #b42318;
 }
 
-.editor-marker-note {
-  display: grid;
-  gap: 6px;
-  max-width: 760px;
-  padding: 12px;
-  border: 1px solid #e0b451;
-  border-radius: 8px;
-  background: #fff7d8;
-}
-
-.editor-marker-note blockquote,
-.editor-marker-note p {
-  margin: 0;
-}
-
-.editor-marker-note blockquote {
-  color: #3d4650;
-}
-
-.editor-marker-note p {
-  color: #66707a;
-}
-
 .editor-surface {
   min-height: 520px;
   border: 1px solid #ddd4c7;
@@ -1398,46 +1375,59 @@ body {
   color: #66707a;
 }
 
-.highlight-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+.reader-note-popover {
+  position: fixed;
+  z-index: 7;
+  display: grid;
   gap: 8px;
-  max-width: 760px;
-  margin: 0 auto 12px;
-}
-
-.highlight-toolbar label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-}
-
-.highlight-toolbar select,
-.highlight-toolbar input,
-.highlight-toolbar button {
-  min-height: 34px;
+  width: min(300px, calc(100vw - 24px));
+  padding: 10px;
   border: 1px solid #cdbfaf;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #fffaf2;
   color: #23272f;
+  box-shadow: 0 16px 36px rgb(35 39 47 / 18%);
+}
+
+.reader-note-popover label,
+.reader-note-popover div {
+  display: grid;
+  gap: 6px;
+}
+
+.reader-note-popover span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.reader-note-popover textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #cdbfaf;
+  border-radius: 6px;
+  padding: 8px;
+  background: #ffffff;
+  color: inherit;
   font: inherit;
 }
 
-.highlight-toolbar select {
-  padding: 0 8px;
+.reader-note-popover div {
+  grid-template-columns: 1fr 1fr;
 }
 
-.highlight-toolbar input {
-  min-width: 180px;
-  flex: 1 1 220px;
-  padding: 0 10px;
-}
-
-.highlight-toolbar button {
-  padding: 0 10px;
+.reader-note-popover button {
+  min-height: 32px;
+  border: 1px solid #cdbfaf;
+  border-radius: 6px;
+  background: #ffffff;
+  color: inherit;
+  font: inherit;
   cursor: pointer;
+}
+
+.reader-note-popover button:first-child {
+  background: #2f6f73;
+  color: #ffffff;
 }
 
 .reader-heading {
@@ -1457,104 +1447,6 @@ body {
 
 .novel-reader-dark .reader-heading span {
   color: #edf2f7;
-}
-
-.chapter-highlights {
-  max-width: 760px;
-  margin: 0 auto 12px;
-  padding: 12px;
-  border: 1px solid #ddd4c7;
-  border-radius: 8px;
-  background: #fffaf2;
-  color: #23272f;
-}
-
-.chapter-highlights summary,
-.chapter-highlights ol,
-.chapter-highlights blockquote,
-.chapter-highlights p {
-  margin: 0;
-}
-
-.chapter-highlights summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 16px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.chapter-highlights ol {
-  display: grid;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 0;
-  list-style: none;
-}
-
-.chapter-highlights li {
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: start;
-}
-
-.chapter-highlights blockquote {
-  color: #23272f;
-}
-
-.chapter-highlights p,
-.chapter-highlights small {
-  color: #66707a;
-}
-
-.chapter-highlights button {
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid #cdbfaf;
-  border-radius: 6px;
-  background: #ffffff;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.chapter-highlight-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-.chapter-highlights .danger-action {
-  border-color: #d6a3a3;
-  background: #fff6f6;
-  color: #9f1d1d;
-}
-
-.highlight-dot {
-  width: 10px;
-  height: 10px;
-  margin-top: 7px;
-  border-radius: 50%;
-}
-
-.highlight-dot-yellow {
-  background: #f5c84c;
-}
-
-.highlight-dot-green {
-  background: #5fbf8f;
-}
-
-.highlight-dot-pink {
-  background: #ef8fb7;
-}
-
-.highlight-dot-blue {
-  background: #6aa7e8;
 }
 
 .reader-page {
@@ -1604,10 +1496,37 @@ body {
 }
 
 .reader-edit-marker {
+  position: relative;
   border-radius: 4px;
   background: #f8d66d;
   box-shadow: 0 0 0 2px rgb(248 214 109 / 28%);
   color: inherit;
+}
+
+.editor-edit-marker {
+  position: relative;
+  border-radius: 4px;
+  background: #f8d66d;
+  box-shadow: 0 0 0 2px rgb(248 214 109 / 28%);
+}
+
+.reader-edit-marker:hover::after,
+.editor-edit-marker:hover::after {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 8;
+  width: max-content;
+  max-width: min(320px, 80vw);
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #23272f;
+  color: #ffffff;
+  content: attr(data-note);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: normal;
+  box-shadow: 0 10px 24px rgb(35 39 47 / 18%);
 }
 
 .reader-content ul,

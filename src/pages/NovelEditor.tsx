@@ -1,6 +1,7 @@
 import { Extension, Mark, mergeAttributes, Node as TiptapNode, type Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode, ResolvedPos } from "@tiptap/pm/model";
-import { TextSelection } from "@tiptap/pm/state";
+import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useState } from "react";
@@ -17,7 +18,6 @@ export type ChapterTarget = {
   volumeId: string | null;
   chapterId: string;
   title: string;
-  markerNote?: string;
   searchText?: string;
   scrollTop?: number;
 };
@@ -45,6 +45,12 @@ type ChapterOriginalText = {
   text: string;
   fileName: string;
   fileType: "md";
+};
+
+type HighlightEntry = {
+  id: string;
+  text: string;
+  note: string;
 };
 
 type RendererApi = {
@@ -81,6 +87,14 @@ type RendererApi = {
       chapterId: string
     ) => Promise<ApiResponse<ChapterImageAsset | null>>;
   };
+  highlights?: {
+    listForChapter: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string
+    ) => Promise<ApiResponse<HighlightEntry[]>>;
+  };
 };
 
 type EditorStatus = "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
@@ -95,6 +109,7 @@ const TEXT_ALIGNMENT_LABELS: Record<(typeof TEXT_ALIGNMENTS)[number], string> = 
   right: "R",
   justify: "J"
 };
+const editMarkerPluginKey = new PluginKey<DecorationSet>("editMarkerOverlay");
 
 type BlockFormat = "paragraph" | "h1" | "h2" | "h3" | "codeBlock";
 type TextStyleAttributes = {
@@ -259,6 +274,36 @@ const InlineImage = TiptapNode.create({
   }
 });
 
+const EditMarkerOverlay = Extension.create({
+  name: "editMarkerOverlay",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: editMarkerPluginKey,
+        props: {
+          decorations(state) {
+            return editMarkerPluginKey.getState(state);
+          }
+        },
+        state: {
+          init() {
+            return DecorationSet.empty;
+          },
+          apply(transaction, decorations) {
+            const highlights = transaction.getMeta(editMarkerPluginKey) as HighlightEntry[] | undefined;
+
+            if (highlights) {
+              return DecorationSet.create(transaction.doc, editorMarkerDecorations(transaction.doc, highlights));
+            }
+
+            return decorations.map(transaction.mapping, transaction.doc);
+          }
+        }
+      })
+    ];
+  }
+});
+
 function getApi(): RendererApi | null {
   return (window as unknown as { api?: RendererApi }).api ?? null;
 }
@@ -406,7 +451,7 @@ function selectedTextBlocks(editor: Editor): SelectedTextBlock[] {
   return [...blocks.values()].sort((a, b) => a.pos - b.pos);
 }
 
-function findEditorTextRange(editor: Editor, searchText: string): { from: number; to: number } | null {
+function findTextRangeInDoc(doc: ProseMirrorNode, searchText: string): { from: number; to: number } | null {
   const needle = searchText.trim().toLowerCase();
   let range: { from: number; to: number } | null = null;
 
@@ -414,7 +459,7 @@ function findEditorTextRange(editor: Editor, searchText: string): { from: number
     return null;
   }
 
-  editor.state.doc.descendants((node, pos) => {
+  doc.descendants((node, pos) => {
     if (range || !node.isText || !node.text) {
       return !range;
     }
@@ -429,6 +474,28 @@ function findEditorTextRange(editor: Editor, searchText: string): { from: number
   });
 
   return range;
+}
+
+function findEditorTextRange(editor: Editor, searchText: string): { from: number; to: number } | null {
+  return findTextRangeInDoc(editor.state.doc, searchText);
+}
+
+function editorMarkerDecorations(doc: ProseMirrorNode, highlights: HighlightEntry[]): Decoration[] {
+  return highlights.flatMap((highlight) => {
+    const range = findTextRangeInDoc(doc, highlight.text);
+
+    if (!range) {
+      return [];
+    }
+
+    return [
+      Decoration.inline(range.from, range.to, {
+        class: "editor-edit-marker",
+        "data-note": highlight.note || "Needs edit",
+        title: highlight.note || "Needs edit"
+      })
+    ];
+  });
 }
 
 function jumpToEditorText(editor: Editor, searchText: string): boolean {
@@ -472,7 +539,7 @@ export default function NovelEditor({
   const saveAgainRef = useRef(false);
   const titleRef = useRef("");
   const editor = useEditor({
-    extensions: [StarterKit.configure({ link: { openOnClick: false } }), TextStyle, TextAlign, InlineImage],
+    extensions: [StarterKit.configure({ link: { openOnClick: false } }), TextStyle, TextAlign, InlineImage, EditMarkerOverlay],
     content: "",
     shouldRerenderOnTransaction: true,
     editorProps: {
@@ -541,18 +608,23 @@ export default function NovelEditor({
     setLinkHref("");
     titleRef.current = "";
 
-    void api.chapters
-      .getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
-      .then((response) => {
+    void Promise.all([
+      api.chapters.getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId),
+      api.highlights?.listForChapter(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
+        Promise.resolve({ ok: true, data: [] } as ApiResponse<HighlightEntry[]>)
+    ])
+      .then(([response, highlightsResponse]) => {
         if (!isMounted) {
           return;
         }
 
         const content = unwrap(response);
+        const highlights = unwrap(highlightsResponse);
         const nextContent = splitTitleHtml(content.html);
         setTitle(nextContent.title);
         titleRef.current = nextContent.title;
         editor.commands.setContent(nextContent.bodyHtml, { emitUpdate: false });
+        editor.view.dispatch(editor.state.tr.setMeta(editMarkerPluginKey, highlights));
         lastSavedHtmlRef.current = composeChapterHtml(nextContent.title, editor.getHTML());
         latestHtmlRef.current = lastSavedHtmlRef.current;
         isLoadedRef.current = true;
@@ -835,7 +907,6 @@ export default function NovelEditor({
   const selectedFontFamily = cleanFontFamily(textStyle.fontFamily) ?? "";
   const selectedFontSize = cleanFontSize(textStyle.fontSize) ?? "";
   const hasOriginalSource = !!(originalPdf || originalText);
-  const hasEditMarker = target.markerNote !== undefined;
 
   return (
     <section className={hasOriginalSource ? "novel-editor novel-editor-split" : "novel-editor"}>
@@ -1089,14 +1160,6 @@ export default function NovelEditor({
       {error ? <p className="error-text">{error}</p> : null}
       {pdfError ? <p className="error-text">{pdfError}</p> : null}
       {textError ? <p className="error-text">{textError}</p> : null}
-
-      {hasEditMarker ? (
-        <section className="editor-marker-note" aria-label="Needs edit marker">
-          <strong>Needs edit</strong>
-          {target.searchText ? <blockquote>{target.searchText}</blockquote> : null}
-          {target.markerNote ? <p>{target.markerNote}</p> : null}
-        </section>
-      ) : null}
 
       {hasOriginalSource ? (
         <div className="pdf-split-view">

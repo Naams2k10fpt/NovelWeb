@@ -39,6 +39,13 @@ type HighlightEntry = {
 
 type ReaderTheme = "light" | "dark";
 
+type PendingMarker = {
+  left: number;
+  scrollTop: number;
+  text: string;
+  top: number;
+};
+
 type RendererApi = {
   chapters: {
     list: (seriesId: string, categoryId: string, volumeId?: string | null) => Promise<ApiResponse<ChapterMetadata[]>>;
@@ -105,10 +112,6 @@ function unwrap<T>(response: ApiResponse<T>): T {
   }
 
   return response.data;
-}
-
-function formatDate(value: string): string {
-  return new Date(value).toLocaleString();
 }
 
 function unwrapReaderSearchHit(hit: Element): void {
@@ -216,8 +219,8 @@ function highlightSearchMatch(searchText: string): boolean {
   return true;
 }
 
-function markReaderText(root: Element, text: string): void {
-  const needle = text.trim().toLowerCase();
+function markReaderText(root: Element, highlight: HighlightEntry): void {
+  const needle = highlight.text.trim().toLowerCase();
 
   if (!needle) {
     return;
@@ -241,6 +244,8 @@ function markReaderText(root: Element, text: string): void {
   range.setStart(start.node, start.offset);
   range.setEnd(end.node, end.offset);
   mark.className = "reader-edit-marker";
+  mark.setAttribute("data-note", highlight.note || "Needs edit");
+  mark.setAttribute("title", highlight.note || "Needs edit");
   mark.append(range.extractContents());
   range.insertNode(mark);
 }
@@ -254,7 +259,7 @@ function applyReaderEditMarkers(highlights: HighlightEntry[]): void {
 
   unwrapReaderEditMarkers(root);
   for (const highlight of highlights) {
-    markReaderText(root, highlight.text);
+    markReaderText(root, highlight);
   }
 }
 
@@ -278,9 +283,10 @@ export default function NovelReader({
   const [bookmarkError, setBookmarkError] = useState<string | null>(null);
   const [bookmarkSaving, setBookmarkSaving] = useState(false);
   const [highlightError, setHighlightError] = useState<string | null>(null);
-  const [highlightNote, setHighlightNote] = useState("");
   const [highlightSaving, setHighlightSaving] = useState(false);
   const [highlights, setHighlights] = useState<HighlightEntry[]>([]);
+  const [pendingMarker, setPendingMarker] = useState<PendingMarker | null>(null);
+  const [pendingNote, setPendingNote] = useState("");
   const [fontSize, setFontSize] = useState(18);
   const [html, setHtml] = useState("");
   const [readingWidth, setReadingWidth] = useState(760);
@@ -289,7 +295,6 @@ export default function NovelReader({
   const loadedRef = useRef(false);
   const pendingScrollTopRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const selectedTextRef = useRef("");
 
   function saveProgress(): void {
     const api = getApi();
@@ -320,7 +325,8 @@ export default function NovelReader({
     setChapterList([]);
     setChapterListOpen(false);
     setHighlights([]);
-    selectedTextRef.current = "";
+    setPendingMarker(null);
+    setPendingNote("");
 
     void Promise.all([
       api.chapters.list(target.seriesId, target.categoryId, target.volumeId),
@@ -412,22 +418,33 @@ export default function NovelReader({
       return "";
     }
 
-    return selection.toString().replace(/\s+/g, " ").trim();
+    return selection.toString().trim();
   }
 
-  function rememberReaderSelection(): void {
+  function selectedMarkerTarget(): PendingMarker | null {
+    const selection = window.getSelection();
+    const readerContent = document.querySelector(".reader-content");
     const text = currentReaderSelection();
 
-    if (text) {
-      selectedTextRef.current = text;
+    if (!selection || !text || !readerContent) {
+      return null;
     }
+
+    const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+    const firstRect = range ? Array.from(range.getClientRects()).find((rect) => rect.width || rect.height) : null;
+    const rect = firstRect ?? range?.getBoundingClientRect();
+
+    if (!rect) {
+      return null;
+    }
+
+    return {
+      left: Math.max(12, Math.min(window.innerWidth - 320, rect.left)),
+      scrollTop: window.scrollY,
+      text,
+      top: Math.max(12, Math.min(window.innerHeight - 180, rect.bottom + 8))
+    };
   }
-
-  useEffect(() => {
-    document.addEventListener("selectionchange", rememberReaderSelection);
-
-    return () => document.removeEventListener("selectionchange", rememberReaderSelection);
-  });
 
   async function toggleBookmark(): Promise<void> {
     const api = getApi();
@@ -455,17 +472,24 @@ export default function NovelReader({
     }
   }
 
-  async function createEditMarker(): Promise<void> {
-    const api = getApi();
+  function openMarkerComposer(): void {
+    const marker = selectedMarkerTarget();
 
-    if (!api?.highlights || !loadedRef.current) {
-      setHighlightError("Highlight API is unavailable. Restart the app or check the preload script.");
+    if (!marker) {
+      setHighlightError("Select text in the chapter first.");
       return;
     }
 
-    const text = currentReaderSelection() || selectedTextRef.current;
-    if (!text) {
-      setHighlightError("Select text in the chapter first.");
+    setHighlightError(null);
+    setPendingMarker(marker);
+    setPendingNote("");
+  }
+
+  async function createEditMarker(): Promise<void> {
+    const api = getApi();
+
+    if (!api?.highlights || !loadedRef.current || !pendingMarker) {
+      setHighlightError("Highlight API is unavailable. Restart the app or check the preload script.");
       return;
     }
 
@@ -475,47 +499,20 @@ export default function NovelReader({
     try {
       const created = unwrap(
         await api.highlights.create(target.seriesId, target.categoryId, target.volumeId, target.chapterId, {
-          text,
+          text: pendingMarker.text,
           color: "yellow",
-          note: highlightNote,
-          scrollTop: window.scrollY
+          note: pendingNote,
+          scrollTop: pendingMarker.scrollTop
         })
       );
       setHighlights((current) => [created, ...current]);
-      setHighlightNote("");
-      selectedTextRef.current = "";
+      setPendingMarker(null);
+      setPendingNote("");
       window.getSelection()?.removeAllRanges();
     } catch (createError) {
       setHighlightError(String(createError));
     } finally {
       setHighlightSaving(false);
-    }
-  }
-
-  function openMarkerInEditor(marker: HighlightEntry): void {
-    onEdit({
-      ...target,
-      markerNote: marker.note,
-      scrollTop: marker.scrollTop,
-      searchText: marker.text
-    });
-  }
-
-  async function deleteHighlight(highlightId: string): Promise<void> {
-    const api = getApi();
-
-    if (!api?.highlights) {
-      setHighlightError("Highlight API is unavailable. Restart the app or check the preload script.");
-      return;
-    }
-
-    setHighlightError(null);
-
-    try {
-      unwrap(await api.highlights.delete(target.seriesId, highlightId));
-      setHighlights((current) => current.filter((item) => item.id !== highlightId));
-    } catch (deleteError) {
-      setHighlightError(String(deleteError));
     }
   }
 
@@ -597,10 +594,9 @@ export default function NovelReader({
         <button
           aria-label="Highlight selected text"
           disabled={highlightSaving}
-          onClick={() => void createEditMarker()}
+          onClick={openMarkerComposer}
           onMouseDown={(event) => {
             event.preventDefault();
-            rememberReaderSelection();
           }}
           title="Highlight selected text"
           type="button"
@@ -626,6 +622,43 @@ export default function NovelReader({
           {">>"}
         </button>
       </div>
+
+      {pendingMarker ? (
+        <form
+          className="reader-note-popover"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void createEditMarker();
+          }}
+          style={{ left: pendingMarker.left, top: pendingMarker.top }}
+        >
+          <label>
+            <span>Note</span>
+            <textarea
+              autoFocus
+              onChange={(event) => setPendingNote(event.target.value)}
+              placeholder="What needs fixing?"
+              rows={3}
+              value={pendingNote}
+            />
+          </label>
+          <div>
+            <button disabled={highlightSaving} type="submit">
+              {highlightSaving ? "Saving" : "Save"}
+            </button>
+            <button
+              disabled={highlightSaving}
+              onClick={() => {
+                setPendingMarker(null);
+                setPendingNote("");
+              }}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : null}
 
       {chapterListOpen ? (
         <aside className="reader-chapter-jump" aria-label="Chapter list">
@@ -680,57 +713,8 @@ export default function NovelReader({
         <span>{target.seriesTitle ?? target.title}</span>
       </header>
 
-      <div className="highlight-toolbar" aria-label="Needs edit marker tools">
-        <input
-          onChange={(event) => setHighlightNote(event.target.value)}
-          placeholder="Note what needs fixing"
-          type="text"
-          value={highlightNote}
-        />
-        <button
-          disabled={highlightSaving}
-          onClick={() => void createEditMarker()}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            rememberReaderSelection();
-          }}
-          type="button"
-        >
-          {highlightSaving ? "Saving" : "Mark needs edit"}
-        </button>
-      </div>
-
       {bookmarkError ? <p className="error-text">{bookmarkError}</p> : null}
       {highlightError ? <p className="error-text">{highlightError}</p> : null}
-
-      {highlights.length > 0 ? (
-        <details className="chapter-highlights" aria-label="Needs edit markers">
-          <summary>
-            <span>Needs edit</span>
-            <strong>{highlights.length}</strong>
-          </summary>
-          <ol>
-            {highlights.map((item) => (
-              <li key={item.id}>
-                <span className="highlight-dot highlight-dot-yellow" aria-hidden="true" />
-                <div>
-                  <blockquote>{item.text}</blockquote>
-                  {item.note ? <p>{item.note}</p> : null}
-                  <small>{formatDate(item.updatedAt)}</small>
-                </div>
-                <div className="chapter-highlight-actions">
-                  <button onClick={() => openMarkerInEditor(item)} type="button">
-                    Edit
-                  </button>
-                  <button className="danger-action" onClick={() => void deleteHighlight(item.id)} type="button">
-                    Delete
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </details>
-      ) : null}
 
       <article className="reader-page" style={{ maxWidth: readingWidth }}>
         <div
