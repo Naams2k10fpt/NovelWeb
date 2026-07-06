@@ -30,6 +30,8 @@ type HighlightColor = "yellow" | "green" | "pink" | "blue";
 type HighlightEntry = {
   id: string;
   text: string;
+  textStart?: number;
+  textEnd?: number;
   color: HighlightColor;
   note: string;
   scrollTop: number;
@@ -43,6 +45,8 @@ type PendingMarker = {
   left: number;
   scrollTop: number;
   text: string;
+  textStart: number;
+  textEnd: number;
   top: number;
 };
 
@@ -114,6 +118,10 @@ function unwrap<T>(response: ApiResponse<T>): T {
   return response.data;
 }
 
+function normalizedMarkerText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 function unwrapReaderSearchHit(hit: Element): void {
   const parent = hit.parentNode;
 
@@ -179,6 +187,57 @@ function textPosition(root: Element, offset: number): { node: Text; offset: numb
   return null;
 }
 
+function textRangeByOffsets(
+  root: Element,
+  startOffset: number | undefined,
+  endOffset: number | undefined,
+  expectedText: string
+): { start: { node: Text; offset: number }; end: { node: Text; offset: number } } | null {
+  const text = root.textContent ?? "";
+
+  if (
+    startOffset === undefined ||
+    endOffset === undefined ||
+    !Number.isInteger(startOffset) ||
+    !Number.isInteger(endOffset) ||
+    startOffset < 0 ||
+    endOffset <= startOffset ||
+    endOffset > text.length
+  ) {
+    return null;
+  }
+
+  if (normalizedMarkerText(text.slice(startOffset, endOffset)) !== normalizedMarkerText(expectedText)) {
+    return null;
+  }
+
+  const start = textPosition(root, startOffset);
+  const end = textPosition(root, endOffset);
+
+  return start && end ? { start, end } : null;
+}
+
+function textRangeBySearch(
+  root: Element,
+  searchText: string
+): { start: { node: Text; offset: number }; end: { node: Text; offset: number } } | null {
+  const needle = searchText.trim().toLowerCase();
+
+  if (!needle) {
+    return null;
+  }
+
+  const index = (root.textContent ?? "").toLowerCase().indexOf(needle);
+  if (index === -1) {
+    return null;
+  }
+
+  const start = textPosition(root, index);
+  const end = textPosition(root, index + needle.length);
+
+  return start && end ? { start, end } : null;
+}
+
 function highlightSearchMatch(searchText: string): boolean {
   const root = document.querySelector(".reader-content");
   const needle = searchText.trim().toLowerCase();
@@ -220,29 +279,19 @@ function highlightSearchMatch(searchText: string): boolean {
 }
 
 function markReaderText(root: Element, highlight: HighlightEntry): void {
-  const needle = highlight.text.trim().toLowerCase();
+  const textRange =
+    textRangeByOffsets(root, highlight.textStart, highlight.textEnd, highlight.text) ??
+    textRangeBySearch(root, highlight.text);
 
-  if (!needle) {
-    return;
-  }
-
-  const index = (root.textContent ?? "").toLowerCase().indexOf(needle);
-  if (index === -1) {
-    return;
-  }
-
-  const start = textPosition(root, index);
-  const end = textPosition(root, index + needle.length);
-
-  if (!start || !end) {
+  if (!textRange) {
     return;
   }
 
   const range = document.createRange();
   const mark = document.createElement("mark");
 
-  range.setStart(start.node, start.offset);
-  range.setEnd(end.node, end.offset);
+  range.setStart(textRange.start.node, textRange.start.offset);
+  range.setEnd(textRange.end.node, textRange.end.offset);
   mark.className = "reader-edit-marker";
   mark.setAttribute("data-note", highlight.note || "Needs edit");
   mark.append(range.extractContents());
@@ -405,42 +454,43 @@ export default function NovelReader({
     return () => window.removeEventListener("scroll", handleScroll);
   });
 
-  function currentReaderSelection(): string {
+  function selectedMarkerTarget(): PendingMarker | null {
     const selection = window.getSelection();
     const readerContent = document.querySelector(".reader-content");
 
     if (!selection || selection.isCollapsed || !readerContent || !selection.anchorNode || !selection.focusNode) {
-      return "";
+      return null;
     }
 
     if (!readerContent.contains(selection.anchorNode) || !readerContent.contains(selection.focusNode)) {
-      return "";
-    }
-
-    return selection.toString().trim();
-  }
-
-  function selectedMarkerTarget(): PendingMarker | null {
-    const selection = window.getSelection();
-    const readerContent = document.querySelector(".reader-content");
-    const text = currentReaderSelection();
-
-    if (!selection || !text || !readerContent) {
       return null;
     }
 
     const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+    const rawText = range?.toString() ?? "";
+    const text = rawText.trim();
     const firstRect = range ? Array.from(range.getClientRects()).find((rect) => rect.width || rect.height) : null;
     const rect = firstRect ?? range?.getBoundingClientRect();
 
-    if (!rect) {
+    if (!range || !text || !rect) {
       return null;
     }
+
+    const prefixRange = document.createRange();
+    const leadingTrim = rawText.length - rawText.trimStart().length;
+
+    prefixRange.selectNodeContents(readerContent);
+    prefixRange.setEnd(range.startContainer, range.startOffset);
+
+    const textStart = prefixRange.toString().length + leadingTrim;
+    const textEnd = textStart + text.length;
 
     return {
       left: Math.max(12, Math.min(window.innerWidth - 320, rect.left)),
       scrollTop: window.scrollY,
       text,
+      textStart,
+      textEnd,
       top: Math.max(12, Math.min(window.innerHeight - 180, rect.bottom + 8))
     };
   }
@@ -499,6 +549,8 @@ export default function NovelReader({
       const created = unwrap(
         await api.highlights.create(target.seriesId, target.categoryId, target.volumeId, target.chapterId, {
           text: pendingMarker.text,
+          textStart: pendingMarker.textStart,
+          textEnd: pendingMarker.textEnd,
           color: "yellow",
           note: pendingNote,
           scrollTop: pendingMarker.scrollTop

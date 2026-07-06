@@ -50,6 +50,8 @@ type ChapterOriginalText = {
 type HighlightEntry = {
   id: string;
   text: string;
+  textStart?: number;
+  textEnd?: number;
   note: string;
 };
 
@@ -451,29 +453,87 @@ function selectedTextBlocks(editor: Editor): SelectedTextBlock[] {
   return [...blocks.values()].sort((a, b) => a.pos - b.pos);
 }
 
-function findTextRangeInDoc(doc: ProseMirrorNode, searchText: string): { from: number; to: number } | null {
+function normalizedMarkerText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function docPlainText(doc: ProseMirrorNode): string {
+  let text = "";
+
+  doc.descendants((node) => {
+    if (node.isText && node.text) {
+      text += node.text;
+    }
+
+    return true;
+  });
+
+  return text;
+}
+
+function docPositionAtTextOffset(doc: ProseMirrorNode, targetOffset: number): number | null {
+  let textOffset = 0;
+  let position: number | null = null;
+
+  doc.descendants((node, pos) => {
+    if (position !== null || !node.isText || !node.text) {
+      return position === null;
+    }
+
+    const nextOffset = textOffset + node.text.length;
+
+    if (targetOffset >= textOffset && targetOffset <= nextOffset) {
+      position = pos + targetOffset - textOffset;
+      return false;
+    }
+
+    textOffset = nextOffset;
+    return true;
+  });
+
+  return position;
+}
+
+function findTextRangeInDoc(
+  doc: ProseMirrorNode,
+  searchText: string,
+  textStart?: number,
+  textEnd?: number
+): { from: number; to: number } | null {
   const needle = searchText.trim().toLowerCase();
-  let range: { from: number; to: number } | null = null;
+  const plainText = docPlainText(doc);
 
   if (!needle) {
     return null;
   }
 
-  doc.descendants((node, pos) => {
-    if (range || !node.isText || !node.text) {
-      return !range;
+  if (
+    textStart !== undefined &&
+    textEnd !== undefined &&
+    Number.isInteger(textStart) &&
+    Number.isInteger(textEnd) &&
+    textStart >= 0 &&
+    textEnd > textStart &&
+    textEnd <= plainText.length &&
+    normalizedMarkerText(plainText.slice(textStart, textEnd)) === normalizedMarkerText(searchText)
+  ) {
+    const from = docPositionAtTextOffset(doc, textStart);
+    const to = docPositionAtTextOffset(doc, textEnd);
+
+    if (from !== null && to !== null) {
+      return { from, to };
     }
+  }
 
-    const index = node.text.toLowerCase().indexOf(needle);
-    if (index === -1) {
-      return true;
-    }
+  const index = plainText.toLowerCase().indexOf(needle);
+  if (index === -1) {
+    return null;
+  }
 
-    range = { from: pos + index, to: pos + index + needle.length };
-    return false;
-  });
+  const from = docPositionAtTextOffset(doc, index);
+  const to = docPositionAtTextOffset(doc, index + needle.length);
 
-  return range;
+  return from !== null && to !== null ? { from, to } : null;
 }
 
 function findEditorTextRange(editor: Editor, searchText: string): { from: number; to: number } | null {
@@ -482,7 +542,7 @@ function findEditorTextRange(editor: Editor, searchText: string): { from: number
 
 function editorMarkerDecorations(doc: ProseMirrorNode, highlights: HighlightEntry[]): Decoration[] {
   return highlights.flatMap((highlight) => {
-    const range = findTextRangeInDoc(doc, highlight.text);
+    const range = findTextRangeInDoc(doc, highlight.text, highlight.textStart, highlight.textEnd);
 
     if (!range) {
       return [];

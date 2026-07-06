@@ -421,6 +421,7 @@ Ghi chú: NovelReader có toolbar dọc cho prev/home/list/mark/bookmark/next, p
 Ghi chú: Toolbar NovelReader được chuyển xuống góc dưới bên phải để bớt che vùng đọc chính.
 Ghi chú: Mark trong Reader đổi sang popup note tại vị trí bôi đen; bỏ danh sách Need edit trên đầu, hover highlight hiện note và Editor tự tô lại marker của chapter.
 Ghi chú: Bỏ native tooltip `title` khỏi Reader/Editor marker để hover note chỉ hiện một popup.
+Ghi chú: Marker mới lưu thêm offset đoạn bôi đen để Reader/Editor tô đúng occurrence, tránh tô nhầm đoạn text giống nhau ở phía trên.
 
 ### Tiêu chí hoàn thành
 

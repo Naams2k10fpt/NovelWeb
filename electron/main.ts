@@ -291,6 +291,8 @@ type SeriesBookmarks = {
 type HighlightEntry = ReadingListEntry & {
   id: string;
   text: string;
+  textStart?: number;
+  textEnd?: number;
   color: HighlightColor;
   note: string;
   createdAt: string;
@@ -2484,6 +2486,25 @@ function readHighlightScrollTop(record: JsonRecord): number {
   return scrollTop;
 }
 
+function readHighlightTextRange(record: JsonRecord): { textStart?: number; textEnd?: number } {
+  if (record.textStart === undefined && record.textEnd === undefined) {
+    return {};
+  }
+
+  if (record.textStart === undefined || record.textEnd === undefined) {
+    throw new Error("textStart and textEnd must be provided together.");
+  }
+
+  const textStart = readOptionalNonNegativeInteger(record, "textStart", 0);
+  const textEnd = readOptionalNonNegativeInteger(record, "textEnd", 0);
+
+  if (textEnd <= textStart) {
+    throw new Error("textEnd must be greater than textStart.");
+  }
+
+  return { textStart, textEnd };
+}
+
 async function readSeriesHighlights(libraryPath: string, seriesId: string): Promise<SeriesHighlights> {
   try {
     const highlights = await readJsonFile<SeriesHighlights>(seriesHighlightsPath(libraryPath, seriesId));
@@ -2528,10 +2549,12 @@ async function createHighlight(
   return withResourceWriteLock(filePath, async () => {
     const highlights = await readSeriesHighlights(libraryPath, seriesId);
     const now = new Date().toISOString();
+    const textRange = readHighlightTextRange(record);
     const entry: HighlightEntry = {
       ...reference,
       id: randomUUID(),
       text,
+      ...textRange,
       color: readHighlightColor(record),
       note,
       scrollTop: readHighlightScrollTop(record),
