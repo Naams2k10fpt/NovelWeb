@@ -1281,8 +1281,8 @@ body {
 
 .reader-side-toolbar {
   position: fixed;
-  top: 50%;
-  left: 264px;
+  right: 32px;
+  bottom: 24px;
   z-index: 5;
   display: grid;
   width: 62px;
@@ -1291,7 +1291,6 @@ body {
   border-radius: 6px;
   background: #fffaf2;
   box-shadow: 0 12px 30px rgb(35 39 47 / 12%);
-  transform: translateY(-50%);
 }
 
 .reader-side-toolbar button {
@@ -1325,8 +1324,8 @@ body {
 
 .reader-chapter-jump {
   position: fixed;
-  top: 88px;
-  left: 342px;
+  right: 104px;
+  bottom: 24px;
   z-index: 6;
   display: grid;
   gap: 10px;
@@ -2392,11 +2391,11 @@ body {
 
   .reader-side-toolbar {
     top: auto;
+    right: 16px;
     bottom: 16px;
-    left: 50%;
-    grid-template-columns: repeat(6, 56px);
-    width: auto;
-    transform: translateX(-50%);
+    left: auto;
+    grid-template-columns: repeat(6, minmax(44px, 56px));
+    width: min(calc(100vw - 32px), 336px);
   }
 
   .reader-side-toolbar button {

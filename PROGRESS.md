@@ -418,6 +418,7 @@ Ghi chú: Search highlight trong Reader chỉ dùng để định vị nhanh, t�
 Ghi chú: Khi mở kết quả Search, app chuyển sang context Library và giữ series hiện tại để Back quay về trang truyện thay vì trang Search.
 Ghi chú: Series Detail đổi danh sách volume/chapter thành accordion thu gọn/mở rộng để không chiếm quá nhiều chiều dọc.
 Ghi chú: NovelReader có toolbar dọc cho prev/home/list/mark/bookmark/next, panel nhảy nhanh chapter và marker "cần sửa" hiện trực tiếp trên đoạn đã đánh dấu.
+Ghi chú: Toolbar NovelReader được chuyển xuống góc dưới bên phải để bớt che vùng đọc chính.
 
 ### Tiêu chí hoàn thành
 
