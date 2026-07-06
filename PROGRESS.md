@@ -169,6 +169,7 @@ Ghi chú: Đã test thủ công qua DevTools ngày 2026-06-30: tạo series/cate
 ### Checklist
 
 Ghi chú: Đã thay `window.prompt()` trong Manager bằng form nội bộ vì Electron không hỗ trợ prompt.
+Ghi chú: 2026-07-05 đã tổ chức lại Manager: split pane kéo được, cây thư mục mặc định thu gọn, node có caret mở/đóng kiểu Explorer và chapter kéo thả được để sắp xếp trong cùng volume/category; reorder cập nhật local tree sau khi lưu, không reload toàn bộ thư viện.
 
 - [x] Tạo trang Library.
 - [x] Hiển thị series card.
@@ -232,6 +233,8 @@ Ghi chú: Đã thêm chọn ảnh inline từ editor, copy ảnh vào `chapter/a
 Ghi chú: Đã thêm ô title trong editor lưu thành H1 đầu nội dung, truyền tên truyện vào reader và tinh chỉnh header đọc/edit.
 Ghi chú: Đã chỉnh reader chỉ hiện tên truyện căn giữa, giữ sidebar cố định khi cuộn và cho H2 áp dụng cả block đang chọn.
 Ghi chú: Đã đảo cấp chữ giữa tên truyện và title, đồng thời căn giữa title trong editor/reader.
+Ghi chú: 2026-07-05 đã mở rộng NovelEditor thành toolbar gần Word hơn: ribbon nhóm công cụ, font family/size, màu chữ, highlight, underline/strike/code, list số, căn lề theo vùng chọn, link, undo/redo, rule, clear format và giữ render tương ứng trong reader.
+Ghi chú: 2026-07-05 đã sửa align trong NovelEditor: toolbar không làm mất selection khi bấm nút, và khi đang bôi đen text thì căn lề áp vào đúng đoạn chọn thay vì cả paragraph/chapter.
 
 ### Tiêu chí hoàn thành
 
@@ -283,6 +286,15 @@ Ghi chú: Đã thêm import PDF tối thiểu không parser: tạo chapter, copy
 Ghi chú: Đã thêm dependency Phase 6 theo `PLAN.md`: `mammoth`, `pdf-parse`, `pdfjs-dist`; Import Wizard đọc preview text cho DOCX/PDF, cho sửa trước import, PDF parser dùng `pdf-parse` và fallback `pdfjs-dist`.
 Ghi chú: Đã thêm PDF Split View trong NovelEditor: main process đọc `original.pdf` qua API hẹp, renderer hiển thị PDF gốc bên trái bằng iframe và editor text bên phải.
 Ghi chú: Đã polish PDF Split View tối thiểu: ẩn menu bar Electron mặc định, tắt spellcheck trong editor, giảm chrome PDF viewer và cho hai pane dùng chiều cao viewport/cuộn độc lập.
+Ghi chú: 2026-07-05 đã giảm xuống dòng đột ngột khi import text/PDF: converter nối soft line wrap thành khoảng trắng và chỉ tách paragraph theo dòng trống hoặc dấu kết câu.
+Ghi chú: 2026-07-06 đã giữ format Markdown cơ bản khi import `.md`: heading H1-H3, bold/italic, code, link HTTP(S), quote, list và rule được lưu thành HTML thay vì plain paragraph.
+Ghi chú: 2026-07-06 đã mở rộng hiển thị Markdown theo file Obsidian mẫu: hỗ trợ heading H1-H6, bare URL tự thành link và ảnh remote `![alt](https://...)` khi import `.md`.
+Ghi chú: 2026-07-06 đã lưu bản `.md` gốc khi import và hiển thị split view trong NovelEditor: Markdown gốc bên trái, editor bên phải giống luồng PDF.
+Ghi chú: 2026-07-06 đã cho Import Wizard nhận target cố định để import vào series/category có sẵn, gồm tạo/reuse volume theo folder nguồn hoặc thêm chapter vào volume đã có.
+Ghi chú: 2026-07-06 đã đưa điểm vào import sang Manager: Add series import truyện mới từ folder, category LN/WN import vào đúng category, volume import chapter vào đúng volume.
+Ghi chú: 2026-07-06 đã sửa Manager import không còn mở dialog chọn folder 2 lần bằng cách chọn source trong action click trước khi render Import Wizard.
+Ghi chú: 2026-07-06 đã sửa `Import chapters` trong Manager dùng file picker chọn TXT/MD/DOCX/PDF thay vì bắt chọn folder.
+Ghi chú: 2026-07-06 đã bỏ tab Import riêng khỏi sidebar; Import Wizard vẫn được giữ làm panel nội bộ trong Manager.
 
 ### Tiêu chí hoàn thành
 
@@ -295,65 +307,69 @@ Ghi chú: Đã polish PDF Split View tối thiểu: ẩn menu bar Electron mặc
 
 ## Phase 7 - Manga management
 
-**Trạng thái:** `[ ]`
+**Trạng thái:** `[x]`
 
 **Mục tiêu:** Quản lý manga theo chapter và page một cách nhẹ, không làm app lag.
 
 ### Checklist
 
-- [ ] Tạo manga category.
-- [ ] Tạo manga chapter.
-- [ ] Add pages từ file picker.
-- [ ] Add pages bằng drag & drop.
-- [ ] Remove page.
-- [ ] Remove nhiều page.
-- [ ] Reorder pages.
-- [ ] Lưu `pageOrder`.
-- [ ] Lưu `pageCount`.
-- [ ] Lưu `totalSizeBytes`.
-- [ ] Tạo thumbnail cache.
-- [ ] PageManager dùng thumbnail trong grid.
-- [ ] PageManager không load full-size toàn bộ ảnh cùng lúc.
-- [ ] Click thumbnail để preview ảnh lớn.
-- [ ] Confirm trước khi xóa page.
+- [x] Tạo manga category.
+- [x] Tạo manga chapter.
+- [x] Add pages từ file picker.
+- [x] Add pages bằng drag & drop.
+- [x] Remove page.
+- [x] Remove nhiều page.
+- [x] Reorder pages.
+- [x] Lưu `pageOrder`.
+- [x] Lưu `pageCount`.
+- [x] Lưu `totalSizeBytes`.
+- [x] Tạo thumbnail cache.
+- [x] PageManager dùng thumbnail trong grid.
+- [x] PageManager không load full-size toàn bộ ảnh cùng lúc.
+- [x] Click thumbnail để preview ảnh lớn.
+- [x] Confirm trước khi xóa page.
+
+Ghi chú: Đã thêm PageManager tối thiểu trong Manager; manga pages lưu ở `chapters/{chapterId}/pages`, thumbnail cache ở `thumbnails`. Drag/drop dùng `webUtils.getPathForFile` trong preload rồi main process copy file, renderer không đọc filesystem bằng Node API.
 
 ### Tiêu chí hoàn thành
 
-- [ ] User có thể tạo manga chapter và thêm trang.
-- [ ] User có thể sắp xếp lại thứ tự trang.
-- [ ] PageManager vẫn mượt với chapter nhiều ảnh.
-- [ ] Metadata page luôn khớp với file thực tế.
+- [x] User có thể tạo manga chapter và thêm trang.
+- [x] User có thể sắp xếp lại thứ tự trang.
+- [x] PageManager vẫn mượt với chapter nhiều ảnh.
+- [x] Metadata page luôn khớp với file thực tế.
 
 ---
 
 ## Phase 8 - Manga reader
 
-**Trạng thái:** `[ ]`
+**Trạng thái:** `[x]`
 
 **Mục tiêu:** Đọc manga thoải mái với nhiều chế độ đọc.
 
 ### Checklist
 
-- [ ] Tạo MangaReader.
-- [ ] Long strip mode.
-- [ ] Page mode.
-- [ ] Chuyển hướng đọc RTL/LTR.
-- [ ] Fit width.
-- [ ] Fit height.
-- [ ] Zoom.
-- [ ] Keyboard navigation.
-- [ ] Chuyển chapter trước/sau.
-- [ ] Hiển thị progress theo trang.
-- [ ] Lưu trang đang đọc.
-- [ ] Khôi phục trang đang đọc khi mở lại.
-- [ ] Lazy load ảnh khi đọc long strip.
+- [x] Tạo MangaReader.
+- [x] Long strip mode.
+- [x] Page mode.
+- [x] Chuyển hướng đọc RTL/LTR.
+- [x] Fit width.
+- [x] Fit height.
+- [x] Zoom.
+- [x] Keyboard navigation.
+- [x] Chuyển chapter trước/sau.
+- [x] Hiển thị progress theo trang.
+- [x] Lưu trang đang đọc.
+- [x] Khôi phục trang đang đọc khi mở lại.
+- [x] Lazy load ảnh khi đọc long strip.
+
+Ghi chú: Đã thêm MangaReader mở từ Series Detail, hỗ trợ long strip/page mode, RTL/LTR, fit width/height, zoom, phím điều hướng, chuyển chapter, progress theo `pageIndex` trong `progress.json`, và lazy load ảnh full-size bằng IntersectionObserver.
 
 ### Tiêu chí hoàn thành
 
-- [ ] User đọc được manga bằng cuộn dọc.
-- [ ] User đọc được manga bằng lật trang.
-- [ ] Hướng đọc RTL/LTR hoạt động đúng.
-- [ ] Reader không load toàn bộ ảnh nặng cùng lúc.
+- [x] User đọc được manga bằng cuộn dọc.
+- [x] User đọc được manga bằng lật trang.
+- [x] Hướng đọc RTL/LTR hoạt động đúng.
+- [x] Reader không load toàn bộ ảnh nặng cùng lúc.
 
 ---
 
@@ -387,6 +403,25 @@ Ghi chú: Đã polish PDF Split View tối thiểu: ẩn menu bar Electron mặc
 
 Ghi chú: Đã thêm nhóm 2 tối thiểu: Reader có nút bookmark tại vị trí cuộn hiện tại; Library hiển thị Recent và Bookmarks để mở lại đúng chapter/vị trí.
 Ghi chú: Đã thêm nhóm 3 tối thiểu: Reader lưu đoạn text đang chọn kèm màu/note/vị trí vào `highlights.json`; Reader và Library hiển thị danh sách highlight/note, mở lại đúng chapter/vị trí và cho xóa.
+
+### Nhánh `library-feedback-polish` - phản hồi Library 2026-07-06
+
+- [x] Library: bỏ khu vực Highlights khỏi trang chính.
+- [x] Library: Recent chỉ lấy tối đa 6 mục, mỗi lần hiển thị tối đa 3 mục và có nút chuyển.
+- [x] Library: chỉnh card truyện gọn hơn, cover ổn định hơn khi tên dài.
+- [x] Series metadata: thêm form sửa tên truyện, tác giả, mô tả, tình trạng, ảnh bìa và thể loại dạng list chọn/thêm mới.
+- [x] Manager: cho kéo chapter sang volume/category khác cho LN/WN, main process cập nhật metadata và thứ tự an toàn.
+- [x] Search/Reader: click search result mở đúng vị trí đoạn match và tô sáng tạm thời đoạn đó.
+- [x] Highlight mới: đổi highlight cũ thành marker "cần sửa" trong Reader, lưu note và cho Editor nhảy tới marker để sửa.
+
+Ghi chú: Search highlight trong Reader chỉ dùng để định vị nhanh, tự fade rồi gỡ khỏi nội dung sau vài giây để không vướng khi đọc tiếp.
+Ghi chú: Khi mở kết quả Search, app chuyển sang context Library và giữ series hiện tại để Back quay về trang truyện thay vì trang Search.
+Ghi chú: Series Detail đổi danh sách volume/chapter thành accordion thu gọn/mở rộng để không chiếm quá nhiều chiều dọc.
+Ghi chú: NovelReader có toolbar dọc cho prev/home/list/mark/bookmark/next, panel nhảy nhanh chapter và marker "cần sửa" hiện trực tiếp trên đoạn đã đánh dấu.
+Ghi chú: Toolbar NovelReader được chuyển xuống góc dưới bên phải để bớt che vùng đọc chính.
+Ghi chú: Mark trong Reader đổi sang popup note tại vị trí bôi đen; bỏ danh sách Need edit trên đầu, hover highlight hiện note và Editor tự tô lại marker của chapter.
+Ghi chú: Bỏ native tooltip `title` khỏi Reader/Editor marker để hover note chỉ hiện một popup.
+Ghi chú: Marker mới lưu thêm offset đoạn bôi đen để Reader/Editor tô đúng occurrence, tránh tô nhầm đoạn text giống nhau ở phía trên.
 
 ### Tiêu chí hoàn thành
 
@@ -518,6 +553,8 @@ Các mục này không bắt buộc cho bản đầu, nhưng nên cân nhắc sa
 ## Ghi chú kiểm thử định kỳ
 
 - [ ] Kiểm tra `PROGRESS.md` hiển thị tiếng Việt đúng UTF-8.
-- [ ] Đối chiếu phase với `PLAN.md` sau mỗi lần cập nhật lớn.
+- [x] Đối chiếu phase với `PLAN.md` sau mỗi lần cập nhật lớn.
 - [ ] Không bỏ sót các nhóm lớn: PDF split view, manga reader, editor, export, backup.
 - [ ] Mỗi phase nên được chia nhỏ tiếp nếu checklist bắt đầu quá lớn hoặc khó kiểm soát.
+
+Ghi chú: 2026-07-04 đã đồng bộ `README.md` với trạng thái trong `PROGRESS.md` sau Phase 6 và Phase 9.

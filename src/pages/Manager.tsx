@@ -1,4 +1,14 @@
-import { useEffect, useState, type FormEvent, type MouseEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type FormEvent,
+  type MouseEvent,
+  type PointerEvent
+} from "react";
+import ImportWizard, { type ImportPreview, type ImportSource, type ImportTargetPreset } from "./ImportWizard";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -32,16 +42,19 @@ type VolumeMetadata = {
   title: string;
 };
 
-type NovelChapterMetadata = {
+type ChapterMetadata = {
   id: string;
   title: string;
-  translationStatus: string;
+  translationStatus?: string;
+  pageCount?: number;
+  totalSizeBytes?: number;
 };
 
-type ChapterNode = NovelChapterMetadata & {
+type ChapterNode = ChapterMetadata & {
   kind: "chapter";
   seriesId: string;
   categoryId: string;
+  categoryType: CategoryType;
   volumeId: string | null;
 };
 
@@ -49,6 +62,7 @@ type VolumeNode = VolumeMetadata & {
   kind: "volume";
   seriesId: string;
   categoryId: string;
+  categoryType: CategoryType;
   chapters: ChapterNode[];
 };
 
@@ -78,12 +92,49 @@ type ContextMenuState = {
   nodeKey: string | null;
 };
 
+type ChapterDropState = {
+  nodeKey: string;
+  placement: "before" | "after";
+};
+
+type ChapterFolderNode = CategoryNode | VolumeNode;
+
 type ManagerFormState = {
   heading: string;
   label: string;
   title: string;
   categoryType: CategoryType | null;
   submit: (title: string, categoryType: CategoryType | null) => Promise<void>;
+};
+
+type ManagerImportState = {
+  heading: string;
+  preview: ImportPreview;
+  source: ImportSource;
+  target: ImportTargetPreset;
+};
+
+type MangaPageSummary = {
+  fileName: string;
+  thumbnailFileName: string;
+  thumbnailDataUrl: string | null;
+  sizeBytes: number;
+};
+
+type MangaChapterPages = {
+  chapter: ChapterMetadata;
+  pages: MangaPageSummary[];
+};
+
+type MangaPageData = {
+  fileName: string;
+  dataUrl: string;
+  sizeBytes: number;
+};
+
+type ManagerAction = {
+  label: string;
+  run: () => Promise<void | false>;
 };
 
 type RendererApi = {
@@ -106,7 +157,7 @@ type RendererApi = {
     moveToTrash: (seriesId: string, categoryId: string, volumeId: string) => Promise<ApiResponse<unknown>>;
   };
   chapters: {
-    list: (seriesId: string, categoryId: string, volumeId?: string | null) => Promise<ApiResponse<NovelChapterMetadata[]>>;
+    list: (seriesId: string, categoryId: string, volumeId?: string | null) => Promise<ApiResponse<ChapterMetadata[]>>;
     create: (seriesId: string, categoryId: string, volumeId: string | null, input: unknown) => Promise<ApiResponse<unknown>>;
     update: (
       seriesId: string,
@@ -115,12 +166,58 @@ type RendererApi = {
       chapterId: string,
       input: unknown
     ) => Promise<ApiResponse<unknown>>;
+    reorder?: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      input: unknown
+    ) => Promise<ApiResponse<ChapterMetadata[]>>;
+    move?: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string,
+      input: unknown
+    ) => Promise<ApiResponse<ChapterMetadata>>;
     moveToTrash: (
       seriesId: string,
       categoryId: string,
       volumeId: string | null,
       chapterId: string
     ) => Promise<ApiResponse<unknown>>;
+  };
+  manga?: {
+    listPages: (seriesId: string, categoryId: string, chapterId: string) => Promise<ApiResponse<MangaChapterPages>>;
+    choosePages: (seriesId: string, categoryId: string, chapterId: string) => Promise<ApiResponse<MangaChapterPages | null>>;
+    addDroppedPages: (
+      seriesId: string,
+      categoryId: string,
+      chapterId: string,
+      files: File[]
+    ) => Promise<ApiResponse<MangaChapterPages>>;
+    getPage: (
+      seriesId: string,
+      categoryId: string,
+      chapterId: string,
+      pageFileName: string
+    ) => Promise<ApiResponse<MangaPageData>>;
+    removePages: (
+      seriesId: string,
+      categoryId: string,
+      chapterId: string,
+      input: unknown
+    ) => Promise<ApiResponse<MangaChapterPages>>;
+    reorderPages: (
+      seriesId: string,
+      categoryId: string,
+      chapterId: string,
+      input: unknown
+    ) => Promise<ApiResponse<MangaChapterPages>>;
+  };
+  import: {
+    chooseSourceFolder: () => Promise<ApiResponse<ImportSource | null>>;
+    chooseSourceFiles: () => Promise<ApiResponse<ImportSource | null>>;
+    scan: (importSessionId: string) => Promise<ApiResponse<ImportPreview>>;
   };
 };
 
@@ -167,9 +264,106 @@ function allNodes(series: SeriesNode[]): TreeNode[] {
   ]);
 }
 
+function sameChapterContainer(left: ChapterNode, right: ChapterNode): boolean {
+  return left.seriesId === right.seriesId && left.categoryId === right.categoryId && left.volumeId === right.volumeId;
+}
+
+function folderTarget(node: ChapterFolderNode): { seriesId: string; categoryId: string; volumeId: string | null } {
+  return {
+    seriesId: node.seriesId,
+    categoryId: node.kind === "category" ? node.id : node.categoryId,
+    volumeId: node.kind === "volume" ? node.id : null
+  };
+}
+
+function canDropChapterInFolder(chapter: ChapterNode | null, folder: ChapterFolderNode): boolean {
+  if (!chapter || chapter.categoryType === "manga" || chapter.seriesId !== folder.seriesId) {
+    return false;
+  }
+
+  const target = folderTarget(folder);
+
+  if (chapter.categoryId === target.categoryId && chapter.volumeId === target.volumeId) {
+    return false;
+  }
+
+  return folder.kind === "volume" ? folder.categoryType !== "manga" : folder.type === "web-novel";
+}
+
+function chapterSiblings(series: SeriesNode[], chapter: ChapterNode): ChapterNode[] {
+  return allNodes(series).filter(
+    (node): node is ChapterNode => node.kind === "chapter" && sameChapterContainer(node, chapter)
+  );
+}
+
+function movedChapterOrder(chapters: ChapterNode[], draggedId: string, targetId: string, placement: "before" | "after"): string[] {
+  const nextOrder = chapters.map((chapter) => chapter.id).filter((chapterId) => chapterId !== draggedId);
+  const targetIndex = nextOrder.indexOf(targetId);
+
+  if (targetIndex < 0) {
+    return chapters.map((chapter) => chapter.id);
+  }
+
+  nextOrder.splice(placement === "before" ? targetIndex : targetIndex + 1, 0, draggedId);
+  return nextOrder;
+}
+
+function mergeOrderedChapters(chapters: ChapterNode[], orderedMetadata: ChapterMetadata[]): ChapterNode[] {
+  const chaptersById = new Map(chapters.map((chapter) => [chapter.id, chapter]));
+  return orderedMetadata
+    .map((metadata) => {
+      const chapter = chaptersById.get(metadata.id);
+      return chapter ? { ...chapter, ...metadata } : null;
+    })
+    .filter((chapter): chapter is ChapterNode => !!chapter);
+}
+
+function replaceChapterOrder(series: SeriesNode[], target: ChapterNode, orderedMetadata: ChapterMetadata[]): SeriesNode[] {
+  return series.map((seriesNode) => {
+    if (seriesNode.id !== target.seriesId) {
+      return seriesNode;
+    }
+
+    return {
+      ...seriesNode,
+      categories: seriesNode.categories.map((category) => {
+        if (category.id !== target.categoryId) {
+          return category;
+        }
+
+        if (target.volumeId === null) {
+          return { ...category, directChapters: mergeOrderedChapters(category.directChapters, orderedMetadata) };
+        }
+
+        return {
+          ...category,
+          volumes: category.volumes.map((volume) =>
+            volume.id === target.volumeId
+              ? { ...volume, chapters: mergeOrderedChapters(volume.chapters, orderedMetadata) }
+              : volume
+          )
+        };
+      })
+    };
+  });
+}
+
 async function loadCategory(api: RendererApi, seriesId: string, category: CategoryMetadata): Promise<CategoryNode> {
   if (category.type === "manga") {
-    return { ...category, kind: "category", seriesId, volumes: [], directChapters: [] };
+    return {
+      ...category,
+      kind: "category",
+      seriesId,
+      volumes: [],
+      directChapters: unwrap(await api.chapters.list(seriesId, category.id, null)).map((chapter) => ({
+        ...chapter,
+        kind: "chapter",
+        seriesId,
+        categoryId: category.id,
+        categoryType: category.type,
+        volumeId: null
+      }))
+    };
   }
 
   const volumes = unwrap(await api.volumes.list(seriesId, category.id));
@@ -179,11 +373,13 @@ async function loadCategory(api: RendererApi, seriesId: string, category: Catego
       kind: "volume",
       seriesId,
       categoryId: category.id,
+      categoryType: category.type,
       chapters: unwrap(await api.chapters.list(seriesId, category.id, volume.id)).map((chapter) => ({
         ...chapter,
         kind: "chapter",
         seriesId,
         categoryId: category.id,
+        categoryType: category.type,
         volumeId: volume.id
       }))
     }))
@@ -195,6 +391,7 @@ async function loadCategory(api: RendererApi, seriesId: string, category: Catego
           kind: "chapter" as const,
           seriesId,
           categoryId: category.id,
+          categoryType: category.type,
           volumeId: null
         }))
       : [];
@@ -222,17 +419,28 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [form, setForm] = useState<ManagerFormState | null>(null);
+  const [importPanel, setImportPanel] = useState<ManagerImportState | null>(null);
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
+  const [draggedChapter, setDraggedChapter] = useState<ChapterNode | null>(null);
+  const [dropTarget, setDropTarget] = useState<ChapterDropState | null>(null);
+  const [folderDropKey, setFolderDropKey] = useState<string | null>(null);
+  const [treePaneWidth, setTreePaneWidth] = useState(38);
+  const [resizing, setResizing] = useState(false);
+  const managerLayoutRef = useRef<HTMLElement | null>(null);
   const api = getApi();
   const nodes = allNodes(tree.series);
   const selectedNode = nodes.find((node) => nodeKey(node) === selectedKey) ?? null;
   const menuNode = nodes.find((node) => nodeKey(node) === contextMenu?.nodeKey) ?? null;
 
-  async function refreshTree(): Promise<void> {
+  async function refreshTree(options: { quiet?: boolean } = {}): Promise<void> {
     if (!api || !library.path) {
       return;
     }
 
-    setTree((current) => ({ ...current, loading: true, error: null }));
+    if (!options.quiet) {
+      setTree((current) => ({ ...current, loading: true, error: null }));
+    }
+
     try {
       setTree({ loading: false, series: await loadTree(api), error: null });
     } catch (error) {
@@ -243,19 +451,138 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
   useEffect(() => {
     if (!library.path) {
       setTree({ loading: false, series: [], error: null });
+      setExpandedKeys(new Set());
       return;
     }
 
+    setExpandedKeys(new Set());
     void refreshTree();
   }, [library.path]);
 
-  async function runAction(action: () => Promise<void>): Promise<void> {
+  function toggleExpanded(key: string): void {
+    setExpandedKeys((current) => {
+      const next = new Set(current);
+
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+
+      return next;
+    });
+  }
+
+  function startPanelResize(event: PointerEvent<HTMLButtonElement>): void {
+    event.preventDefault();
+    setResizing(true);
+
+    const handlePointerMove = (moveEvent: globalThis.PointerEvent): void => {
+      const rect = managerLayoutRef.current?.getBoundingClientRect();
+
+      if (!rect) {
+        return;
+      }
+
+      const nextWidth = ((moveEvent.clientX - rect.left) / rect.width) * 100;
+      setTreePaneWidth(Math.min(65, Math.max(24, nextWidth)));
+    };
+
+    const stopResize = (): void => {
+      setResizing(false);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResize);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResize);
+  }
+
+  async function reorderChapters(
+    dragged: ChapterNode | null,
+    target: ChapterNode,
+    placement: "before" | "after"
+  ): Promise<void> {
+    if (!api || !dragged || dragged.id === target.id) {
+      return;
+    }
+
+    const reorder = api.chapters.reorder;
+
+    if (typeof reorder !== "function") {
+      setActionError("Restart the app to load the latest Manager API.");
+      return;
+    }
+
+    if (!sameChapterContainer(dragged, target)) {
+      setActionError("Drag chapters inside the same volume/category for now.");
+      return;
+    }
+
+    const siblings = chapterSiblings(tree.series, target);
+    const chapterOrder = movedChapterOrder(siblings, dragged.id, target.id, placement);
+
+    if (chapterOrder.join("|") === siblings.map((chapter) => chapter.id).join("|")) {
+      return;
+    }
+
     setContextMenu(null);
     setActionError(null);
 
     try {
-      await action();
-      await refreshTree();
+      const orderedChapters = unwrap(await reorder(target.seriesId, target.categoryId, target.volumeId, { chapterOrder }));
+      setTree((current) => ({ ...current, series: replaceChapterOrder(current.series, target, orderedChapters) }));
+    } catch (error) {
+      setActionError(String(error));
+    }
+  }
+
+  async function moveChapterToFolder(dragged: ChapterNode | null, folder: ChapterFolderNode): Promise<void> {
+    if (!api || !dragged) {
+      return;
+    }
+
+    const move = api.chapters.move;
+
+    if (typeof move !== "function") {
+      setActionError("Restart the app to load the latest Manager API.");
+      return;
+    }
+
+    if (!canDropChapterInFolder(dragged, folder)) {
+      return;
+    }
+
+    const target = folderTarget(folder);
+    const nextSelectedKey = `chapter:${dragged.seriesId}:${target.categoryId}:${target.volumeId ?? "direct"}:${dragged.id}`;
+
+    setContextMenu(null);
+    setActionError(null);
+
+    try {
+      unwrap(
+        await move(dragged.seriesId, dragged.categoryId, dragged.volumeId, dragged.id, {
+          targetCategoryId: target.categoryId,
+          targetVolumeId: target.volumeId
+        })
+      );
+      setExpandedKeys((current) => new Set(current).add(nodeKey(folder)));
+      await refreshTree({ quiet: true });
+      setSelectedKey(nextSelectedKey);
+    } catch (error) {
+      setActionError(String(error));
+    }
+  }
+
+  async function runAction(action: ManagerAction["run"]): Promise<void> {
+    setContextMenu(null);
+    setActionError(null);
+
+    try {
+      const shouldRefresh = await action();
+      if (shouldRefresh !== false) {
+        await refreshTree();
+      }
     } catch (error) {
       setActionError(String(error));
     }
@@ -268,7 +595,25 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     submit: ManagerFormState["submit"],
     categoryType: CategoryType | null = null
   ): void {
+    setImportPanel(null);
     setForm({ heading, label, title, categoryType, submit });
+  }
+
+  async function openImport(heading: string, target: ImportTargetPreset, sourceKind: "folder" | "files" = "folder"): Promise<void> {
+    if (!api) {
+      throw new Error("App API is unavailable. Restart the app or check the preload script.");
+    }
+
+    const source = unwrap(
+      await (sourceKind === "files" ? api.import.chooseSourceFiles() : api.import.chooseSourceFolder())
+    );
+    if (!source) {
+      return;
+    }
+
+    const preview = unwrap(await api.import.scan(source.importSessionId));
+    setForm(null);
+    setImportPanel({ heading, preview, source, target });
   }
 
   async function submitForm(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -289,7 +634,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     });
   }
 
-  function actionsFor(node: TreeNode | null): Array<{ label: string; run: () => Promise<void> }> {
+  function actionsFor(node: TreeNode | null): ManagerAction[] {
     if (!api) {
       return [];
     }
@@ -299,9 +644,17 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
         {
           label: "Add series",
           run: async () => {
+            await openImport("Import new series", { mode: "new", label: "New series from selected folder" });
+            return false;
+          }
+        },
+        {
+          label: "Add empty series",
+          run: async () => {
             openForm("Add series", "Series title", "", async (title) => {
               unwrap(await api.series.create({ title }));
             });
+            return false;
           }
         }
       ];
@@ -321,6 +674,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
               },
               "light-novel"
             );
+            return false;
           }
         },
         {
@@ -329,6 +683,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
             openForm("Rename series", "Series title", node.title, async (title) => {
               unwrap(await api.series.update(node.id, { title }));
             });
+            return false;
           }
         },
         {
@@ -338,6 +693,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
               unwrap(await api.series.moveToTrash(node.id));
               setSelectedKey(null);
               setForm(null);
+              setImportPanel(null);
             }
           }
         }
@@ -345,26 +701,46 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     }
 
     if (node.kind === "category") {
-      const actions: Array<{ label: string; run: () => Promise<void> }> = [];
+      const actions: ManagerAction[] = [];
 
       if (node.type !== "manga") {
         actions.push({
-          label: "Add volume",
+          label: node.type === "web-novel" ? "Import chapters" : "Import volumes/chapters",
+          run: async () => {
+            await openImport(
+              `Import into ${node.title}`,
+              {
+                mode: "existing",
+                seriesId: node.seriesId,
+                categoryId: node.id,
+                volumeMode: node.type === "web-novel" ? "none" : "source",
+                volumeId: null,
+                label: `${node.title} (${formatLabel(node.type)})`
+              },
+              node.type === "web-novel" ? "files" : "folder"
+            );
+            return false;
+          }
+        });
+        actions.push({
+          label: "Add empty volume",
           run: async () => {
             openForm("Add volume", "Volume title", `Volume ${node.volumes.length + 1}`, async (title) => {
               unwrap(await api.volumes.create(node.seriesId, node.id, { title }));
             });
+            return false;
           }
         });
       }
 
-      if (node.type === "web-novel") {
+      if (node.type === "web-novel" || node.type === "manga") {
         actions.push({
-          label: "Add chapter",
+          label: "Add empty chapter",
           run: async () => {
             openForm("Add chapter", "Chapter title", `Chapter ${node.directChapters.length + 1}`, async (title) => {
               unwrap(await api.chapters.create(node.seriesId, node.id, null, { title }));
             });
+            return false;
           }
         });
       }
@@ -377,6 +753,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
             openForm("Rename category", "Category title", node.title, async (title) => {
               unwrap(await api.categories.update(node.seriesId, node.id, { title }));
             });
+            return false;
           }
         },
         {
@@ -386,6 +763,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
               unwrap(await api.categories.moveToTrash(node.seriesId, node.id));
               setSelectedKey(null);
               setForm(null);
+              setImportPanel(null);
             }
           }
         }
@@ -395,11 +773,30 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     if (node.kind === "volume") {
       return [
         {
-          label: "Add chapter",
+          label: "Import chapters",
+          run: async () => {
+            await openImport(
+              `Import into ${node.title}`,
+              {
+                mode: "existing",
+                seriesId: node.seriesId,
+                categoryId: node.categoryId,
+                volumeMode: "existing",
+                volumeId: node.id,
+                label: node.title
+              },
+              "files"
+            );
+            return false;
+          }
+        },
+        {
+          label: "Add empty chapter",
           run: async () => {
             openForm("Add chapter", "Chapter title", `Chapter ${node.chapters.length + 1}`, async (title) => {
               unwrap(await api.chapters.create(node.seriesId, node.categoryId, node.id, { title }));
             });
+            return false;
           }
         },
         {
@@ -408,6 +805,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
             openForm("Rename volume", "Volume title", node.title, async (title) => {
               unwrap(await api.volumes.update(node.seriesId, node.categoryId, node.id, { title }));
             });
+            return false;
           }
         },
         {
@@ -417,6 +815,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
               unwrap(await api.volumes.moveToTrash(node.seriesId, node.categoryId, node.id));
               setSelectedKey(null);
               setForm(null);
+              setImportPanel(null);
             }
           }
         }
@@ -430,6 +829,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
           openForm("Rename chapter", "Chapter title", node.title, async (title) => {
             unwrap(await api.chapters.update(node.seriesId, node.categoryId, node.volumeId, node.id, { title }));
           });
+          return false;
         }
       },
       {
@@ -439,6 +839,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
             unwrap(await api.chapters.moveToTrash(node.seriesId, node.categoryId, node.volumeId, node.id));
             setSelectedKey(null);
             setForm(null);
+            setImportPanel(null);
           }
         }
       }
@@ -496,7 +897,12 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
   const selectedActions = actionsFor(selectedNode);
 
   return (
-    <section className="manager-layout" onClick={() => setContextMenu(null)}>
+    <section
+      className={resizing ? "manager-layout manager-layout-resizing" : "manager-layout"}
+      onClick={() => setContextMenu(null)}
+      ref={managerLayoutRef}
+      style={{ "--manager-tree-width": `${treePaneWidth}%` } as CSSProperties}
+    >
       <aside className="manager-tree-panel">
         <div className="manager-panel-header">
           <h2>Tree</h2>
@@ -523,6 +929,62 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                   setContextMenu({ x: event.clientX, y: event.clientY, nodeKey: nodeKey(node) });
                 }}
                 onSelect={(node) => setSelectedKey(nodeKey(node))}
+                expandedKeys={expandedKeys}
+                onToggle={toggleExpanded}
+                draggedChapter={draggedChapter}
+                dropTarget={dropTarget}
+                folderDropKey={folderDropKey}
+                onChapterDragEnd={() => {
+                  setDraggedChapter(null);
+                  setDropTarget(null);
+                  setFolderDropKey(null);
+                }}
+                onChapterDragOver={(event, node) => {
+                  if (!draggedChapter || !sameChapterContainer(draggedChapter, node) || draggedChapter.id === node.id) {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  setFolderDropKey(null);
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const placement = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                  setDropTarget({ nodeKey: nodeKey(node), placement });
+                }}
+                onChapterDragStart={(event, node) => {
+                  setDraggedChapter(node);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", nodeKey(node));
+                }}
+                onChapterDrop={(event, node) => {
+                  event.preventDefault();
+                  const placement = dropTarget?.nodeKey === nodeKey(node) ? dropTarget.placement : "before";
+                  void reorderChapters(draggedChapter, node, placement).finally(() => {
+                    setDraggedChapter(null);
+                    setDropTarget(null);
+                  });
+                }}
+                onFolderDragLeave={(node) => {
+                  if (folderDropKey === nodeKey(node)) {
+                    setFolderDropKey(null);
+                  }
+                }}
+                onFolderDragOver={(event, node) => {
+                  if (!canDropChapterInFolder(draggedChapter, node)) {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  setDropTarget(null);
+                  setFolderDropKey(nodeKey(node));
+                }}
+                onFolderDrop={(event, node) => {
+                  event.preventDefault();
+                  void moveChapterToFolder(draggedChapter, node).finally(() => {
+                    setDraggedChapter(null);
+                    setDropTarget(null);
+                    setFolderDropKey(null);
+                  });
+                }}
                 selectedKey={selectedKey}
               />
             ))}
@@ -530,13 +992,44 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
         )}
       </aside>
 
+      <button
+        aria-label="Resize Manager panels"
+        className="manager-resize-handle"
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={startPanelResize}
+        type="button"
+      />
+
       <section className="manager-detail-panel">
         <h2>{selectedNode ? selectedNode.title : "Select an item"}</h2>
         <p>{selectedNode ? nodeDescription(selectedNode) : "Right-click a tree item for quick actions."}</p>
 
         {actionError ? <p className="error-text">{actionError}</p> : null}
 
-        {form ? (
+        {!importPanel && !form && selectedNode?.kind === "chapter" && selectedNode.categoryType === "manga" ? (
+          <MangaPageManager chapter={selectedNode} onChanged={refreshTree} />
+        ) : null}
+
+        {importPanel ? (
+          <div className="manager-import-panel">
+            <div className="manager-panel-header">
+              <h3>{importPanel.heading}</h3>
+              <button onClick={() => setImportPanel(null)} type="button">
+                Close
+              </button>
+            </div>
+            <ImportWizard
+              key={importPanel.source.importSessionId}
+              initialPreview={importPanel.preview}
+              initialSource={importPanel.source}
+              library={library}
+              onCancel={() => setImportPanel(null)}
+              onImported={() => void refreshTree({ quiet: true })}
+              onOpenSettings={onOpenSettings}
+              targetPreset={importPanel.target}
+            />
+          </div>
+        ) : form ? (
           <form className="manager-form" onSubmit={(event) => void submitForm(event)}>
             <h3>{form.heading}</h3>
             {form.categoryType ? (
@@ -612,125 +1105,393 @@ function nodeDescription(node: TreeNode): string {
     return "Volume";
   }
 
-  return `Chapter - ${formatLabel(node.translationStatus)}`;
+  if (node.categoryType === "manga") {
+    return `Manga chapter - ${node.pageCount ?? 0} pages`;
+  }
+
+  return `Chapter - ${formatLabel(node.translationStatus ?? "draft")}`;
 }
 
-function TreeButton({
-  node,
-  onContextMenu,
-  onSelect,
-  selectedKey
-}: {
-  node: TreeNode;
-  onContextMenu: (event: MouseEvent, node: TreeNode) => void;
-  onSelect: (node: TreeNode) => void;
-  selectedKey: string | null;
-}) {
+function formatBytes(value: number): string {
+  if (value < 1024 * 1024) {
+    return `${Math.max(1, Math.round(value / 1024))} KB`;
+  }
+
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function MangaPageManager({ chapter, onChanged }: { chapter: ChapterNode; onChanged: () => Promise<void> }) {
+  const [checked, setChecked] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [pages, setPages] = useState<MangaChapterPages | null>(null);
+  const [preview, setPreview] = useState<MangaPageData | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [selectedPage, setSelectedPage] = useState<string | null>(null);
+  const api = getApi();
+
+  async function loadPages(): Promise<void> {
+    if (!api?.manga) {
+      setError("Manga API is unavailable. Restart the app or check the preload script.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const nextPages = unwrap(await api.manga.listPages(chapter.seriesId, chapter.categoryId, chapter.id));
+      setPages(nextPages);
+      setSelectedPage((current) =>
+        current && nextPages.pages.some((page) => page.fileName === current) ? current : nextPages.pages[0]?.fileName ?? null
+      );
+      setChecked((current) => current.filter((fileName) => nextPages.pages.some((page) => page.fileName === fileName)));
+    } catch (loadError) {
+      setError(String(loadError));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadPages();
+  }, [chapter.seriesId, chapter.categoryId, chapter.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!api?.manga || !selectedPage) {
+      setPreview(null);
+      return;
+    }
+
+    setPreviewLoading(true);
+    void api.manga
+      .getPage(chapter.seriesId, chapter.categoryId, chapter.id, selectedPage)
+      .then((response) => {
+        if (isMounted) {
+          setPreview(unwrap(response));
+        }
+      })
+      .catch((previewError) => {
+        if (isMounted) {
+          setError(String(previewError));
+          setPreview(null);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setPreviewLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [chapter.seriesId, chapter.categoryId, chapter.id, selectedPage]);
+
+  async function applyPages(action: () => Promise<MangaChapterPages | null>): Promise<void> {
+    setError(null);
+    setLoading(true);
+    try {
+      const nextPages = await action();
+      if (nextPages) {
+        setPages(nextPages);
+        setSelectedPage((current) =>
+          current && nextPages.pages.some((page) => page.fileName === current) ? current : nextPages.pages[0]?.fileName ?? null
+        );
+        setChecked((current) => current.filter((fileName) => nextPages.pages.some((page) => page.fileName === fileName)));
+        await onChanged();
+      }
+    } catch (actionError) {
+      setError(String(actionError));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function addPages(): Promise<void> {
+    if (!api?.manga) {
+      setError("Manga API is unavailable. Restart the app or check the preload script.");
+      return;
+    }
+
+    await applyPages(() => api.manga!.choosePages(chapter.seriesId, chapter.categoryId, chapter.id).then(unwrap));
+  }
+
+  async function addDroppedPages(files: File[]): Promise<void> {
+    if (!api?.manga || files.length === 0) {
+      return;
+    }
+
+    await applyPages(() => api.manga!.addDroppedPages(chapter.seriesId, chapter.categoryId, chapter.id, files).then(unwrap));
+  }
+
+  async function removeCheckedPages(): Promise<void> {
+    if (!api?.manga || checked.length === 0) {
+      return;
+    }
+
+    if (!window.confirm(`Remove ${checked.length} page(s) from "${chapter.title}"?`)) {
+      return;
+    }
+
+    await applyPages(() =>
+      api.manga!.removePages(chapter.seriesId, chapter.categoryId, chapter.id, { fileNames: checked }).then(unwrap)
+    );
+  }
+
+  async function movePage(fileName: string, offset: number): Promise<void> {
+    if (!api?.manga || !pages) {
+      return;
+    }
+
+    const index = pages.pages.findIndex((page) => page.fileName === fileName);
+    const nextIndex = index + offset;
+
+    if (index < 0 || nextIndex < 0 || nextIndex >= pages.pages.length) {
+      return;
+    }
+
+    const pageOrder = pages.pages.map((page) => page.fileName);
+    [pageOrder[index], pageOrder[nextIndex]] = [pageOrder[nextIndex], pageOrder[index]];
+    await applyPages(() => api.manga!.reorderPages(chapter.seriesId, chapter.categoryId, chapter.id, { pageOrder }).then(unwrap));
+  }
+
+  function toggleChecked(fileName: string): void {
+    setChecked((current) =>
+      current.includes(fileName) ? current.filter((item) => item !== fileName) : [...current, fileName]
+    );
+  }
+
   return (
-    <button
-      className={selectedKey === nodeKey(node) ? "tree-node tree-node-active" : "tree-node"}
-      onClick={() => onSelect(node)}
-      onContextMenu={(event) => onContextMenu(event, node)}
-      type="button"
+    <section
+      className="manga-page-manager"
+      onDragOver={(event) => {
+        event.preventDefault();
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        void addDroppedPages(Array.from(event.dataTransfer.files));
+      }}
     >
-      <span>{node.title}</span>
-      <small>{node.kind}</small>
-    </button>
+      <div className="manga-page-manager-header">
+        <div>
+          <h3>Pages</h3>
+          <p>
+            {pages
+              ? `${pages.pages.length} page(s), ${formatBytes(pages.chapter.totalSizeBytes ?? 0)}`
+              : "Load manga pages."}
+          </p>
+        </div>
+        <div className="manager-actions">
+          <button disabled={loading} onClick={() => void addPages()} type="button">
+            Add pages
+          </button>
+          <button disabled={loading || checked.length === 0} onClick={() => void removeCheckedPages()} type="button">
+            Remove selected
+          </button>
+        </div>
+      </div>
+
+      {error ? <p className="error-text">{error}</p> : null}
+      {loading && !pages ? <p className="muted-text">Loading pages...</p> : null}
+
+      {pages && pages.pages.length === 0 ? <p className="muted-text">No pages yet.</p> : null}
+
+      {pages && pages.pages.length > 0 ? (
+        <div className="manga-page-workspace">
+          <ol className="manga-page-grid">
+            {pages.pages.map((page, index) => (
+              <li className={selectedPage === page.fileName ? "manga-page-card manga-page-card-active" : "manga-page-card"} key={page.fileName}>
+                <label className="manga-page-check">
+                  <input
+                    checked={checked.includes(page.fileName)}
+                    onChange={() => toggleChecked(page.fileName)}
+                    type="checkbox"
+                  />
+                  <span>Page {index + 1}</span>
+                </label>
+                <button className="manga-page-thumb" onClick={() => setSelectedPage(page.fileName)} type="button">
+                  {page.thumbnailDataUrl ? <img alt={`Page ${index + 1}`} loading="lazy" src={page.thumbnailDataUrl} /> : <span>No preview</span>}
+                </button>
+                <small>{formatBytes(page.sizeBytes)}</small>
+                <div className="manager-actions">
+                  <button disabled={index === 0 || loading} onClick={() => void movePage(page.fileName, -1)} type="button">
+                    Up
+                  </button>
+                  <button disabled={index === pages.pages.length - 1 || loading} onClick={() => void movePage(page.fileName, 1)} type="button">
+                    Down
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ol>
+
+          <aside className="manga-page-preview">
+            <h3>Preview</h3>
+            {previewLoading ? <p className="muted-text">Loading preview...</p> : null}
+            {preview ? <img alt={preview.fileName} src={preview.dataUrl} /> : <p className="muted-text">Select a page.</p>}
+          </aside>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+type TreeItemSharedProps = {
+  draggedChapter: ChapterNode | null;
+  dropTarget: ChapterDropState | null;
+  expandedKeys: Set<string>;
+  folderDropKey: string | null;
+  onChapterDragEnd: () => void;
+  onChapterDragOver: (event: DragEvent<HTMLButtonElement>, node: ChapterNode) => void;
+  onChapterDragStart: (event: DragEvent<HTMLButtonElement>, node: ChapterNode) => void;
+  onChapterDrop: (event: DragEvent<HTMLButtonElement>, node: ChapterNode) => void;
+  onContextMenu: (event: MouseEvent, node: TreeNode) => void;
+  onFolderDragLeave: (node: ChapterFolderNode) => void;
+  onFolderDragOver: (event: DragEvent<HTMLButtonElement>, node: ChapterFolderNode) => void;
+  onFolderDrop: (event: DragEvent<HTMLButtonElement>, node: ChapterFolderNode) => void;
+  onSelect: (node: TreeNode) => void;
+  onToggle: (key: string) => void;
+  selectedKey: string | null;
+};
+
+function TreeButton({
+  expanded,
+  hasChildren = false,
+  node,
+  onChapterDragEnd,
+  onChapterDragOver,
+  onChapterDragStart,
+  onChapterDrop,
+  onContextMenu,
+  onFolderDragLeave,
+  onFolderDragOver,
+  onFolderDrop,
+  onSelect,
+  onToggle,
+  selectedKey,
+  dropTarget,
+  folderDropKey
+}: TreeItemSharedProps & {
+  expanded?: boolean;
+  hasChildren?: boolean;
+  node: TreeNode;
+}) {
+  const key = nodeKey(node);
+  const isChapter = node.kind === "chapter";
+  const isFolder = node.kind === "category" || node.kind === "volume";
+  const dropClass =
+    dropTarget?.nodeKey === key
+      ? ` tree-node-drop-${dropTarget.placement}`
+      : folderDropKey === key
+        ? " tree-node-drop-folder"
+        : "";
+
+  return (
+    <div className="tree-row">
+      {hasChildren ? (
+        <button
+          aria-label={expanded ? "Collapse item" : "Expand item"}
+          aria-expanded={expanded}
+          className="tree-caret"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle(key);
+          }}
+          type="button"
+        >
+          <span className="tree-caret-icon" aria-hidden="true" />
+        </button>
+      ) : (
+        <span className="tree-caret tree-caret-empty" />
+      )}
+      <button
+        className={`${selectedKey === key ? "tree-node tree-node-active" : "tree-node"}${dropClass}`}
+        draggable={isChapter}
+        onClick={() => onSelect(node)}
+        onContextMenu={(event) => onContextMenu(event, node)}
+        onDragEnd={isChapter ? onChapterDragEnd : undefined}
+        onDragStart={isChapter ? (event) => onChapterDragStart(event, node) : undefined}
+        onDragLeave={isFolder ? () => onFolderDragLeave(node) : undefined}
+        onDragOver={isChapter ? (event) => onChapterDragOver(event, node) : isFolder ? (event) => onFolderDragOver(event, node) : undefined}
+        onDrop={isChapter ? (event) => onChapterDrop(event, node) : isFolder ? (event) => onFolderDrop(event, node) : undefined}
+        type="button"
+      >
+        <span className={isChapter ? "tree-icon tree-icon-chapter" : "tree-icon tree-icon-folder"} aria-hidden="true" />
+        <span>{node.title}</span>
+        <small>{node.kind}</small>
+      </button>
+    </div>
   );
 }
 
 function SeriesTreeItem({
   node,
-  onContextMenu,
-  onSelect,
-  selectedKey
-}: {
+  ...props
+}: TreeItemSharedProps & {
   node: SeriesNode;
-  onContextMenu: (event: MouseEvent, node: TreeNode) => void;
-  onSelect: (node: TreeNode) => void;
-  selectedKey: string | null;
 }) {
+  const expanded = props.expandedKeys.has(nodeKey(node));
+
   return (
-    <div className="tree-group" role="treeitem">
-      <TreeButton node={node} onContextMenu={onContextMenu} onSelect={onSelect} selectedKey={selectedKey} />
-      <div className="tree-children">
-        {node.categories.map((category) => (
-          <CategoryTreeItem
-            key={category.id}
-            node={category}
-            onContextMenu={onContextMenu}
-            onSelect={onSelect}
-            selectedKey={selectedKey}
-          />
-        ))}
-      </div>
+    <div className="tree-group" aria-expanded={expanded} role="treeitem">
+      <TreeButton {...props} expanded={expanded} hasChildren={node.categories.length > 0} node={node} />
+      {expanded ? (
+        <div className="tree-children">
+          {node.categories.map((category) => (
+            <CategoryTreeItem key={category.id} node={category} {...props} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function CategoryTreeItem({
   node,
-  onContextMenu,
-  onSelect,
-  selectedKey
-}: {
+  ...props
+}: TreeItemSharedProps & {
   node: CategoryNode;
-  onContextMenu: (event: MouseEvent, node: TreeNode) => void;
-  onSelect: (node: TreeNode) => void;
-  selectedKey: string | null;
 }) {
+  const expanded = props.expandedKeys.has(nodeKey(node));
+  const hasChildren = node.directChapters.length > 0 || node.volumes.length > 0;
+
   return (
-    <div className="tree-group" role="treeitem">
-      <TreeButton node={node} onContextMenu={onContextMenu} onSelect={onSelect} selectedKey={selectedKey} />
-      <div className="tree-children">
-        {node.directChapters.map((chapter) => (
-          <TreeButton
-            key={chapter.id}
-            node={chapter}
-            onContextMenu={onContextMenu}
-            onSelect={onSelect}
-            selectedKey={selectedKey}
-          />
-        ))}
-        {node.volumes.map((volume) => (
-          <VolumeTreeItem
-            key={volume.id}
-            node={volume}
-            onContextMenu={onContextMenu}
-            onSelect={onSelect}
-            selectedKey={selectedKey}
-          />
-        ))}
-      </div>
+    <div className="tree-group" aria-expanded={expanded} role="treeitem">
+      <TreeButton {...props} expanded={expanded} hasChildren={hasChildren} node={node} />
+      {expanded ? (
+        <div className="tree-children">
+          {node.directChapters.map((chapter) => (
+            <TreeButton key={chapter.id} node={chapter} {...props} />
+          ))}
+          {node.volumes.map((volume) => (
+            <VolumeTreeItem key={volume.id} node={volume} {...props} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function VolumeTreeItem({
   node,
-  onContextMenu,
-  onSelect,
-  selectedKey
-}: {
+  ...props
+}: TreeItemSharedProps & {
   node: VolumeNode;
-  onContextMenu: (event: MouseEvent, node: TreeNode) => void;
-  onSelect: (node: TreeNode) => void;
-  selectedKey: string | null;
 }) {
+  const expanded = props.expandedKeys.has(nodeKey(node));
+
   return (
-    <div className="tree-group" role="treeitem">
-      <TreeButton node={node} onContextMenu={onContextMenu} onSelect={onSelect} selectedKey={selectedKey} />
-      <div className="tree-children">
-        {node.chapters.map((chapter) => (
-          <TreeButton
-            key={chapter.id}
-            node={chapter}
-            onContextMenu={onContextMenu}
-            onSelect={onSelect}
-            selectedKey={selectedKey}
-          />
-        ))}
-      </div>
+    <div className="tree-group" aria-expanded={expanded} role="treeitem">
+      <TreeButton {...props} expanded={expanded} hasChildren={node.chapters.length > 0} node={node} />
+      {expanded ? (
+        <div className="tree-children">
+          {node.chapters.map((chapter) => (
+            <TreeButton key={chapter.id} node={chapter} {...props} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

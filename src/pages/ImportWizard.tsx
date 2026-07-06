@@ -11,6 +11,7 @@ type LibraryState = {
 };
 
 type ImportFileType = "txt" | "md" | "docx" | "pdf";
+type ImportVolumeMode = "source" | "existing" | "none";
 
 type ImportPreviewNode = {
   id: string;
@@ -22,7 +23,7 @@ type ImportPreviewNode = {
   children?: ImportPreviewNode[];
 };
 
-type ImportPreview = {
+export type ImportPreview = {
   importSessionId: string;
   sourceFolderName: string;
   generatedAt: string;
@@ -37,7 +38,7 @@ type ImportPreview = {
   };
 };
 
-type ImportSource = {
+export type ImportSource = {
   importSessionId: string;
   path: string;
   name: string;
@@ -77,6 +78,20 @@ type ImportPlanNode = Omit<ImportPreviewNode, "children"> & {
 type SelectedImportChapter = ImportPlanNode & {
   volumeTitle: string;
 };
+
+export type ImportTargetPreset =
+  | {
+      mode: "new";
+      label?: string;
+    }
+  | {
+      mode: "existing";
+      seriesId: string;
+      categoryId: string;
+      volumeMode: ImportVolumeMode;
+      volumeId: string | null;
+      label: string;
+    };
 
 type RendererApi = {
   import: {
@@ -194,20 +209,30 @@ function formatFileType(fileType?: ImportFileType): string {
 
 export default function ImportWizard({
   library,
-  onOpenSettings
+  onOpenSettings,
+  initialPreview = null,
+  initialSource = null,
+  onCancel,
+  onImported,
+  targetPreset
 }: {
   library: LibraryState;
   onOpenSettings: () => void;
+  initialPreview?: ImportPreview | null;
+  initialSource?: ImportSource | null;
+  onCancel?: () => void;
+  onImported?: (report: ImportReport) => void;
+  targetPreset?: ImportTargetPreset;
 }) {
   const [editedTexts, setEditedTexts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [nodes, setNodes] = useState<ImportPlanNode[]>([]);
-  const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [nodes, setNodes] = useState<ImportPlanNode[]>(() => (initialPreview ? toPlanNodes(initialPreview.nodes) : []));
+  const [preview, setPreview] = useState<ImportPreview | null>(initialPreview);
   const [report, setReport] = useState<ImportReport | null>(null);
-  const [source, setSource] = useState<ImportSource | null>(null);
-  const [step, setStep] = useState<Step>("source");
+  const [source, setSource] = useState<ImportSource | null>(initialSource);
+  const [step, setStep] = useState<Step>(initialPreview ? "preview" : "source");
   const [textLoading, setTextLoading] = useState(false);
   const [textPreviews, setTextPreviews] = useState<Record<string, ImportTextPreview>>({});
   const selectedCount = selectedChapterCount(nodes);
@@ -315,9 +340,20 @@ export default function ImportWizard({
     setReport(null);
 
     try {
+      const target =
+        targetPreset?.mode === "existing"
+          ? {
+              mode: "existing",
+              seriesId: targetPreset.seriesId,
+              categoryId: targetPreset.categoryId,
+              volumeMode: targetPreset.volumeMode,
+              volumeId: targetPreset.volumeId
+            }
+          : { mode: "new", seriesTitle: source.name };
       const nextReport = unwrap(
         await api.import.execute(source.importSessionId, {
           seriesTitle: source.name,
+          target,
           chapters: selectedChapters.map((chapter) => ({
             fileId: chapter.id,
             title: fallbackChapterTitle(chapter),
@@ -327,6 +363,7 @@ export default function ImportWizard({
         })
       );
       setReport(nextReport);
+      onImported?.(nextReport);
     } catch (importError) {
       setError(String(importError));
     } finally {
@@ -377,6 +414,11 @@ export default function ImportWizard({
           <button className="primary-action" disabled={loading} onClick={() => void chooseSourceFolder()} type="button">
             {loading ? "Scanning" : source ? "Choose another folder" : "Choose folder"}
           </button>
+          {onCancel ? (
+            <button onClick={onCancel} type="button">
+              Cancel
+            </button>
+          ) : null}
         </section>
       ) : null}
 
@@ -437,6 +479,9 @@ export default function ImportWizard({
             </button>
           </div>
 
+          <p className="muted-text">
+            Destination: {targetPreset?.label ?? `New series: ${source?.name ?? preview.sourceFolderName}`}
+          </p>
           {textLoading ? <p className="muted-text">Loading text preview.</p> : null}
           {selectedTypes.pdf > 0 ? (
             <p className="muted-text">Selected PDFs will import extracted text and keep the original file.</p>

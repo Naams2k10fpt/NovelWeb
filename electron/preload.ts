@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 contextBridge.exposeInMainWorld("api", {
   library: {
@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("api", {
     get: (seriesId: string) => ipcRenderer.invoke("series:get", seriesId),
     create: (input: unknown) => ipcRenderer.invoke("series:create", input),
     update: (seriesId: string, input: unknown) => ipcRenderer.invoke("series:update", seriesId, input),
+    chooseCover: (seriesId: string) => ipcRenderer.invoke("series:chooseCover", seriesId),
     moveToTrash: (seriesId: string) => ipcRenderer.invoke("series:moveToTrash", seriesId)
   },
   categories: {
@@ -42,12 +43,18 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("chapters:create", seriesId, categoryId, volumeId, input),
     update: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>
       ipcRenderer.invoke("chapters:update", seriesId, categoryId, volumeId, chapterId, input),
+    reorder: (seriesId: string, categoryId: string, volumeId: string | null, input: unknown) =>
+      ipcRenderer.invoke("chapters:reorder", seriesId, categoryId, volumeId, input),
+    move: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>
+      ipcRenderer.invoke("chapters:move", seriesId, categoryId, volumeId, chapterId, input),
     getContent: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
       ipcRenderer.invoke("chapters:getContent", seriesId, categoryId, volumeId, chapterId),
     saveContent: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string, input: unknown) =>
       ipcRenderer.invoke("chapters:saveContent", seriesId, categoryId, volumeId, chapterId, input),
     getOriginalPdf: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
       ipcRenderer.invoke("chapters:getOriginalPdf", seriesId, categoryId, volumeId, chapterId),
+    getOriginalText: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
+      ipcRenderer.invoke("chapters:getOriginalText", seriesId, categoryId, volumeId, chapterId),
     chooseImage: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
       ipcRenderer.invoke("chapters:chooseImage", seriesId, categoryId, volumeId, chapterId),
     getProgress: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
@@ -59,9 +66,34 @@ contextBridge.exposeInMainWorld("api", {
   },
   import: {
     chooseSourceFolder: () => ipcRenderer.invoke("import:chooseSourceFolder"),
+    chooseSourceFiles: () => ipcRenderer.invoke("import:chooseSourceFiles"),
     scan: (importSessionId: string) => ipcRenderer.invoke("import:scan", importSessionId),
     readText: (importSessionId: string, fileId: string) => ipcRenderer.invoke("import:readText", importSessionId, fileId),
     execute: (importSessionId: string, input: unknown) => ipcRenderer.invoke("import:execute", importSessionId, input)
+  },
+  manga: {
+    listPages: (seriesId: string, categoryId: string, chapterId: string) =>
+      ipcRenderer.invoke("manga:listPages", seriesId, categoryId, chapterId),
+    choosePages: (seriesId: string, categoryId: string, chapterId: string) =>
+      ipcRenderer.invoke("manga:choosePages", seriesId, categoryId, chapterId),
+    addDroppedPages: (seriesId: string, categoryId: string, chapterId: string, files: File[]) =>
+      ipcRenderer.invoke(
+        "manga:addDroppedPages",
+        seriesId,
+        categoryId,
+        chapterId,
+        files.map((file) => webUtils.getPathForFile(file)).filter(Boolean)
+      ),
+    getPage: (seriesId: string, categoryId: string, chapterId: string, pageFileName: string) =>
+      ipcRenderer.invoke("manga:getPage", seriesId, categoryId, chapterId, pageFileName),
+    getProgress: (seriesId: string, categoryId: string, chapterId: string) =>
+      ipcRenderer.invoke("manga:getProgress", seriesId, categoryId, chapterId),
+    saveProgress: (seriesId: string, categoryId: string, chapterId: string, input: unknown) =>
+      ipcRenderer.invoke("manga:saveProgress", seriesId, categoryId, chapterId, input),
+    removePages: (seriesId: string, categoryId: string, chapterId: string, input: unknown) =>
+      ipcRenderer.invoke("manga:removePages", seriesId, categoryId, chapterId, input),
+    reorderPages: (seriesId: string, categoryId: string, chapterId: string, input: unknown) =>
+      ipcRenderer.invoke("manga:reorderPages", seriesId, categoryId, chapterId, input)
   },
   search: {
     query: (query: string) => ipcRenderer.invoke("search:query", query),

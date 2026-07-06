@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { ChapterTarget } from "./NovelEditor";
 
 type ApiResponse<T> =
@@ -17,8 +17,28 @@ type SeriesMetadata = {
   title: string;
   originalAuthor: string | null;
   translator: string | null;
-  status: string;
+  genres: string[];
+  status: SeriesStatus;
   description: string;
+  coverImage: string | null;
+  coverDataUrl: string | null;
+};
+
+type SeriesStatus = "planning" | "translating" | "completed" | "paused" | "dropped";
+
+const SERIES_STATUSES: SeriesStatus[] = ["planning", "translating", "completed", "paused", "dropped"];
+
+type SeriesFormState = {
+  title: string;
+  originalAuthor: string;
+  genres: string[];
+  newGenre: string;
+  status: SeriesStatus;
+  description: string;
+};
+
+type SeriesCard = {
+  genres: string[];
 };
 
 type CategoryType = "light-novel" | "web-novel" | "manga";
@@ -34,20 +54,21 @@ type VolumeMetadata = {
   title: string;
 };
 
-type NovelChapterMetadata = {
+type ChapterMetadata = {
   id: string;
   title: string;
-  translationStatus: string;
+  translationStatus?: string;
+  pageCount?: number;
 };
 
 type VolumeDetail = {
   volume: VolumeMetadata;
-  chapters: NovelChapterMetadata[];
+  chapters: ChapterMetadata[];
 };
 
 type CategoryDetail = CategoryMetadata & {
   volumes: VolumeDetail[];
-  directChapters: NovelChapterMetadata[];
+  directChapters: ChapterMetadata[];
 };
 
 type DetailState = {
@@ -59,7 +80,10 @@ type DetailState = {
 
 type RendererApi = {
   series: {
+    list: () => Promise<ApiResponse<SeriesCard[]>>;
     get: (seriesId: string) => Promise<ApiResponse<SeriesMetadata>>;
+    update: (seriesId: string, input: unknown) => Promise<ApiResponse<SeriesMetadata>>;
+    chooseCover: (seriesId: string) => Promise<ApiResponse<SeriesMetadata | null>>;
   };
   categories: {
     list: (seriesId: string) => Promise<ApiResponse<CategoryMetadata[]>>;
@@ -68,7 +92,7 @@ type RendererApi = {
     list: (seriesId: string, categoryId: string) => Promise<ApiResponse<VolumeMetadata[]>>;
   };
   chapters: {
-    list: (seriesId: string, categoryId: string, volumeId?: string | null) => Promise<ApiResponse<NovelChapterMetadata[]>>;
+    list: (seriesId: string, categoryId: string, volumeId?: string | null) => Promise<ApiResponse<ChapterMetadata[]>>;
   };
 };
 
@@ -88,9 +112,26 @@ function formatLabel(value: string): string {
   return value.replace(/-/g, " ").replace(/^\w/, (letter) => letter.toUpperCase());
 }
 
+function formFromSeries(series: SeriesMetadata): SeriesFormState {
+  return {
+    title: series.title,
+    originalAuthor: series.originalAuthor ?? "",
+    genres: series.genres,
+    newGenre: "",
+    status: series.status,
+    description: series.description
+  };
+}
+
+function uniqueGenres(genres: string[]): string[] {
+  return [...new Set(genres.map((genre) => genre.trim()).filter(Boolean))].sort((left, right) =>
+    left.localeCompare(right)
+  );
+}
+
 async function loadCategory(api: RendererApi, seriesId: string, category: CategoryMetadata): Promise<CategoryDetail> {
   if (category.type === "manga") {
-    return { ...category, volumes: [], directChapters: [] };
+    return { ...category, volumes: [], directChapters: unwrap(await api.chapters.list(seriesId, category.id, null)) };
   }
 
   const volumes = unwrap(await api.volumes.list(seriesId, category.id));
@@ -108,12 +149,17 @@ async function loadCategory(api: RendererApi, seriesId: string, category: Catego
 
 export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadChapter }: SeriesDetailProps) {
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
+  const [coverSaving, setCoverSaving] = useState(false);
   const [detail, setDetail] = useState<DetailState>({
     loading: true,
     series: null,
     categories: [],
     error: null
   });
+  const [form, setForm] = useState<SeriesFormState | null>(null);
+  const [knownGenres, setKnownGenres] = useState<string[]>([]);
+  const [metadataError, setMetadataError] = useState<string | null>(null);
+  const [metadataSaving, setMetadataSaving] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -130,17 +176,21 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
     }
 
     setDetail({ loading: true, series: null, categories: [], error: null });
+    setForm(null);
+    setMetadataError(null);
 
-    void Promise.all([api.series.get(seriesId), api.categories.list(seriesId)])
-      .then(async ([seriesResponse, categoriesResponse]) => {
+    void Promise.all([api.series.get(seriesId), api.categories.list(seriesId), api.series.list()])
+      .then(async ([seriesResponse, categoriesResponse, seriesListResponse]) => {
         const series = unwrap(seriesResponse);
         const categories = await Promise.all(
           unwrap(categoriesResponse).map((category) => loadCategory(api, seriesId, category))
         );
+        const seriesCards = unwrap(seriesListResponse);
 
         if (isMounted) {
           setActiveCategoryId(categories[0]?.id ?? null);
           setDetail({ loading: false, series, categories, error: null });
+          setKnownGenres(uniqueGenres([...seriesCards.flatMap((item) => item.genres), ...series.genres]));
         }
       })
       .catch((error) => {
@@ -153,6 +203,99 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
       isMounted = false;
     };
   }, [seriesId]);
+
+  async function saveSeriesMetadata(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+
+    const api = getApi();
+
+    if (!api || !form) {
+      setMetadataError("App API is unavailable. Restart the app or check the preload script.");
+      return;
+    }
+
+    const title = form.title.trim();
+
+    if (!title) {
+      setMetadataError("Title is required.");
+      return;
+    }
+
+    setMetadataError(null);
+    setMetadataSaving(true);
+
+    try {
+      const series = unwrap(
+        await api.series.update(seriesId, {
+          title,
+          originalAuthor: form.originalAuthor.trim() || null,
+          genres: form.genres,
+          status: form.status,
+          description: form.description
+        })
+      );
+      setDetail((current) => ({ ...current, series }));
+      setKnownGenres((current) => uniqueGenres([...current, ...series.genres]));
+      setForm(null);
+    } catch (error) {
+      setMetadataError(String(error));
+    } finally {
+      setMetadataSaving(false);
+    }
+  }
+
+  async function chooseCover(): Promise<void> {
+    const api = getApi();
+
+    if (!api) {
+      setMetadataError("App API is unavailable. Restart the app or check the preload script.");
+      return;
+    }
+
+    setMetadataError(null);
+    setCoverSaving(true);
+
+    try {
+      const series = unwrap(await api.series.chooseCover(seriesId));
+
+      if (series) {
+        setDetail((current) => ({ ...current, series }));
+      }
+    } catch (error) {
+      setMetadataError(String(error));
+    } finally {
+      setCoverSaving(false);
+    }
+  }
+
+  function toggleGenre(genre: string): void {
+    setForm((current) =>
+      current
+        ? {
+            ...current,
+            genres: current.genres.includes(genre)
+              ? current.genres.filter((item) => item !== genre)
+              : uniqueGenres([...current.genres, genre])
+          }
+        : current
+    );
+  }
+
+  function addGenre(): void {
+    if (!form) {
+      return;
+    }
+
+    const genre = form.newGenre.trim();
+
+    if (!genre) {
+      return;
+    }
+
+    const nextGenres = uniqueGenres([...knownGenres, genre]);
+    setKnownGenres(nextGenres);
+    setForm({ ...form, genres: uniqueGenres([...form.genres, genre]), newGenre: "" });
+  }
 
   if (detail.loading) {
     return (
@@ -184,11 +327,115 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
       </button>
 
       <header className="series-detail-header">
-        <span>{formatLabel(detail.series.status)}</span>
-        <h2>{detail.series.title}</h2>
-        <p>{detail.series.originalAuthor ?? detail.series.translator ?? "Unknown author"}</p>
-        {detail.series.description ? <p>{detail.series.description}</p> : null}
+        <div className="series-detail-cover">
+          {detail.series.coverDataUrl ? (
+            <img alt="" src={detail.series.coverDataUrl} />
+          ) : (
+            <span>{detail.series.title.trim().slice(0, 1).toUpperCase() || "N"}</span>
+          )}
+        </div>
+        <div className="series-detail-info">
+          <span>{formatLabel(detail.series.status)}</span>
+          <h2>{detail.series.title}</h2>
+          <p>{detail.series.originalAuthor ?? detail.series.translator ?? "Unknown author"}</p>
+          {detail.series.genres.length > 0 ? (
+            <p className="series-detail-genres">{detail.series.genres.join(", ")}</p>
+          ) : null}
+          {detail.series.description ? <p>{detail.series.description}</p> : null}
+          <div className="series-detail-actions">
+            <button onClick={() => setForm(form ? null : formFromSeries(detail.series!))} type="button">
+              {form ? "Cancel edit" : "Edit metadata"}
+            </button>
+            <button disabled={coverSaving} onClick={() => void chooseCover()} type="button">
+              {coverSaving ? "Saving cover" : "Choose cover"}
+            </button>
+          </div>
+        </div>
       </header>
+
+      {metadataError ? <p className="error-text">{metadataError}</p> : null}
+
+      {form ? (
+        <form className="series-metadata-form" onSubmit={(event) => void saveSeriesMetadata(event)}>
+          <label>
+            <span>Title</span>
+            <input
+              autoFocus
+              onChange={(event) => setForm((current) => (current ? { ...current, title: event.target.value } : current))}
+              value={form.title}
+            />
+          </label>
+          <label>
+            <span>Author</span>
+            <input
+              onChange={(event) =>
+                setForm((current) => (current ? { ...current, originalAuthor: event.target.value } : current))
+              }
+              value={form.originalAuthor}
+            />
+          </label>
+          <label>
+            <span>Status</span>
+            <select
+              onChange={(event) =>
+                setForm((current) => (current ? { ...current, status: event.target.value as SeriesStatus } : current))
+              }
+              value={form.status}
+            >
+              {SERIES_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {formatLabel(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <fieldset className="series-genre-picker">
+            <legend>Genres</legend>
+            {knownGenres.length === 0 ? <p className="muted-text">No genres yet.</p> : null}
+            <div className="series-genre-options">
+              {knownGenres.map((genre) => (
+                <label key={genre}>
+                  <input checked={form.genres.includes(genre)} onChange={() => toggleGenre(genre)} type="checkbox" />
+                  <span>{genre}</span>
+                </label>
+              ))}
+            </div>
+            <div className="series-genre-add">
+              <input
+                onChange={(event) => setForm((current) => (current ? { ...current, newGenre: event.target.value } : current))}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addGenre();
+                  }
+                }}
+                placeholder="Add genre"
+                value={form.newGenre}
+              />
+              <button disabled={!form.newGenre.trim()} onClick={addGenre} type="button">
+                Add
+              </button>
+            </div>
+          </fieldset>
+          <label className="series-description-field">
+            <span>Description</span>
+            <textarea
+              onChange={(event) =>
+                setForm((current) => (current ? { ...current, description: event.target.value } : current))
+              }
+              value={form.description}
+            />
+          </label>
+          <div className="series-detail-actions">
+            <button className="primary-action" disabled={metadataSaving || !form.title.trim()} type="submit">
+              {metadataSaving ? "Saving" : "Save metadata"}
+            </button>
+            <button disabled={metadataSaving} onClick={() => setForm(null)} type="button">
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : null}
 
       {detail.categories.length === 0 ? (
         <section className="empty-state">
@@ -241,9 +488,18 @@ function CategoryPanel({
 }) {
   if (category.type === "manga") {
     return (
-      <section className="empty-state">
-        <h2>Manga</h2>
-        <p>Sẽ làm sau.</p>
+      <section className="category-panel">
+        <div className="category-heading">
+          <h3>{category.title}</h3>
+          <span>Manga</span>
+        </div>
+        <MangaChapterList
+          categoryId={category.id}
+          chapters={category.directChapters}
+          onReadChapter={onReadChapter}
+          seriesId={seriesId}
+          seriesTitle={seriesTitle}
+        />
       </section>
     );
   }
@@ -304,7 +560,7 @@ function ChapterList({
   volumeId
 }: {
   categoryId: string;
-  chapters: NovelChapterMetadata[];
+  chapters: ChapterMetadata[];
   onEditChapter: (target: ChapterTarget) => void;
   onReadChapter: (target: ChapterTarget) => void;
   seriesId: string;
@@ -312,7 +568,7 @@ function ChapterList({
   title: string;
   volumeId: string | null;
 }) {
-  function targetFor(chapter: NovelChapterMetadata): ChapterTarget {
+  function targetFor(chapter: ChapterMetadata): ChapterTarget {
     return {
       categoryId,
       chapterId: chapter.id,
@@ -324,8 +580,13 @@ function ChapterList({
   }
 
   return (
-    <section className="chapter-group">
-      <h4>{title}</h4>
+    <details className="chapter-group">
+      <summary>
+        <span className="chapter-group-title">{title}</span>
+        <span className="chapter-group-count">
+          {chapters.length} {chapters.length === 1 ? "chapter" : "chapters"}
+        </span>
+      </summary>
       {chapters.length === 0 ? (
         <p className="muted-text">No chapters yet.</p>
       ) : (
@@ -338,7 +599,7 @@ function ChapterList({
                 type="button"
               >
                 <span>{chapter.title}</span>
-                <span>{formatLabel(chapter.translationStatus)}</span>
+                <span>{formatLabel(chapter.translationStatus ?? "draft")}</span>
               </button>
               <button className="chapter-edit-action" onClick={() => onEditChapter(targetFor(chapter))} type="button">
                 Edit
@@ -347,6 +608,57 @@ function ChapterList({
           ))}
         </ol>
       )}
-    </section>
+    </details>
+  );
+}
+
+function MangaChapterList({
+  categoryId,
+  chapters,
+  onReadChapter,
+  seriesId,
+  seriesTitle
+}: {
+  categoryId: string;
+  chapters: ChapterMetadata[];
+  onReadChapter: (target: ChapterTarget) => void;
+  seriesId: string;
+  seriesTitle: string;
+}) {
+  if (chapters.length === 0) {
+    return <p className="muted-text">No manga chapters yet.</p>;
+  }
+
+  function targetFor(chapter: ChapterMetadata): ChapterTarget {
+    return {
+      categoryId,
+      categoryType: "manga",
+      chapterId: chapter.id,
+      seriesId,
+      seriesTitle,
+      title: chapter.title,
+      volumeId: null
+    };
+  }
+
+  return (
+    <details className="chapter-group">
+      <summary>
+        <span className="chapter-group-title">Chapters</span>
+        <span className="chapter-group-count">
+          {chapters.length} {chapters.length === 1 ? "chapter" : "chapters"}
+        </span>
+      </summary>
+      <ol>
+        {chapters.map((chapter) => (
+          <li key={chapter.id}>
+            <button className="chapter-row" onClick={() => onReadChapter(targetFor(chapter))} type="button">
+              <span>{chapter.title}</span>
+              <span>{chapter.pageCount ?? 0} pages</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </details>
   );
 }

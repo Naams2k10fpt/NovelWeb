@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import ImportWizard from "./pages/ImportWizard";
 import Library from "./pages/Library";
+import MangaReader from "./pages/MangaReader";
 import Manager from "./pages/Manager";
 import NovelEditor, { type ChapterTarget } from "./pages/NovelEditor";
 import NovelReader from "./pages/NovelReader";
 import Search from "./pages/Search";
 import SeriesDetail from "./pages/SeriesDetail";
 
-type Mode = "library" | "search" | "manager" | "import" | "settings";
+type Mode = "library" | "search" | "manager" | "settings";
 type ChapterMode = "edit" | "read";
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -45,11 +45,6 @@ const modes: Record<Mode, { label: string; eyebrow: string; title: string }> = {
     label: "Manager",
     eyebrow: "Manager",
     title: "Manage structure"
-  },
-  import: {
-    label: "Import",
-    eyebrow: "Import",
-    title: "Import content"
   },
   settings: {
     label: "Settings",
@@ -158,17 +153,22 @@ export default function App() {
     setSelectedSeriesId(seriesId);
   }
 
-  function openChapter(target: ChapterTarget, nextMode: ChapterMode): void {
+  function openChapter(target: ChapterTarget, nextMode: ChapterMode, keepLibraryContext = false): void {
     if (!confirmLeaveChapter()) {
       return;
     }
 
+    if (keepLibraryContext) {
+      setMode("library");
+      setSelectedSeriesId(target.seriesId);
+    }
+
     setChapterDirty(false);
-    setChapterMode(nextMode);
+    setChapterMode(target.categoryType === "manga" ? "read" : nextMode);
     setSelectedChapter(target);
   }
 
-  function closeChapter(): void {
+  function closeChapter(seriesId?: string): void {
     if (!confirmLeaveChapter()) {
       return;
     }
@@ -176,6 +176,10 @@ export default function App() {
     setChapterDirty(false);
     setChapterMode("read");
     setSelectedChapter(null);
+    if (seriesId) {
+      setMode("library");
+      setSelectedSeriesId(seriesId);
+    }
   }
 
   function confirmLeaveChapter(): boolean {
@@ -184,6 +188,16 @@ export default function App() {
 
   function renderWorkspaceContent() {
     if (selectedChapter) {
+      if (selectedChapter.categoryType === "manga") {
+        return (
+          <MangaReader
+            onBack={closeChapter}
+            onOpenChapter={(target) => openChapter(target, "read")}
+            target={selectedChapter}
+          />
+        );
+      }
+
       if (chapterMode === "edit") {
         return (
           <NovelEditor
@@ -198,7 +212,9 @@ export default function App() {
       return (
         <NovelReader
           onBack={closeChapter}
-          onEdit={() => openChapter(selectedChapter, "edit")}
+          onBackToSeries={() => closeChapter(selectedChapter.seriesId)}
+          onEdit={(target) => openChapter(target ?? selectedChapter, "edit")}
+          onOpenChapter={(target) => openChapter(target, "read")}
           target={selectedChapter}
         />
       );
@@ -234,7 +250,7 @@ export default function App() {
       return (
         <Search
           library={library}
-          onOpenChapter={(target) => openChapter(target, "read")}
+          onOpenChapter={(target) => openChapter(target, "read", true)}
           onOpenSettings={() => openMode("settings")}
         />
       );
@@ -256,10 +272,6 @@ export default function App() {
 
     if (mode === "manager") {
       return <Manager library={library} onOpenSettings={() => openMode("settings")} />;
-    }
-
-    if (mode === "import") {
-      return <ImportWizard library={library} onOpenSettings={() => openMode("settings")} />;
     }
 
     if (library.loading) {
