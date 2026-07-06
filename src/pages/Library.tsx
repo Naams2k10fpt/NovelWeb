@@ -37,16 +37,6 @@ type ReadingListEntry = {
   updatedAt: string;
 };
 
-type HighlightColor = "yellow" | "green" | "pink" | "blue";
-
-type HighlightEntry = ReadingListEntry & {
-  id: string;
-  text: string;
-  color: HighlightColor;
-  note: string;
-  createdAt: string;
-};
-
 type RendererApi = {
   series: {
     list: () => Promise<ApiResponse<SeriesCard[]>>;
@@ -56,10 +46,6 @@ type RendererApi = {
   };
   bookmarks?: {
     list: () => Promise<ApiResponse<ReadingListEntry[]>>;
-  };
-  highlights?: {
-    list: () => Promise<ApiResponse<HighlightEntry[]>>;
-    delete: (seriesId: string, highlightId: string) => Promise<ApiResponse<{ id: string }>>;
   };
 };
 
@@ -73,7 +59,6 @@ type ReadingState = {
   loading: boolean;
   recent: ReadingListEntry[];
   bookmarks: ReadingListEntry[];
-  highlights: HighlightEntry[];
   error: string | null;
 };
 
@@ -107,7 +92,6 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
     loading: false,
     recent: [],
     bookmarks: [],
-    highlights: [],
     error: null
   });
   const [series, setSeries] = useState<SeriesState>({
@@ -121,7 +105,7 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
 
     if (!library.path) {
       setSeries({ loading: false, items: [], error: null });
-      setReading({ loading: false, recent: [], bookmarks: [], highlights: [], error: null });
+      setReading({ loading: false, recent: [], bookmarks: [], error: null });
       return;
     }
 
@@ -132,20 +116,19 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
         items: [],
         error: "App API is unavailable. Restart the app or check the preload script."
       });
-      setReading({ loading: false, recent: [], bookmarks: [], highlights: [], error: null });
+      setReading({ loading: false, recent: [], bookmarks: [], error: null });
       return;
     }
 
     setSeries({ loading: true, items: [], error: null });
-    setReading({ loading: true, recent: [], bookmarks: [], highlights: [], error: null });
+    setReading({ loading: true, recent: [], bookmarks: [], error: null });
 
     void Promise.all([
       api.series.list(),
       api.reading?.listRecent() ?? Promise.resolve({ ok: true, data: [] } as ApiResponse<ReadingListEntry[]>),
-      api.bookmarks?.list() ?? Promise.resolve({ ok: true, data: [] } as ApiResponse<ReadingListEntry[]>),
-      api.highlights?.list() ?? Promise.resolve({ ok: true, data: [] } as ApiResponse<HighlightEntry[]>)
+      api.bookmarks?.list() ?? Promise.resolve({ ok: true, data: [] } as ApiResponse<ReadingListEntry[]>)
     ])
-      .then(([seriesResponse, recentResponse, bookmarksResponse, highlightsResponse]) => {
+      .then(([seriesResponse, recentResponse, bookmarksResponse]) => {
         if (!isMounted) {
           return;
         }
@@ -160,20 +143,17 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
           loading: false,
           recent: recentResponse.ok ? recentResponse.data : [],
           bookmarks: bookmarksResponse.ok ? bookmarksResponse.data : [],
-          highlights: highlightsResponse.ok ? highlightsResponse.data : [],
           error: !recentResponse.ok
             ? recentResponse.error.message
             : !bookmarksResponse.ok
               ? bookmarksResponse.error.message
-              : !highlightsResponse.ok
-                ? highlightsResponse.error.message
               : null
         });
       })
       .catch((error) => {
         if (isMounted) {
           setSeries({ loading: false, items: [], error: String(error) });
-          setReading({ loading: false, recent: [], bookmarks: [], highlights: [], error: null });
+          setReading({ loading: false, recent: [], bookmarks: [], error: null });
         }
       });
 
@@ -181,28 +161,6 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
       isMounted = false;
     };
   }, [library.path]);
-
-  async function deleteHighlight(item: HighlightEntry): Promise<void> {
-    const api = getApi();
-
-    if (!api?.highlights) {
-      setReading((current) => ({ ...current, error: "Highlight API is unavailable. Restart the app or check the preload script." }));
-      return;
-    }
-
-    const response = await api.highlights.delete(item.seriesId, item.id);
-
-    if (!response.ok) {
-      setReading((current) => ({ ...current, error: response.error.message }));
-      return;
-    }
-
-    setReading((current) => ({
-      ...current,
-      highlights: current.highlights.filter((highlight) => highlight.id !== item.id),
-      error: null
-    }));
-  }
 
   if (library.loading) {
     return (
@@ -253,9 +211,7 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
     <ReadingQuickSections
       bookmarks={reading.bookmarks}
       error={reading.error}
-      highlights={reading.highlights}
       loading={reading.loading}
-      onDeleteHighlight={(item) => void deleteHighlight(item)}
       onOpenChapter={onOpenChapter}
       recent={reading.recent}
     />
@@ -321,17 +277,13 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
 function ReadingQuickSections({
   bookmarks,
   error,
-  highlights,
   loading,
-  onDeleteHighlight,
   onOpenChapter,
   recent
 }: {
   bookmarks: ReadingListEntry[];
   error: string | null;
-  highlights: HighlightEntry[];
   loading: boolean;
-  onDeleteHighlight: (item: HighlightEntry) => void;
   onOpenChapter: (target: ChapterTarget) => void;
   recent: ReadingListEntry[];
 }) {
@@ -343,29 +295,69 @@ function ReadingQuickSections({
     return <p className="error-text">{error}</p>;
   }
 
-  if (recent.length === 0 && bookmarks.length === 0 && highlights.length === 0) {
+  if (recent.length === 0 && bookmarks.length === 0) {
     return null;
   }
 
   return (
     <section className="reading-quick-sections" aria-label="Reading shortcuts">
-      <ReadingQuickList
-        emptyText="No recent reading yet."
-        items={recent.slice(0, 5)}
-        onOpenChapter={onOpenChapter}
-        title="Recent"
-      />
+      <RecentQuickList items={recent} onOpenChapter={onOpenChapter} />
       <ReadingQuickList
         emptyText="No bookmarks yet."
         items={bookmarks.slice(0, 5)}
         onOpenChapter={onOpenChapter}
         title="Bookmarks"
       />
-      <HighlightQuickList
-        items={highlights.slice(0, 5)}
-        onDeleteHighlight={onDeleteHighlight}
-        onOpenChapter={onOpenChapter}
-      />
+    </section>
+  );
+}
+
+function RecentQuickList({
+  items,
+  onOpenChapter
+}: {
+  items: ReadingListEntry[];
+  onOpenChapter: (target: ChapterTarget) => void;
+}) {
+  const [page, setPage] = useState(0);
+  const recent = items.slice(0, 6);
+  const pageCount = Math.max(1, Math.ceil(recent.length / 3));
+  const pageIndex = Math.min(page, pageCount - 1);
+  const visibleItems = recent.slice(pageIndex * 3, pageIndex * 3 + 3);
+
+  return (
+    <section className="reading-quick-list">
+      <div className="reading-quick-header">
+        <h2>Recent</h2>
+        {pageCount > 1 ? (
+          <div className="reading-quick-pager">
+            <button disabled={pageIndex === 0} onClick={() => setPage(pageIndex - 1)} type="button">
+              Prev
+            </button>
+            <span>
+              {pageIndex + 1}/{pageCount}
+            </span>
+            <button disabled={pageIndex === pageCount - 1} onClick={() => setPage(pageIndex + 1)} type="button">
+              Next
+            </button>
+          </div>
+        ) : null}
+      </div>
+      {visibleItems.length === 0 ? (
+        <p className="muted-text">No recent reading yet.</p>
+      ) : (
+        <ol>
+          {visibleItems.map((item) => (
+            <li key={`Recent-${item.seriesId}-${item.categoryId}-${item.volumeId ?? "direct"}-${item.chapterId}`}>
+              <button className="reading-quick-link" onClick={() => onOpenChapter(targetFor(item))} type="button">
+                <strong>{item.chapterTitle}</strong>
+                <span>{[item.seriesTitle, item.volumeTitle].filter(Boolean).join(" / ")}</span>
+                <small>{formatDate(item.updatedAt)}</small>
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
     </section>
   );
 }
@@ -394,42 +386,6 @@ function ReadingQuickList({
                 <strong>{item.chapterTitle}</strong>
                 <span>{[item.seriesTitle, item.volumeTitle].filter(Boolean).join(" / ")}</span>
                 <small>{formatDate(item.updatedAt)}</small>
-              </button>
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
-  );
-}
-
-function HighlightQuickList({
-  items,
-  onDeleteHighlight,
-  onOpenChapter
-}: {
-  items: HighlightEntry[];
-  onDeleteHighlight: (item: HighlightEntry) => void;
-  onOpenChapter: (target: ChapterTarget) => void;
-}) {
-  return (
-    <section className="reading-quick-list">
-      <h2>Highlights</h2>
-      {items.length === 0 ? (
-        <p className="muted-text">No highlights yet.</p>
-      ) : (
-        <ol>
-          {items.map((item) => (
-            <li className="reading-highlight-item" key={`highlight-${item.id}`}>
-              <button className="reading-quick-link" onClick={() => onOpenChapter(targetFor(item))} type="button">
-                <strong>{item.chapterTitle}</strong>
-                <span>{[item.seriesTitle, item.volumeTitle].filter(Boolean).join(" / ")}</span>
-                <small>{item.text}</small>
-                {item.note ? <small>Note: {item.note}</small> : null}
-                <small>{formatDate(item.updatedAt)}</small>
-              </button>
-              <button className="reading-quick-delete" onClick={() => onDeleteHighlight(item)} type="button">
-                Delete
               </button>
             </li>
           ))}

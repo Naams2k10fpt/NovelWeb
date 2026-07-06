@@ -194,6 +194,37 @@ body {
   font-size: 18px;
 }
 
+.reading-quick-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.reading-quick-pager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #66707a;
+  font-size: 12px;
+}
+
+.reading-quick-pager button {
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid #cdbfaf;
+  border-radius: 5px;
+  background: #ffffff;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.reading-quick-pager button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .reading-quick-list ol {
   display: grid;
   gap: 6px;
@@ -229,24 +260,6 @@ body {
 
 .reading-quick-list small {
   font-size: 12px;
-}
-
-.reading-highlight-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-}
-
-.reading-quick-delete {
-  align-self: start;
-  min-height: 34px;
-  padding: 0 10px;
-  border: 1px solid #d6a3a3;
-  border-radius: 6px;
-  background: #fff6f6;
-  color: #9f1d1d;
-  font: inherit;
-  cursor: pointer;
 }
 
 .search-page {
@@ -341,15 +354,20 @@ body {
 
 .series-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 16px;
 }
 
 .series-card {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 138px;
   overflow: hidden;
+  padding: 12px;
   border: 1px solid #ddd4c7;
   border-radius: 8px;
-  background: #fffaf2;
+  background: #ffffff;
   color: inherit;
   font: inherit;
   text-align: left;
@@ -362,8 +380,11 @@ body {
 
 .series-cover {
   display: grid;
-  aspect-ratio: 3 / 4;
+  width: 92px;
+  aspect-ratio: 2 / 3;
   place-items: center;
+  overflow: hidden;
+  border-radius: 6px;
   background: #dfe8e7;
 }
 
@@ -375,14 +396,15 @@ body {
 
 .series-cover-placeholder {
   color: #2f6f73;
-  font-size: 48px;
+  font-size: 38px;
   font-weight: 700;
 }
 
 .series-card-body {
   display: grid;
   gap: 6px;
-  padding: 12px;
+  align-content: start;
+  min-width: 0;
 }
 
 .series-card h2,
@@ -391,8 +413,12 @@ body {
 }
 
 .series-card h2 {
+  display: -webkit-box;
+  overflow: hidden;
   font-size: 16px;
   line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .series-author {

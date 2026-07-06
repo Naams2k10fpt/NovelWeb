@@ -404,6 +404,16 @@ Ghi chú: Đã thêm MangaReader mở từ Series Detail, hỗ trợ long strip/
 Ghi chú: Đã thêm nhóm 2 tối thiểu: Reader có nút bookmark tại vị trí cuộn hiện tại; Library hiển thị Recent và Bookmarks để mở lại đúng chapter/vị trí.
 Ghi chú: Đã thêm nhóm 3 tối thiểu: Reader lưu đoạn text đang chọn kèm màu/note/vị trí vào `highlights.json`; Reader và Library hiển thị danh sách highlight/note, mở lại đúng chapter/vị trí và cho xóa.
 
+### Nhánh `library-feedback-polish` - phản hồi Library 2026-07-06
+
+- [x] Library: bỏ khu vực Highlights khỏi trang chính.
+- [x] Library: Recent chỉ lấy tối đa 6 mục, mỗi lần hiển thị tối đa 3 mục và có nút chuyển.
+- [x] Library: chỉnh card truyện gọn hơn, cover ổn định hơn khi tên dài.
+- [ ] Series metadata: thêm form sửa tên truyện, tác giả, mô tả, tình trạng và chọn ảnh bìa.
+- [ ] Manager: cho kéo chapter sang volume/category khác cho LN/WN, main process cập nhật metadata và thứ tự an toàn.
+- [ ] Search/Reader: click search result mở đúng vị trí đoạn match và tô sáng tạm thời đoạn đó.
+- [ ] Highlight mới: đổi highlight cũ thành marker "cần sửa" trong Reader, lưu note và cho Editor nhảy tới marker để sửa.
+
 ### Tiêu chí hoàn thành
 
 - [x] Search không cần quét toàn bộ file mỗi lần với thư viện vừa/lớn.
