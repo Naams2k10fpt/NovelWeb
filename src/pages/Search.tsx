@@ -76,13 +76,14 @@ function highlightedParts(text: string, query: string): Array<{ text: string; ma
   return parts;
 }
 
-function resultTarget(result: SearchResult): ChapterTarget {
+function resultTarget(result: SearchResult, searchText: string): ChapterTarget {
   return {
     seriesId: result.seriesId,
     categoryId: result.categoryId,
     volumeId: result.volumeId,
     chapterId: result.chapterId,
     seriesTitle: result.seriesTitle,
+    searchText,
     title: result.chapterTitle
   };
 }
@@ -219,7 +220,11 @@ export default function Search({
         <ol className="search-results">
           {results.map((result) => (
             <li key={`${result.seriesId}-${result.categoryId}-${result.volumeId ?? "direct"}-${result.chapterId}`}>
-              <button className="search-result-card" onClick={() => onOpenChapter(resultTarget(result))} type="button">
+              <button
+                className="search-result-card"
+                onClick={() => onOpenChapter(resultTarget(result, query.trim()))}
+                type="button"
+              >
                 <span className="search-result-path">
                   {[result.seriesTitle, result.categoryTitle, result.volumeTitle].filter(Boolean).join(" / ")}
                 </span>

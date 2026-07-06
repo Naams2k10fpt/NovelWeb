@@ -104,6 +104,79 @@ function formatDate(value: string): string {
   return new Date(value).toLocaleString();
 }
 
+function unwrapReaderSearchHits(root: Element): void {
+  for (const hit of Array.from(root.querySelectorAll("mark.reader-search-hit"))) {
+    const parent = hit.parentNode;
+
+    if (!parent) {
+      continue;
+    }
+
+    while (hit.firstChild) {
+      parent.insertBefore(hit.firstChild, hit);
+    }
+
+    parent.removeChild(hit);
+  }
+
+  root.normalize();
+}
+
+function textPosition(root: Element, offset: number): { node: Text; offset: number } | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let remaining = offset;
+  let node = walker.nextNode();
+
+  while (node) {
+    const text = node.textContent ?? "";
+
+    if (remaining <= text.length) {
+      return { node: node as Text, offset: remaining };
+    }
+
+    remaining -= text.length;
+    node = walker.nextNode();
+  }
+
+  return null;
+}
+
+function highlightSearchMatch(searchText: string): boolean {
+  const root = document.querySelector(".reader-content");
+  const needle = searchText.trim().toLowerCase();
+
+  if (!root || !needle) {
+    return false;
+  }
+
+  unwrapReaderSearchHits(root);
+
+  const index = (root.textContent ?? "").toLowerCase().indexOf(needle);
+  if (index === -1) {
+    return false;
+  }
+
+  const start = textPosition(root, index);
+  const end = textPosition(root, index + needle.length);
+
+  if (!start || !end) {
+    return false;
+  }
+
+  const range = document.createRange();
+  const mark = document.createElement("mark");
+
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset);
+  mark.className = "reader-search-hit reader-search-hit-active";
+  mark.append(range.extractContents());
+  range.insertNode(mark);
+  mark.scrollIntoView({ block: "center", behavior: "smooth" });
+  window.setTimeout(() => mark.classList.remove("reader-search-hit-active"), 2600);
+
+  return true;
+}
+
 export default function NovelReader({
   onBack,
   onEdit,
@@ -144,6 +217,7 @@ export default function NovelReader({
 
   useEffect(() => {
     let isMounted = true;
+    let jumpTimer: number | null = null;
     const api = getApi();
 
     if (!api) {
@@ -176,7 +250,13 @@ export default function NovelReader({
         setHighlights(unwrap(highlightsResponse));
         loadedRef.current = true;
         setLoading(false);
-        window.setTimeout(() => window.scrollTo({ top: target.scrollTop ?? unwrap(progressResponse).scrollTop }), 0);
+        jumpTimer = window.setTimeout(() => {
+          const didHighlightSearchMatch = target.searchText ? highlightSearchMatch(target.searchText) : false;
+
+          if (!didHighlightSearchMatch) {
+            window.scrollTo({ top: target.scrollTop ?? unwrap(progressResponse).scrollTop });
+          }
+        }, 0);
       })
       .catch((loadError) => {
         if (isMounted) {
@@ -192,8 +272,11 @@ export default function NovelReader({
       if (progressTimerRef.current) {
         clearTimeout(progressTimerRef.current);
       }
+      if (jumpTimer) {
+        clearTimeout(jumpTimer);
+      }
     };
-  }, [target.categoryId, target.chapterId, target.scrollTop, target.seriesId, target.volumeId]);
+  }, [target.categoryId, target.chapterId, target.scrollTop, target.searchText, target.seriesId, target.volumeId]);
 
   useEffect(() => {
     function handleScroll(): void {

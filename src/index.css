@@ -1382,6 +1382,23 @@ body {
   border-left: 3px solid #9fb4b2;
 }
 
+.reader-search-hit {
+  border-radius: 3px;
+  background: #f7d56f;
+  color: #23272f;
+  box-shadow: 0 0 0 2px rgb(247 213 111 / 35%);
+}
+
+.reader-search-hit-active {
+  animation: reader-search-pulse 1.3s ease-in-out 2;
+}
+
+@keyframes reader-search-pulse {
+  50% {
+    box-shadow: 0 0 0 7px rgb(47 111 115 / 22%);
+  }
+}
+
 .manga-reader {
   min-height: 100vh;
   margin: -32px;
