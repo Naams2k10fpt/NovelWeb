@@ -95,7 +95,7 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 - [x] Manager context actions.
 - [x] Import entry points from Manager.
 - [x] Chapter reorder and move between valid LN/WN folders.
-- [x] Ctrl/Shift multi-select chapters in Manager and move selected chapters together.
+- [x] Ctrl/Shift multi-select chapters in Manager and drag selected chapters to an exact drop position.
 - [x] Loading/empty/error states.
 
 ---

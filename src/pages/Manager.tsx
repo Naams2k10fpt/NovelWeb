@@ -254,62 +254,41 @@ function canDropChaptersInFolder(chapters: ChapterNode[], folder: ChapterFolderN
   return chapters.length > 0 && chapters.every((chapter) => canDropChapterInFolder(chapter, folder));
 }
 
+function canDropChaptersAtChapter(chapters: ChapterNode[], target: ChapterNode): boolean {
+  if (chapters.length === 0 || chapters.some((chapter) => chapter.id === target.id)) {
+    return false;
+  }
+
+  return chapters.every((chapter) => {
+    if (chapter.seriesId !== target.seriesId) {
+      return false;
+    }
+
+    if (sameChapterContainer(chapter, target)) {
+      return true;
+    }
+
+    return target.volumeId ? true : target.categoryType === "web-novel";
+  });
+}
+
 function chapterSiblings(series: SeriesNode[], chapter: ChapterNode): ChapterNode[] {
   return allNodes(series).filter(
     (node): node is ChapterNode => node.kind === "chapter" && sameChapterContainer(node, chapter)
   );
 }
 
-function movedChapterOrder(chapters: ChapterNode[], draggedId: string, targetId: string, placement: "before" | "after"): string[] {
-  const nextOrder = chapters.map((chapter) => chapter.id).filter((chapterId) => chapterId !== draggedId);
+function placedChapterOrder(chapters: ChapterNode[], draggedIds: string[], targetId: string, placement: "before" | "after"): string[] {
+  const movingIds = new Set(draggedIds);
+  const nextOrder = chapters.map((chapter) => chapter.id).filter((chapterId) => !movingIds.has(chapterId));
   const targetIndex = nextOrder.indexOf(targetId);
 
   if (targetIndex < 0) {
     return chapters.map((chapter) => chapter.id);
   }
 
-  nextOrder.splice(placement === "before" ? targetIndex : targetIndex + 1, 0, draggedId);
+  nextOrder.splice(placement === "before" ? targetIndex : targetIndex + 1, 0, ...draggedIds);
   return nextOrder;
-}
-
-function mergeOrderedChapters(chapters: ChapterNode[], orderedMetadata: ChapterMetadata[]): ChapterNode[] {
-  const chaptersById = new Map(chapters.map((chapter) => [chapter.id, chapter]));
-  return orderedMetadata
-    .map((metadata) => {
-      const chapter = chaptersById.get(metadata.id);
-      return chapter ? { ...chapter, ...metadata } : null;
-    })
-    .filter((chapter): chapter is ChapterNode => !!chapter);
-}
-
-function replaceChapterOrder(series: SeriesNode[], target: ChapterNode, orderedMetadata: ChapterMetadata[]): SeriesNode[] {
-  return series.map((seriesNode) => {
-    if (seriesNode.id !== target.seriesId) {
-      return seriesNode;
-    }
-
-    return {
-      ...seriesNode,
-      categories: seriesNode.categories.map((category) => {
-        if (category.id !== target.categoryId) {
-          return category;
-        }
-
-        if (target.volumeId === null) {
-          return { ...category, directChapters: mergeOrderedChapters(category.directChapters, orderedMetadata) };
-        }
-
-        return {
-          ...category,
-          volumes: category.volumes.map((volume) =>
-            volume.id === target.volumeId
-              ? { ...volume, chapters: mergeOrderedChapters(volume.chapters, orderedMetadata) }
-              : volume
-          )
-        };
-      })
-    };
-  });
 }
 
 function selectedChapterNodes(series: SeriesNode[], selectedKeys: Set<string>): ChapterNode[] {
@@ -525,40 +504,59 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     window.addEventListener("pointerup", stopResize);
   }
 
-  async function reorderChapters(
+  async function moveChaptersToPosition(
     dragged: ChapterNode | null,
-    target: ChapterNode,
+    targetChapter: ChapterNode,
     placement: "before" | "after"
   ): Promise<void> {
-    if (!api || !dragged || dragged.id === target.id) {
+    const chapters = draggedChaptersFor(dragged);
+
+    if (!api || chapters.length === 0) {
       return;
     }
 
+    const move = api.chapters.move;
     const reorder = api.chapters.reorder;
 
-    if (typeof reorder !== "function") {
+    if (typeof move !== "function" || typeof reorder !== "function") {
       setActionError("Restart the app to load the latest Manager API.");
       return;
     }
 
-    if (!sameChapterContainer(dragged, target)) {
-      setActionError("Drag chapters inside the same volume/category for now.");
+    if (!canDropChaptersAtChapter(chapters, targetChapter)) {
       return;
     }
 
-    const siblings = chapterSiblings(tree.series, target);
-    const chapterOrder = movedChapterOrder(siblings, dragged.id, target.id, placement);
-
-    if (chapterOrder.join("|") === siblings.map((chapter) => chapter.id).join("|")) {
-      return;
-    }
+    const movingIds = chapters.map((chapter) => chapter.id);
+    const chapterOrder = placedChapterOrder(chapterSiblings(tree.series, targetChapter), movingIds, targetChapter.id, placement);
+    const nextSelectedKeys = chapters.map(
+      (chapter) =>
+        `chapter:${chapter.seriesId}:${targetChapter.categoryId}:${targetChapter.volumeId ?? "direct"}:${chapter.id}`
+    );
+    const nextSelectedKey = nextSelectedKeys[nextSelectedKeys.length - 1] ?? null;
 
     setContextMenu(null);
     setActionError(null);
 
     try {
-      const orderedChapters = unwrap(await reorder(target.seriesId, target.categoryId, target.volumeId, { chapterOrder }));
-      setTree((current) => ({ ...current, series: replaceChapterOrder(current.series, target, orderedChapters) }));
+      for (const chapter of chapters) {
+        if (sameChapterContainer(chapter, targetChapter)) {
+          continue;
+        }
+
+        unwrap(
+          await move(chapter.seriesId, chapter.categoryId, chapter.volumeId, chapter.id, {
+            targetCategoryId: targetChapter.categoryId,
+            targetVolumeId: targetChapter.volumeId
+          })
+        );
+      }
+
+      unwrap(await reorder(targetChapter.seriesId, targetChapter.categoryId, targetChapter.volumeId, { chapterOrder }));
+      await refreshTree({ quiet: true });
+      setSelectedChapterKeys(new Set(nextSelectedKeys));
+      setSelectionAnchorKey(nextSelectedKey);
+      setSelectedKey(nextSelectedKey);
     } catch (error) {
       setActionError(String(error));
     }
@@ -965,7 +963,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                       setSelectedChapterKeys(new Set([key]));
                     }
                     setSelectionAnchorKey(key);
-                  } else {
+                  } else if (node.kind === "series") {
                     setSelectedChapterKeys(new Set());
                     setSelectionAnchorKey(null);
                   }
@@ -985,12 +983,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                 }}
                 onChapterDragOver={(event, node) => {
                   const draggedChapters = draggedChaptersFor(draggedChapter);
-                  if (
-                    draggedChapters.length !== 1 ||
-                    !draggedChapter ||
-                    !sameChapterContainer(draggedChapter, node) ||
-                    draggedChapter.id === node.id
-                  ) {
+                  if (!draggedChapter || !canDropChaptersAtChapter(draggedChapters, node)) {
                     return;
                   }
 
@@ -1013,13 +1006,8 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                 }}
                 onChapterDrop={(event, node) => {
                   event.preventDefault();
-                  if (draggedChaptersFor(draggedChapter).length !== 1) {
-                    setDraggedChapter(null);
-                    setDropTarget(null);
-                    return;
-                  }
                   const placement = dropTarget?.nodeKey === nodeKey(node) ? dropTarget.placement : "before";
-                  void reorderChapters(draggedChapter, node, placement).finally(() => {
+                  void moveChaptersToPosition(draggedChapter, node, placement).finally(() => {
                     setDraggedChapter(null);
                     setDropTarget(null);
                   });
