@@ -135,6 +135,7 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 - [x] Import MD with basic formatting.
 - [x] Import DOCX through `mammoth`.
 - [x] Import PDF through parser with fallback.
+- [x] Strip common PDF page number/footer markers during import.
 - [x] Preserve original PDF.
 - [x] PDF split view.
 - [x] Preserve original Markdown and show split view.

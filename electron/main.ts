@@ -1197,6 +1197,29 @@ function normalizeImportText(text: string): string {
   return text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
 }
 
+function stripPdfPageMarkers(text: string): string {
+  const lines = normalizeImportText(text).split("\n");
+  const removeIndexes = new Set<number>();
+  const pageMarkerPattern = /^[-\s]*(?:page\s*)?(\d+)\s*(?:of|\/)\s*(\d+)[-\s]*$/i;
+
+  lines.forEach((line, index) => {
+    const match = line.trim().match(pageMarkerPattern);
+    if (!match) {
+      return;
+    }
+
+    removeIndexes.add(index);
+
+    for (const neighbor of [index - 2, index - 1, index + 1, index + 2]) {
+      if (lines[neighbor]?.trim() === match[1]) {
+        removeIndexes.add(neighbor);
+      }
+    }
+  });
+
+  return lines.filter((_, index) => !removeIndexes.has(index)).join("\n");
+}
+
 async function extractPdfTextWithPdfParse(sourcePath: string): Promise<string> {
   const parser = new PDFParse({ data: new Uint8Array(await readFile(sourcePath)) });
 
@@ -1239,10 +1262,10 @@ async function extractPdfTextWithPdfjs(sourcePath: string): Promise<string> {
 
 async function extractPdfText(sourcePath: string): Promise<string> {
   try {
-    return await extractPdfTextWithPdfParse(sourcePath);
+    return stripPdfPageMarkers(await extractPdfTextWithPdfParse(sourcePath));
   } catch {
     // ponytail: fallback only when the primary parser throws; richer diagnostics can wait for import history.
-    return extractPdfTextWithPdfjs(sourcePath);
+    return stripPdfPageMarkers(await extractPdfTextWithPdfjs(sourcePath));
   }
 }
 
