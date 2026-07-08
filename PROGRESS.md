@@ -139,6 +139,7 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 - [x] Preserve original PDF.
 - [x] PDF split view.
 - [x] Preserve original Markdown and show split view.
+- [x] Import `illustrations` folders as image chapters.
 - [x] Import into new or existing series/category/volume.
 - [x] Progress and report UI.
 

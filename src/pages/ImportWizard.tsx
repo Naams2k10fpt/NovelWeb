@@ -10,7 +10,7 @@ type LibraryState = {
   error: string | null;
 };
 
-type ImportFileType = "txt" | "md" | "docx" | "pdf";
+type ImportFileType = "txt" | "md" | "docx" | "pdf" | "images";
 type ImportVolumeMode = "source" | "existing" | "none";
 
 type ImportPreviewNode = {
@@ -35,6 +35,7 @@ export type ImportPreview = {
     md: number;
     docx: number;
     pdf: number;
+    images: number;
   };
 };
 
@@ -141,7 +142,7 @@ function selectedChapterCount(nodes: ImportPlanNode[]): number {
 }
 
 function selectedTypeCounts(nodes: ImportPlanNode[]): Record<ImportFileType, number> {
-  const counts: Record<ImportFileType, number> = { txt: 0, md: 0, docx: 0, pdf: 0 };
+  const counts: Record<ImportFileType, number> = { txt: 0, md: 0, docx: 0, pdf: 0, images: 0 };
 
   for (const node of nodes) {
     if (node.kind === "chapter" && node.selected && node.fileType) {
@@ -154,6 +155,7 @@ function selectedTypeCounts(nodes: ImportPlanNode[]): Record<ImportFileType, num
       counts.md += childCounts.md;
       counts.docx += childCounts.docx;
       counts.pdf += childCounts.pdf;
+      counts.images += childCounts.images;
     }
   }
 
@@ -199,12 +201,16 @@ function isTextChapter(node: ImportPlanNode): boolean {
   return node.fileType === "txt" || node.fileType === "md" || node.fileType === "docx" || node.fileType === "pdf";
 }
 
+function isImportableChapter(node: ImportPlanNode): boolean {
+  return isTextChapter(node) || node.fileType === "images";
+}
+
 function fallbackChapterTitle(chapter: ImportPlanNode): string {
   return chapter.title.trim() || chapter.name.replace(/\.[^.]+$/, "");
 }
 
 function formatFileType(fileType?: ImportFileType): string {
-  return fileType ? fileType.toUpperCase() : "Folder";
+  return fileType === "images" ? "Images" : fileType ? fileType.toUpperCase() : "Folder";
 }
 
 export default function ImportWizard({
@@ -238,8 +244,12 @@ export default function ImportWizard({
   const selectedCount = selectedChapterCount(nodes);
   const selectedTypes = useMemo(() => selectedTypeCounts(nodes), [nodes]);
   const selectedChapters = useMemo(() => collectSelectedChapters(nodes), [nodes]);
+  const selectedImportableChapters = useMemo(
+    () => selectedChapters.filter((chapter) => isImportableChapter(chapter)),
+    [selectedChapters]
+  );
   const selectedTextChapters = useMemo(() => selectedChapters.filter((chapter) => isTextChapter(chapter)), [selectedChapters]);
-  const skippedSelectedCount = selectedCount - selectedTextChapters.length;
+  const skippedSelectedCount = selectedCount - selectedImportableChapters.length;
   const textReady = selectedTextChapters.every((chapter) => typeof editedTexts[chapter.id] === "string");
 
   async function chooseSourceFolder(): Promise<void> {
@@ -330,8 +340,8 @@ export default function ImportWizard({
       return;
     }
 
-    if (selectedTextChapters.length === 0) {
-      setError("Select at least one TXT, MD, DOCX, or PDF chapter.");
+    if (selectedImportableChapters.length === 0) {
+      setError("Select at least one TXT, MD, DOCX, PDF, or illustrations chapter.");
       return;
     }
 
@@ -466,12 +476,12 @@ export default function ImportWizard({
             <div>
               <h2>Import plan</h2>
               <p className="muted-text">
-                {selectedCount} chapters - TXT {selectedTypes.txt} - MD {selectedTypes.md} - DOCX {selectedTypes.docx} - PDF {selectedTypes.pdf}
+                {selectedCount} chapters - TXT {selectedTypes.txt} - MD {selectedTypes.md} - DOCX {selectedTypes.docx} - PDF {selectedTypes.pdf} - Images {selectedTypes.images}
               </p>
             </div>
             <button
               className="primary-action"
-              disabled={importing || textLoading || selectedTextChapters.length === 0 || !textReady}
+              disabled={importing || textLoading || selectedImportableChapters.length === 0 || !textReady}
               onClick={() => void executeImport()}
               type="button"
             >
@@ -485,6 +495,9 @@ export default function ImportWizard({
           {textLoading ? <p className="muted-text">Loading text preview.</p> : null}
           {selectedTypes.pdf > 0 ? (
             <p className="muted-text">Selected PDFs will import extracted text and keep the original file.</p>
+          ) : null}
+          {selectedTypes.images > 0 ? (
+            <p className="muted-text">Selected illustrations folders will import as image chapters.</p>
           ) : null}
           {skippedSelectedCount > 0 ? (
             <p className="muted-text">{skippedSelectedCount} selected chapters cannot be imported in this step.</p>
