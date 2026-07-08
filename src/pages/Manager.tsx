@@ -250,6 +250,10 @@ function canDropChapterInFolder(chapter: ChapterNode | null, folder: ChapterFold
   return folder.kind === "volume" ? true : folder.type === "web-novel";
 }
 
+function canDropChaptersInFolder(chapters: ChapterNode[], folder: ChapterFolderNode): boolean {
+  return chapters.length > 0 && chapters.every((chapter) => canDropChapterInFolder(chapter, folder));
+}
+
 function chapterSiblings(series: SeriesNode[], chapter: ChapterNode): ChapterNode[] {
   return allNodes(series).filter(
     (node): node is ChapterNode => node.kind === "chapter" && sameChapterContainer(node, chapter)
@@ -306,6 +310,27 @@ function replaceChapterOrder(series: SeriesNode[], target: ChapterNode, orderedM
       })
     };
   });
+}
+
+function selectedChapterNodes(series: SeriesNode[], selectedKeys: Set<string>): ChapterNode[] {
+  return allNodes(series).filter((node): node is ChapterNode => node.kind === "chapter" && selectedKeys.has(nodeKey(node)));
+}
+
+function chapterRangeKeys(series: SeriesNode[], anchor: ChapterNode, target: ChapterNode): string[] {
+  if (!sameChapterContainer(anchor, target)) {
+    return [nodeKey(target)];
+  }
+
+  const siblings = chapterSiblings(series, target);
+  const anchorIndex = siblings.findIndex((chapter) => chapter.id === anchor.id);
+  const targetIndex = siblings.findIndex((chapter) => chapter.id === target.id);
+
+  if (anchorIndex < 0 || targetIndex < 0) {
+    return [nodeKey(target)];
+  }
+
+  const [start, end] = anchorIndex < targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
+  return siblings.slice(start, end + 1).map(nodeKey);
 }
 
 async function loadCategory(api: RendererApi, seriesId: string, category: SupportedCategoryMetadata): Promise<CategoryNode> {
@@ -369,6 +394,8 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
   const [draggedChapter, setDraggedChapter] = useState<ChapterNode | null>(null);
   const [dropTarget, setDropTarget] = useState<ChapterDropState | null>(null);
   const [folderDropKey, setFolderDropKey] = useState<string | null>(null);
+  const [selectedChapterKeys, setSelectedChapterKeys] = useState<Set<string>>(() => new Set());
+  const [selectionAnchorKey, setSelectionAnchorKey] = useState<string | null>(null);
   const [treePaneWidth, setTreePaneWidth] = useState(38);
   const [resizing, setResizing] = useState(false);
   const managerLayoutRef = useRef<HTMLElement | null>(null);
@@ -376,6 +403,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
   const nodes = allNodes(tree.series);
   const selectedNode = nodes.find((node) => nodeKey(node) === selectedKey) ?? null;
   const menuNode = nodes.find((node) => nodeKey(node) === contextMenu?.nodeKey) ?? null;
+  const selectedChapters = selectedChapterNodes(tree.series, selectedChapterKeys);
 
   async function refreshTree(options: { quiet?: boolean } = {}): Promise<void> {
     if (!api || !library.path) {
@@ -397,12 +425,66 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     if (!library.path) {
       setTree({ loading: false, series: [], error: null });
       setExpandedKeys(new Set());
+      setSelectedChapterKeys(new Set());
+      setSelectionAnchorKey(null);
       return;
     }
 
     setExpandedKeys(new Set());
+    setSelectedChapterKeys(new Set());
+    setSelectionAnchorKey(null);
     void refreshTree();
   }, [library.path]);
+
+  function selectTreeNode(event: MouseEvent<HTMLButtonElement>, node: TreeNode): void {
+    const key = nodeKey(node);
+    setSelectedKey(key);
+
+    if (node.kind !== "chapter") {
+      setSelectedChapterKeys(new Set());
+      setSelectionAnchorKey(null);
+      return;
+    }
+
+    if (event.shiftKey && selectionAnchorKey) {
+      const anchor = nodes.find(
+        (item): item is ChapterNode => item.kind === "chapter" && nodeKey(item) === selectionAnchorKey
+      );
+      const rangeKeys = anchor ? chapterRangeKeys(tree.series, anchor, node) : [key];
+
+      setSelectedChapterKeys((current) => {
+        const next = event.ctrlKey || event.metaKey ? new Set(current) : new Set<string>();
+        rangeKeys.forEach((rangeKey) => next.add(rangeKey));
+        return next;
+      });
+      return;
+    }
+
+    setSelectionAnchorKey(key);
+
+    if (event.ctrlKey || event.metaKey) {
+      setSelectedChapterKeys((current) => {
+        const next = new Set(current);
+        if (next.has(key)) {
+          next.delete(key);
+        } else {
+          next.add(key);
+        }
+        return next;
+      });
+      return;
+    }
+
+    setSelectedChapterKeys(new Set([key]));
+  }
+
+  function draggedChaptersFor(dragged: ChapterNode | null): ChapterNode[] {
+    if (!dragged) {
+      return [];
+    }
+
+    return selectedChapterKeys.has(nodeKey(dragged)) ? selectedChapters : [dragged];
+  }
 
   function toggleExpanded(key: string): void {
     setExpandedKeys((current) => {
@@ -482,8 +564,10 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     }
   }
 
-  async function moveChapterToFolder(dragged: ChapterNode | null, folder: ChapterFolderNode): Promise<void> {
-    if (!api || !dragged) {
+  async function moveChaptersToFolder(dragged: ChapterNode | null, folder: ChapterFolderNode): Promise<void> {
+    const chapters = draggedChaptersFor(dragged);
+
+    if (!api || chapters.length === 0) {
       return;
     }
 
@@ -494,25 +578,32 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
       return;
     }
 
-    if (!canDropChapterInFolder(dragged, folder)) {
+    if (!canDropChaptersInFolder(chapters, folder)) {
       return;
     }
 
     const target = folderTarget(folder);
-    const nextSelectedKey = `chapter:${dragged.seriesId}:${target.categoryId}:${target.volumeId ?? "direct"}:${dragged.id}`;
+    const nextSelectedKeys = chapters.map(
+      (chapter) => `chapter:${chapter.seriesId}:${target.categoryId}:${target.volumeId ?? "direct"}:${chapter.id}`
+    );
+    const nextSelectedKey = nextSelectedKeys[nextSelectedKeys.length - 1] ?? null;
 
     setContextMenu(null);
     setActionError(null);
 
     try {
-      unwrap(
-        await move(dragged.seriesId, dragged.categoryId, dragged.volumeId, dragged.id, {
-          targetCategoryId: target.categoryId,
-          targetVolumeId: target.volumeId
-        })
-      );
+      for (const chapter of chapters) {
+        unwrap(
+          await move(chapter.seriesId, chapter.categoryId, chapter.volumeId, chapter.id, {
+            targetCategoryId: target.categoryId,
+            targetVolumeId: target.volumeId
+          })
+        );
+      }
       setExpandedKeys((current) => new Set(current).add(nodeKey(folder)));
       await refreshTree({ quiet: true });
+      setSelectedChapterKeys(new Set(nextSelectedKeys));
+      setSelectionAnchorKey(nextSelectedKey);
       setSelectedKey(nextSelectedKey);
     } catch (error) {
       setActionError(String(error));
@@ -868,10 +959,20 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                 onContextMenu={(event, node) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  setSelectedKey(nodeKey(node));
+                  const key = nodeKey(node);
+                  if (node.kind === "chapter") {
+                    if (!selectedChapterKeys.has(key)) {
+                      setSelectedChapterKeys(new Set([key]));
+                    }
+                    setSelectionAnchorKey(key);
+                  } else {
+                    setSelectedChapterKeys(new Set());
+                    setSelectionAnchorKey(null);
+                  }
+                  setSelectedKey(key);
                   setContextMenu({ x: event.clientX, y: event.clientY, nodeKey: nodeKey(node) });
                 }}
-                onSelect={(node) => setSelectedKey(nodeKey(node))}
+                onSelect={selectTreeNode}
                 expandedKeys={expandedKeys}
                 onToggle={toggleExpanded}
                 draggedChapter={draggedChapter}
@@ -883,7 +984,13 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                   setFolderDropKey(null);
                 }}
                 onChapterDragOver={(event, node) => {
-                  if (!draggedChapter || !sameChapterContainer(draggedChapter, node) || draggedChapter.id === node.id) {
+                  const draggedChapters = draggedChaptersFor(draggedChapter);
+                  if (
+                    draggedChapters.length !== 1 ||
+                    !draggedChapter ||
+                    !sameChapterContainer(draggedChapter, node) ||
+                    draggedChapter.id === node.id
+                  ) {
                     return;
                   }
 
@@ -894,12 +1001,23 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                   setDropTarget({ nodeKey: nodeKey(node), placement });
                 }}
                 onChapterDragStart={(event, node) => {
+                  const key = nodeKey(node);
+                  if (!selectedChapterKeys.has(key)) {
+                    setSelectedChapterKeys(new Set([key]));
+                    setSelectionAnchorKey(key);
+                    setSelectedKey(key);
+                  }
                   setDraggedChapter(node);
                   event.dataTransfer.effectAllowed = "move";
                   event.dataTransfer.setData("text/plain", nodeKey(node));
                 }}
                 onChapterDrop={(event, node) => {
                   event.preventDefault();
+                  if (draggedChaptersFor(draggedChapter).length !== 1) {
+                    setDraggedChapter(null);
+                    setDropTarget(null);
+                    return;
+                  }
                   const placement = dropTarget?.nodeKey === nodeKey(node) ? dropTarget.placement : "before";
                   void reorderChapters(draggedChapter, node, placement).finally(() => {
                     setDraggedChapter(null);
@@ -912,7 +1030,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                   }
                 }}
                 onFolderDragOver={(event, node) => {
-                  if (!canDropChapterInFolder(draggedChapter, node)) {
+                  if (!canDropChaptersInFolder(draggedChaptersFor(draggedChapter), node)) {
                     return;
                   }
 
@@ -922,13 +1040,14 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                 }}
                 onFolderDrop={(event, node) => {
                   event.preventDefault();
-                  void moveChapterToFolder(draggedChapter, node).finally(() => {
+                  void moveChaptersToFolder(draggedChapter, node).finally(() => {
                     setDraggedChapter(null);
                     setDropTarget(null);
                     setFolderDropKey(null);
                   });
                 }}
                 selectedKey={selectedKey}
+                selectedChapterKeys={selectedChapterKeys}
               />
             ))}
           </div>
@@ -1059,8 +1178,9 @@ type TreeItemSharedProps = {
   onFolderDragLeave: (node: ChapterFolderNode) => void;
   onFolderDragOver: (event: DragEvent<HTMLButtonElement>, node: ChapterFolderNode) => void;
   onFolderDrop: (event: DragEvent<HTMLButtonElement>, node: ChapterFolderNode) => void;
-  onSelect: (node: TreeNode) => void;
+  onSelect: (event: MouseEvent<HTMLButtonElement>, node: TreeNode) => void;
   onToggle: (key: string) => void;
+  selectedChapterKeys: Set<string>;
   selectedKey: string | null;
 };
 
@@ -1078,6 +1198,7 @@ function TreeButton({
   onFolderDrop,
   onSelect,
   onToggle,
+  selectedChapterKeys,
   selectedKey,
   dropTarget,
   folderDropKey
@@ -1089,6 +1210,7 @@ function TreeButton({
   const key = nodeKey(node);
   const isChapter = node.kind === "chapter";
   const isFolder = node.kind === "category" || node.kind === "volume";
+  const selected = selectedKey === key || (isChapter && selectedChapterKeys.has(key));
   const dropClass =
     dropTarget?.nodeKey === key
       ? ` tree-node-drop-${dropTarget.placement}`
@@ -1115,9 +1237,9 @@ function TreeButton({
         <span className="tree-caret tree-caret-empty" />
       )}
       <button
-        className={`${selectedKey === key ? "tree-node tree-node-active" : "tree-node"}${dropClass}`}
+        className={`${selected ? "tree-node tree-node-active" : "tree-node"}${dropClass}`}
         draggable={isChapter}
-        onClick={() => onSelect(node)}
+        onClick={(event) => onSelect(event, node)}
         onContextMenu={(event) => onContextMenu(event, node)}
         onDragEnd={isChapter ? onChapterDragEnd : undefined}
         onDragStart={isChapter ? (event) => onChapterDragStart(event, node) : undefined}
