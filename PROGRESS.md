@@ -31,7 +31,7 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 - [x] Library data stored in a user-selected folder.
 - [x] App settings stored in `app.getPath("userData")`.
 - [x] LN/WN-only product scope confirmed.
-- [x] PDF import is best-effort extracted text plus original file.
+- [x] PDF import is best-effort extracted text/images plus original file.
 - [x] OCR/scanned PDF remains out of scope.
 
 ---
@@ -136,9 +136,11 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 - [x] Import MD with basic formatting.
 - [x] Import DOCX through `mammoth`.
 - [x] Import PDF through parser with fallback.
+- [x] Import PDF images as best-effort chapter assets.
 - [x] Strip common PDF page number/footer markers during import.
 - [x] Preserve original PDF.
 - [x] PDF split view.
+- [x] PDF split view renders large originals through Blob URLs.
 - [x] Preserve original Markdown and show split view.
 - [x] Import `illustrations` folders as image chapters.
 - [x] Import into new or existing series/category/volume.
