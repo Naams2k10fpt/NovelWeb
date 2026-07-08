@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { PDFParse } from "pdf-parse";
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { OPS, getDocument, type PDFDocumentProxy, type PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
   SERIES_METADATA_SCHEMA_VERSION,
   SERIES_STATUSES,
@@ -52,6 +52,13 @@ const IMPORT_FILE_TYPES = {
   ".docx": "docx",
   ".pdf": "pdf"
 } as const;
+const PDF_IMAGE_RENDER_SCALE = 2;
+const PDF_IMAGE_OPERATORS = new Set<number>([
+  OPS.paintImageXObject,
+  OPS.paintInlineImageXObject,
+  OPS.paintInlineImageXObjectGroup,
+  OPS.paintImageXObjectRepeat
+]);
 const SUPPORTED_SCHEMA_VERSION = 1;
 const MAX_SEARCH_RESULTS = 50;
 const SEARCH_SNIPPET_RADIUS = 90;
@@ -159,6 +166,28 @@ type ImportPlanChapter = {
   title: string;
   volumeTitle: string;
   text: string;
+};
+
+type PdfCanvas = {
+  width: number;
+  height: number;
+  toBuffer(mimeType: "image/png"): Buffer;
+};
+
+type PdfCanvasEntry = {
+  canvas: PdfCanvas;
+  context: CanvasRenderingContext2D;
+};
+
+type PdfCanvasFactory = {
+  create(width: number, height: number): PdfCanvasEntry;
+  destroy(entry: PdfCanvasEntry): void;
+};
+
+type PdfImageImportResult = {
+  html: string;
+  count: number;
+  error: string | null;
 };
 
 type ImportVolumeMode = "source" | "existing" | "none";
@@ -1625,6 +1654,93 @@ async function copyImportedPdf(
   await rename(tmpPath, targetPath);
 }
 
+function pdfCanvasFactory(pdf: PDFDocumentProxy): PdfCanvasFactory {
+  const factory = pdf.canvasFactory as Partial<PdfCanvasFactory>;
+
+  if (typeof factory.create !== "function" || typeof factory.destroy !== "function") {
+    throw new Error("PDF canvas factory is not available.");
+  }
+
+  return factory as PdfCanvasFactory;
+}
+
+async function pdfPageHasImages(page: PDFPageProxy): Promise<boolean> {
+  const operatorList = await page.getOperatorList();
+  return operatorList.fnArray.some((operator) => PDF_IMAGE_OPERATORS.has(operator));
+}
+
+async function importPdfPageImages(
+  factory: PdfCanvasFactory,
+  page: PDFPageProxy,
+  pageNumber: number,
+  writeImage: (fileName: string, image: Buffer) => Promise<void>
+): Promise<string[]> {
+  try {
+    if (!(await pdfPageHasImages(page))) {
+      return [];
+    }
+
+    const viewport = page.getViewport({ scale: PDF_IMAGE_RENDER_SCALE });
+    const pageCanvas = factory.create(Math.ceil(viewport.width), Math.ceil(viewport.height));
+
+    try {
+      const renderTask = page.render({
+        canvas: pageCanvas.canvas as unknown as HTMLCanvasElement,
+        canvasContext: pageCanvas.context,
+        viewport
+      });
+      await renderTask.promise;
+
+      const fileName = `${randomUUID()}.png`;
+      await writeImage(fileName, pageCanvas.canvas.toBuffer("image/png"));
+      return [`<p><img alt="PDF page ${pageNumber}" src="${escapeHtmlAttribute(chapterAssetSource(fileName))}"></p>`];
+    } finally {
+      factory.destroy(pageCanvas);
+    }
+  } finally {
+    page.cleanup();
+  }
+}
+
+async function copyImportedPdfImages(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  sourcePath: string
+): Promise<PdfImageImportResult> {
+  try {
+    const loadingTask = getDocument({ data: new Uint8Array(await readFile(sourcePath)) });
+    const pdf = await loadingTask.promise;
+
+    try {
+      const factory = pdfCanvasFactory(pdf);
+      const html: string[] = [];
+      await mkdir(chapterAssetsDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), { recursive: true });
+
+      const writeImage = async (fileName: string, image: Buffer): Promise<void> => {
+        const targetPath = chapterAssetPath(libraryPath, seriesId, categoryId, volumeId, chapterId, fileName);
+        const tmpPath = `${targetPath}.tmp`;
+
+        await writeFile(tmpPath, image);
+        await rename(tmpPath, targetPath);
+      };
+
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        html.push(...(await importPdfPageImages(factory, await pdf.getPage(pageNumber), pageNumber, writeImage)));
+      }
+
+      return { html: html.join("\n"), count: html.length, error: null };
+    } finally {
+      await loadingTask.destroy();
+    }
+  } catch (error) {
+    // ponytail: PDF images are best-effort; original.pdf remains the fallback source.
+    return { html: "", count: 0, error: String(error) };
+  }
+}
+
 async function copyImportedMarkdown(
   libraryPath: string,
   seriesId: string,
@@ -1778,6 +1894,7 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
       });
 
       let html = importChapterTextToHtml(chapter.text, chapter.sourceFile.fileType);
+      let pdfImages: PdfImageImportResult = { html: "", count: 0, error: null };
 
       if (chapter.sourceFile.fileType === "images") {
         html = await copyImportedIllustrations(
@@ -1790,6 +1907,15 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
         );
       } else if (chapter.sourceFile.fileType === "pdf") {
         await copyImportedPdf(libraryPath, series.id, category.id, volumeId, metadata.id, chapter.sourceFile.sourcePath);
+        pdfImages = await copyImportedPdfImages(
+          libraryPath,
+          series.id,
+          category.id,
+          volumeId,
+          metadata.id,
+          chapter.sourceFile.sourcePath
+        );
+        html = [pdfImages.html, html].filter(Boolean).join("\n");
       } else if (chapter.sourceFile.fileType === "md") {
         await copyImportedMarkdown(libraryPath, series.id, category.id, volumeId, metadata.id, chapter.sourceFile.sourcePath);
       }
@@ -1798,7 +1924,8 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
         html
       });
       imported += 1;
-      const unsupportedPdf = chapter.sourceFile.fileType === "pdf" && normalizeImportText(chapter.text).trim() === "";
+      const unsupportedPdf =
+        chapter.sourceFile.fileType === "pdf" && normalizeImportText(chapter.text).trim() === "" && pdfImages.count === 0;
       logs.push({
         status: unsupportedPdf ? "unsupported" : "imported",
         fileId: chapter.fileId,
@@ -1806,8 +1933,8 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
         message:
           chapter.sourceFile.fileType === "pdf"
             ? unsupportedPdf
-              ? `Saved original PDF ${chapter.sourceFile.relativePath}; no extractable text was found.`
-              : `Imported ${chapter.sourceFile.relativePath} and saved original PDF.`
+              ? `Saved original PDF ${chapter.sourceFile.relativePath}; no extractable text or images were found.`
+              : `Imported ${chapter.sourceFile.relativePath} and saved original PDF${pdfImages.count > 0 ? ` with ${pdfImages.count} image pages` : ""}.${pdfImages.error ? ` Image extraction warning: ${pdfImages.error}` : ""}`
             : chapter.sourceFile.fileType === "images"
               ? `Imported illustrations from ${chapter.sourceFile.relativePath}.`
             : `Imported ${chapter.sourceFile.relativePath}.`
