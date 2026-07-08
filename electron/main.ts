@@ -111,7 +111,8 @@ type ImportSessionFile = {
   sizeBytes: number;
 };
 
-type ImportFileType = (typeof IMPORT_FILE_TYPES)[keyof typeof IMPORT_FILE_TYPES];
+type ImportTextFileType = (typeof IMPORT_FILE_TYPES)[keyof typeof IMPORT_FILE_TYPES];
+type ImportFileType = ImportTextFileType | "images";
 
 type ImportPreviewNode = {
   id: string;
@@ -135,10 +136,9 @@ type ImportPreview = {
     md: number;
     docx: number;
     pdf: number;
+    images: number;
   };
 };
-
-type ImportTextFileType = ImportFileType;
 
 type ImportSourceFile = {
   fileId: string;
@@ -926,12 +926,34 @@ function isImportTextFileType(fileType: ImportFileType | null): fileType is Impo
   return fileType === "txt" || fileType === "md" || fileType === "docx" || fileType === "pdf";
 }
 
-function isImportableFileType(fileType: ImportFileType | null): fileType is ImportTextFileType {
-  return isImportTextFileType(fileType);
+function isImportableFileType(fileType: ImportFileType | null): fileType is ImportFileType {
+  return isImportTextFileType(fileType) || fileType === "images";
 }
 
 function toImportRelativePath(parts: string[]): string {
   return parts.join("/");
+}
+
+function isIllustrationsDirectoryName(name: string): boolean {
+  return /^illustrations?$/i.test(name.trim());
+}
+
+async function listImportImageFiles(directoryPath: string): Promise<Array<{ name: string; path: string; sizeBytes: number }>> {
+  const entries = (await readdir(directoryPath, { withFileTypes: true })).sort((left, right) =>
+    left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
+  );
+  const files: Array<{ name: string; path: string; sizeBytes: number }> = [];
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !IMAGE_FILE_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
+      continue;
+    }
+
+    const path = join(directoryPath, entry.name);
+    files.push({ name: entry.name, path, sizeBytes: (await stat(path)).size });
+  }
+
+  return files;
 }
 
 function hasChapterNode(node: ImportPreviewNode): boolean {
@@ -939,7 +961,7 @@ function hasChapterNode(node: ImportPreviewNode): boolean {
 }
 
 function countImportPreview(nodes: ImportPreviewNode[]): ImportPreview["counts"] {
-  const counts: ImportPreview["counts"] = { volumes: 0, chapters: 0, txt: 0, md: 0, docx: 0, pdf: 0 };
+  const counts: ImportPreview["counts"] = { volumes: 0, chapters: 0, txt: 0, md: 0, docx: 0, pdf: 0, images: 0 };
 
   for (const node of nodes) {
     if (node.kind === "volume") {
@@ -959,6 +981,7 @@ function countImportPreview(nodes: ImportPreviewNode[]): ImportPreview["counts"]
       counts.md += childCounts.md;
       counts.docx += childCounts.docx;
       counts.pdf += childCounts.pdf;
+      counts.images += childCounts.images;
     }
   }
 
@@ -977,6 +1000,22 @@ async function scanImportDirectory(sourceRootPath: string, parts: string[] = [])
     const relativePath = toImportRelativePath(childParts);
 
     if (entry.isDirectory()) {
+      if (isIllustrationsDirectoryName(entry.name)) {
+        const imageFiles = await listImportImageFiles(sourceChildPath(sourceRootPath, ...childParts));
+
+        if (imageFiles.length > 0) {
+          nodes.push({
+            id: importFileId(relativePath),
+            name: entry.name,
+            relativePath,
+            kind: "chapter",
+            fileType: "images",
+            sizeBytes: imageFiles.reduce((total, file) => total + file.sizeBytes, 0)
+          });
+          continue;
+        }
+      }
+
       const children = await scanImportDirectory(sourceRootPath, childParts);
 
       if (children.length > 0) {
@@ -1181,6 +1220,19 @@ async function readImportSourceFile(session: ImportSession, fileId: unknown): Pr
   const sourcePath = sourceChildPath(session.sourceFolderPath, ...relativePath.split("/"));
   const sourceStat = await stat(sourcePath);
 
+  if (sourceStat.isDirectory() && isIllustrationsDirectoryName(basename(relativePath))) {
+    const imageFiles = await listImportImageFiles(sourcePath);
+
+    if (imageFiles.length > 0) {
+      return {
+        fileId: safeFileId,
+        relativePath,
+        sourcePath,
+        fileType: "images"
+      };
+    }
+  }
+
   if (!sourceStat.isFile()) {
     throw new Error("Import source is not a file.");
   }
@@ -1195,6 +1247,29 @@ async function readImportSourceFile(session: ImportSession, fileId: unknown): Pr
 
 function normalizeImportText(text: string): string {
   return text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+}
+
+function stripPdfPageMarkers(text: string): string {
+  const lines = normalizeImportText(text).split("\n");
+  const removeIndexes = new Set<number>();
+  const pageMarkerPattern = /^[-\s]*(?:page\s*)?(\d+)\s*(?:of|\/)\s*(\d+)[-\s]*$/i;
+
+  lines.forEach((line, index) => {
+    const match = line.trim().match(pageMarkerPattern);
+    if (!match) {
+      return;
+    }
+
+    removeIndexes.add(index);
+
+    for (const neighbor of [index - 2, index - 1, index + 1, index + 2]) {
+      if (lines[neighbor]?.trim() === match[1]) {
+        removeIndexes.add(neighbor);
+      }
+    }
+  });
+
+  return lines.filter((_, index) => !removeIndexes.has(index)).join("\n");
 }
 
 async function extractPdfTextWithPdfParse(sourcePath: string): Promise<string> {
@@ -1239,10 +1314,10 @@ async function extractPdfTextWithPdfjs(sourcePath: string): Promise<string> {
 
 async function extractPdfText(sourcePath: string): Promise<string> {
   try {
-    return await extractPdfTextWithPdfParse(sourcePath);
+    return stripPdfPageMarkers(await extractPdfTextWithPdfParse(sourcePath));
   } catch {
     // ponytail: fallback only when the primary parser throws; richer diagnostics can wait for import history.
-    return extractPdfTextWithPdfjs(sourcePath);
+    return stripPdfPageMarkers(await extractPdfTextWithPdfjs(sourcePath));
   }
 }
 
@@ -1565,6 +1640,39 @@ async function copyImportedMarkdown(
   await rename(tmpPath, targetPath);
 }
 
+async function copyImportedIllustrations(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  sourceDirectoryPath: string
+): Promise<string> {
+  const imageFiles = await listImportImageFiles(sourceDirectoryPath);
+
+  if (imageFiles.length === 0) {
+    throw new Error("Illustrations folder has no supported images.");
+  }
+
+  await mkdir(chapterAssetsDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), { recursive: true });
+
+  const html: string[] = [];
+  for (const image of imageFiles) {
+    const extension = extname(image.name).toLowerCase();
+    const fileName = `${randomUUID()}${extension}`;
+    const targetPath = chapterAssetPath(libraryPath, seriesId, categoryId, volumeId, chapterId, fileName);
+    const tmpPath = `${targetPath}.tmp`;
+
+    await copyFile(image.path, tmpPath);
+    await rename(tmpPath, targetPath);
+    html.push(
+      `<p><img alt="${escapeHtmlAttribute(basename(image.name, extension))}" src="${escapeHtmlAttribute(chapterAssetSource(fileName))}"></p>`
+    );
+  }
+
+  return html.join("\n");
+}
+
 async function prepareImportDestination(
   libraryPath: string,
   target: ImportTarget
@@ -1637,7 +1745,7 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
   }
 
   if (importableChapters.length === 0) {
-    throw new Error("No TXT, MD, DOCX, or PDF chapters could be imported.");
+    throw new Error("No TXT, MD, DOCX, PDF, or illustrations chapters could be imported.");
   }
 
   const destination = await prepareImportDestination(libraryPath, plan.target);
@@ -1669,16 +1777,25 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
             : null
       });
 
-      if (chapter.sourceFile.fileType === "pdf") {
-        await copyImportedPdf(libraryPath, series.id, category.id, volumeId, metadata.id, chapter.sourceFile.sourcePath);
-      }
+      let html = importChapterTextToHtml(chapter.text, chapter.sourceFile.fileType);
 
-      if (chapter.sourceFile.fileType === "md") {
+      if (chapter.sourceFile.fileType === "images") {
+        html = await copyImportedIllustrations(
+          libraryPath,
+          series.id,
+          category.id,
+          volumeId,
+          metadata.id,
+          chapter.sourceFile.sourcePath
+        );
+      } else if (chapter.sourceFile.fileType === "pdf") {
+        await copyImportedPdf(libraryPath, series.id, category.id, volumeId, metadata.id, chapter.sourceFile.sourcePath);
+      } else if (chapter.sourceFile.fileType === "md") {
         await copyImportedMarkdown(libraryPath, series.id, category.id, volumeId, metadata.id, chapter.sourceFile.sourcePath);
       }
 
       await saveNovelChapterContent(libraryPath, series.id, category.id, volumeId, metadata.id, {
-        html: importChapterTextToHtml(chapter.text, chapter.sourceFile.fileType)
+        html
       });
       imported += 1;
       const unsupportedPdf = chapter.sourceFile.fileType === "pdf" && normalizeImportText(chapter.text).trim() === "";
@@ -1691,6 +1808,8 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
             ? unsupportedPdf
               ? `Saved original PDF ${chapter.sourceFile.relativePath}; no extractable text was found.`
               : `Imported ${chapter.sourceFile.relativePath} and saved original PDF.`
+            : chapter.sourceFile.fileType === "images"
+              ? `Imported illustrations from ${chapter.sourceFile.relativePath}.`
             : `Imported ${chapter.sourceFile.relativePath}.`
       });
     } catch (error) {
