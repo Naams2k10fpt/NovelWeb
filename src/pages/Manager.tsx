@@ -23,7 +23,7 @@ type ManagerProps = {
   onOpenSettings: () => void;
 };
 
-type CategoryType = "light-novel" | "web-novel" | "manga";
+type CategoryType = "light-novel" | "web-novel";
 
 type SeriesCard = {
   id: string;
@@ -33,7 +33,7 @@ type SeriesCard = {
 
 type CategoryMetadata = {
   id: string;
-  type: CategoryType;
+  type: string;
   title: string;
 };
 
@@ -46,8 +46,6 @@ type ChapterMetadata = {
   id: string;
   title: string;
   translationStatus?: string;
-  pageCount?: number;
-  totalSizeBytes?: number;
 };
 
 type ChapterNode = ChapterMetadata & {
@@ -66,7 +64,11 @@ type VolumeNode = VolumeMetadata & {
   chapters: ChapterNode[];
 };
 
-type CategoryNode = CategoryMetadata & {
+type SupportedCategoryMetadata = CategoryMetadata & {
+  type: CategoryType;
+};
+
+type CategoryNode = SupportedCategoryMetadata & {
   kind: "category";
   seriesId: string;
   volumes: VolumeNode[];
@@ -112,24 +114,6 @@ type ManagerImportState = {
   preview: ImportPreview;
   source: ImportSource;
   target: ImportTargetPreset;
-};
-
-type MangaPageSummary = {
-  fileName: string;
-  thumbnailFileName: string;
-  thumbnailDataUrl: string | null;
-  sizeBytes: number;
-};
-
-type MangaChapterPages = {
-  chapter: ChapterMetadata;
-  pages: MangaPageSummary[];
-};
-
-type MangaPageData = {
-  fileName: string;
-  dataUrl: string;
-  sizeBytes: number;
 };
 
 type ManagerAction = {
@@ -186,34 +170,6 @@ type RendererApi = {
       chapterId: string
     ) => Promise<ApiResponse<unknown>>;
   };
-  manga?: {
-    listPages: (seriesId: string, categoryId: string, chapterId: string) => Promise<ApiResponse<MangaChapterPages>>;
-    choosePages: (seriesId: string, categoryId: string, chapterId: string) => Promise<ApiResponse<MangaChapterPages | null>>;
-    addDroppedPages: (
-      seriesId: string,
-      categoryId: string,
-      chapterId: string,
-      files: File[]
-    ) => Promise<ApiResponse<MangaChapterPages>>;
-    getPage: (
-      seriesId: string,
-      categoryId: string,
-      chapterId: string,
-      pageFileName: string
-    ) => Promise<ApiResponse<MangaPageData>>;
-    removePages: (
-      seriesId: string,
-      categoryId: string,
-      chapterId: string,
-      input: unknown
-    ) => Promise<ApiResponse<MangaChapterPages>>;
-    reorderPages: (
-      seriesId: string,
-      categoryId: string,
-      chapterId: string,
-      input: unknown
-    ) => Promise<ApiResponse<MangaChapterPages>>;
-  };
   import: {
     chooseSourceFolder: () => Promise<ApiResponse<ImportSource | null>>;
     chooseSourceFiles: () => Promise<ApiResponse<ImportSource | null>>;
@@ -235,6 +191,10 @@ function unwrap<T>(response: ApiResponse<T>): T {
 
 function formatLabel(value: string): string {
   return value.replace(/-/g, " ").replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
+function isSupportedCategory(category: CategoryMetadata): category is SupportedCategoryMetadata {
+  return category.type === "light-novel" || category.type === "web-novel";
 }
 
 function nodeKey(node: TreeNode): string {
@@ -277,7 +237,7 @@ function folderTarget(node: ChapterFolderNode): { seriesId: string; categoryId: 
 }
 
 function canDropChapterInFolder(chapter: ChapterNode | null, folder: ChapterFolderNode): boolean {
-  if (!chapter || chapter.categoryType === "manga" || chapter.seriesId !== folder.seriesId) {
+  if (!chapter || chapter.seriesId !== folder.seriesId) {
     return false;
   }
 
@@ -287,7 +247,7 @@ function canDropChapterInFolder(chapter: ChapterNode | null, folder: ChapterFold
     return false;
   }
 
-  return folder.kind === "volume" ? folder.categoryType !== "manga" : folder.type === "web-novel";
+  return folder.kind === "volume" ? true : folder.type === "web-novel";
 }
 
 function chapterSiblings(series: SeriesNode[], chapter: ChapterNode): ChapterNode[] {
@@ -348,24 +308,7 @@ function replaceChapterOrder(series: SeriesNode[], target: ChapterNode, orderedM
   });
 }
 
-async function loadCategory(api: RendererApi, seriesId: string, category: CategoryMetadata): Promise<CategoryNode> {
-  if (category.type === "manga") {
-    return {
-      ...category,
-      kind: "category",
-      seriesId,
-      volumes: [],
-      directChapters: unwrap(await api.chapters.list(seriesId, category.id, null)).map((chapter) => ({
-        ...chapter,
-        kind: "chapter",
-        seriesId,
-        categoryId: category.id,
-        categoryType: category.type,
-        volumeId: null
-      }))
-    };
-  }
-
+async function loadCategory(api: RendererApi, seriesId: string, category: SupportedCategoryMetadata): Promise<CategoryNode> {
   const volumes = unwrap(await api.volumes.list(seriesId, category.id));
   const volumeNodes = await Promise.all(
     volumes.map(async (volume): Promise<VolumeNode> => ({
@@ -407,7 +350,9 @@ async function loadTree(api: RendererApi): Promise<SeriesNode[]> {
       ...seriesNode,
       kind: "series",
       categories: await Promise.all(
-        unwrap(await api.categories.list(seriesNode.id)).map((category) => loadCategory(api, seriesNode.id, category))
+        unwrap(await api.categories.list(seriesNode.id))
+          .filter(isSupportedCategory)
+          .map((category) => loadCategory(api, seriesNode.id, category))
       )
     }))
   );
@@ -703,37 +648,35 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     if (node.kind === "category") {
       const actions: ManagerAction[] = [];
 
-      if (node.type !== "manga") {
-        actions.push({
-          label: node.type === "web-novel" ? "Import chapters" : "Import volumes/chapters",
-          run: async () => {
-            await openImport(
-              `Import into ${node.title}`,
-              {
-                mode: "existing",
-                seriesId: node.seriesId,
-                categoryId: node.id,
-                volumeMode: node.type === "web-novel" ? "none" : "source",
-                volumeId: null,
-                label: `${node.title} (${formatLabel(node.type)})`
-              },
-              node.type === "web-novel" ? "files" : "folder"
-            );
-            return false;
-          }
-        });
-        actions.push({
-          label: "Add empty volume",
-          run: async () => {
-            openForm("Add volume", "Volume title", `Volume ${node.volumes.length + 1}`, async (title) => {
-              unwrap(await api.volumes.create(node.seriesId, node.id, { title }));
-            });
-            return false;
-          }
-        });
-      }
+      actions.push({
+        label: node.type === "web-novel" ? "Import chapters" : "Import volumes/chapters",
+        run: async () => {
+          await openImport(
+            `Import into ${node.title}`,
+            {
+              mode: "existing",
+              seriesId: node.seriesId,
+              categoryId: node.id,
+              volumeMode: node.type === "web-novel" ? "none" : "source",
+              volumeId: null,
+              label: `${node.title} (${formatLabel(node.type)})`
+            },
+            node.type === "web-novel" ? "files" : "folder"
+          );
+          return false;
+        }
+      });
+      actions.push({
+        label: "Add empty volume",
+        run: async () => {
+          openForm("Add volume", "Volume title", `Volume ${node.volumes.length + 1}`, async (title) => {
+            unwrap(await api.volumes.create(node.seriesId, node.id, { title }));
+          });
+          return false;
+        }
+      });
 
-      if (node.type === "web-novel" || node.type === "manga") {
+      if (node.type === "web-novel") {
         actions.push({
           label: "Add empty chapter",
           run: async () => {
@@ -1006,10 +949,6 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
 
         {actionError ? <p className="error-text">{actionError}</p> : null}
 
-        {!importPanel && !form && selectedNode?.kind === "chapter" && selectedNode.categoryType === "manga" ? (
-          <MangaPageManager chapter={selectedNode} onChanged={refreshTree} />
-        ) : null}
-
         {importPanel ? (
           <div className="manager-import-panel">
             <div className="manager-panel-header">
@@ -1045,7 +984,6 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
                 >
                   <option value="light-novel">Light Novel</option>
                   <option value="web-novel">Web Novel</option>
-                  <option value="manga">Manga</option>
                 </select>
               </label>
             ) : null}
@@ -1105,237 +1043,7 @@ function nodeDescription(node: TreeNode): string {
     return "Volume";
   }
 
-  if (node.categoryType === "manga") {
-    return `Manga chapter - ${node.pageCount ?? 0} pages`;
-  }
-
   return `Chapter - ${formatLabel(node.translationStatus ?? "draft")}`;
-}
-
-function formatBytes(value: number): string {
-  if (value < 1024 * 1024) {
-    return `${Math.max(1, Math.round(value / 1024))} KB`;
-  }
-
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function MangaPageManager({ chapter, onChanged }: { chapter: ChapterNode; onChanged: () => Promise<void> }) {
-  const [checked, setChecked] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [pages, setPages] = useState<MangaChapterPages | null>(null);
-  const [preview, setPreview] = useState<MangaPageData | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [selectedPage, setSelectedPage] = useState<string | null>(null);
-  const api = getApi();
-
-  async function loadPages(): Promise<void> {
-    if (!api?.manga) {
-      setError("Manga API is unavailable. Restart the app or check the preload script.");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    try {
-      const nextPages = unwrap(await api.manga.listPages(chapter.seriesId, chapter.categoryId, chapter.id));
-      setPages(nextPages);
-      setSelectedPage((current) =>
-        current && nextPages.pages.some((page) => page.fileName === current) ? current : nextPages.pages[0]?.fileName ?? null
-      );
-      setChecked((current) => current.filter((fileName) => nextPages.pages.some((page) => page.fileName === fileName)));
-    } catch (loadError) {
-      setError(String(loadError));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadPages();
-  }, [chapter.seriesId, chapter.categoryId, chapter.id]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    if (!api?.manga || !selectedPage) {
-      setPreview(null);
-      return;
-    }
-
-    setPreviewLoading(true);
-    void api.manga
-      .getPage(chapter.seriesId, chapter.categoryId, chapter.id, selectedPage)
-      .then((response) => {
-        if (isMounted) {
-          setPreview(unwrap(response));
-        }
-      })
-      .catch((previewError) => {
-        if (isMounted) {
-          setError(String(previewError));
-          setPreview(null);
-        }
-      })
-      .finally(() => {
-        if (isMounted) {
-          setPreviewLoading(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [chapter.seriesId, chapter.categoryId, chapter.id, selectedPage]);
-
-  async function applyPages(action: () => Promise<MangaChapterPages | null>): Promise<void> {
-    setError(null);
-    setLoading(true);
-    try {
-      const nextPages = await action();
-      if (nextPages) {
-        setPages(nextPages);
-        setSelectedPage((current) =>
-          current && nextPages.pages.some((page) => page.fileName === current) ? current : nextPages.pages[0]?.fileName ?? null
-        );
-        setChecked((current) => current.filter((fileName) => nextPages.pages.some((page) => page.fileName === fileName)));
-        await onChanged();
-      }
-    } catch (actionError) {
-      setError(String(actionError));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function addPages(): Promise<void> {
-    if (!api?.manga) {
-      setError("Manga API is unavailable. Restart the app or check the preload script.");
-      return;
-    }
-
-    await applyPages(() => api.manga!.choosePages(chapter.seriesId, chapter.categoryId, chapter.id).then(unwrap));
-  }
-
-  async function addDroppedPages(files: File[]): Promise<void> {
-    if (!api?.manga || files.length === 0) {
-      return;
-    }
-
-    await applyPages(() => api.manga!.addDroppedPages(chapter.seriesId, chapter.categoryId, chapter.id, files).then(unwrap));
-  }
-
-  async function removeCheckedPages(): Promise<void> {
-    if (!api?.manga || checked.length === 0) {
-      return;
-    }
-
-    if (!window.confirm(`Remove ${checked.length} page(s) from "${chapter.title}"?`)) {
-      return;
-    }
-
-    await applyPages(() =>
-      api.manga!.removePages(chapter.seriesId, chapter.categoryId, chapter.id, { fileNames: checked }).then(unwrap)
-    );
-  }
-
-  async function movePage(fileName: string, offset: number): Promise<void> {
-    if (!api?.manga || !pages) {
-      return;
-    }
-
-    const index = pages.pages.findIndex((page) => page.fileName === fileName);
-    const nextIndex = index + offset;
-
-    if (index < 0 || nextIndex < 0 || nextIndex >= pages.pages.length) {
-      return;
-    }
-
-    const pageOrder = pages.pages.map((page) => page.fileName);
-    [pageOrder[index], pageOrder[nextIndex]] = [pageOrder[nextIndex], pageOrder[index]];
-    await applyPages(() => api.manga!.reorderPages(chapter.seriesId, chapter.categoryId, chapter.id, { pageOrder }).then(unwrap));
-  }
-
-  function toggleChecked(fileName: string): void {
-    setChecked((current) =>
-      current.includes(fileName) ? current.filter((item) => item !== fileName) : [...current, fileName]
-    );
-  }
-
-  return (
-    <section
-      className="manga-page-manager"
-      onDragOver={(event) => {
-        event.preventDefault();
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        void addDroppedPages(Array.from(event.dataTransfer.files));
-      }}
-    >
-      <div className="manga-page-manager-header">
-        <div>
-          <h3>Pages</h3>
-          <p>
-            {pages
-              ? `${pages.pages.length} page(s), ${formatBytes(pages.chapter.totalSizeBytes ?? 0)}`
-              : "Load manga pages."}
-          </p>
-        </div>
-        <div className="manager-actions">
-          <button disabled={loading} onClick={() => void addPages()} type="button">
-            Add pages
-          </button>
-          <button disabled={loading || checked.length === 0} onClick={() => void removeCheckedPages()} type="button">
-            Remove selected
-          </button>
-        </div>
-      </div>
-
-      {error ? <p className="error-text">{error}</p> : null}
-      {loading && !pages ? <p className="muted-text">Loading pages...</p> : null}
-
-      {pages && pages.pages.length === 0 ? <p className="muted-text">No pages yet.</p> : null}
-
-      {pages && pages.pages.length > 0 ? (
-        <div className="manga-page-workspace">
-          <ol className="manga-page-grid">
-            {pages.pages.map((page, index) => (
-              <li className={selectedPage === page.fileName ? "manga-page-card manga-page-card-active" : "manga-page-card"} key={page.fileName}>
-                <label className="manga-page-check">
-                  <input
-                    checked={checked.includes(page.fileName)}
-                    onChange={() => toggleChecked(page.fileName)}
-                    type="checkbox"
-                  />
-                  <span>Page {index + 1}</span>
-                </label>
-                <button className="manga-page-thumb" onClick={() => setSelectedPage(page.fileName)} type="button">
-                  {page.thumbnailDataUrl ? <img alt={`Page ${index + 1}`} loading="lazy" src={page.thumbnailDataUrl} /> : <span>No preview</span>}
-                </button>
-                <small>{formatBytes(page.sizeBytes)}</small>
-                <div className="manager-actions">
-                  <button disabled={index === 0 || loading} onClick={() => void movePage(page.fileName, -1)} type="button">
-                    Up
-                  </button>
-                  <button disabled={index === pages.pages.length - 1 || loading} onClick={() => void movePage(page.fileName, 1)} type="button">
-                    Down
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ol>
-
-          <aside className="manga-page-preview">
-            <h3>Preview</h3>
-            {previewLoading ? <p className="muted-text">Loading preview...</p> : null}
-            {preview ? <img alt={preview.fileName} src={preview.dataUrl} /> : <p className="muted-text">Select a page.</p>}
-          </aside>
-        </div>
-      ) : null}
-    </section>
-  );
 }
 
 type TreeItemSharedProps = {

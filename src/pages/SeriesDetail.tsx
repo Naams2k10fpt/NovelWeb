@@ -41,11 +41,11 @@ type SeriesCard = {
   genres: string[];
 };
 
-type CategoryType = "light-novel" | "web-novel" | "manga";
+type CategoryType = "light-novel" | "web-novel";
 
 type CategoryMetadata = {
   id: string;
-  type: CategoryType;
+  type: string;
   title: string;
 };
 
@@ -58,7 +58,6 @@ type ChapterMetadata = {
   id: string;
   title: string;
   translationStatus?: string;
-  pageCount?: number;
 };
 
 type VolumeDetail = {
@@ -66,7 +65,11 @@ type VolumeDetail = {
   chapters: ChapterMetadata[];
 };
 
-type CategoryDetail = CategoryMetadata & {
+type SupportedCategoryMetadata = CategoryMetadata & {
+  type: CategoryType;
+};
+
+type CategoryDetail = SupportedCategoryMetadata & {
   volumes: VolumeDetail[];
   directChapters: ChapterMetadata[];
 };
@@ -111,6 +114,9 @@ function unwrap<T>(response: ApiResponse<T>): T {
 function formatLabel(value: string): string {
   return value.replace(/-/g, " ").replace(/^\w/, (letter) => letter.toUpperCase());
 }
+function isSupportedCategory(category: CategoryMetadata): category is SupportedCategoryMetadata {
+  return category.type === "light-novel" || category.type === "web-novel";
+}
 
 function formFromSeries(series: SeriesMetadata): SeriesFormState {
   return {
@@ -128,12 +134,7 @@ function uniqueGenres(genres: string[]): string[] {
     left.localeCompare(right)
   );
 }
-
-async function loadCategory(api: RendererApi, seriesId: string, category: CategoryMetadata): Promise<CategoryDetail> {
-  if (category.type === "manga") {
-    return { ...category, volumes: [], directChapters: unwrap(await api.chapters.list(seriesId, category.id, null)) };
-  }
-
+async function loadCategory(api: RendererApi, seriesId: string, category: SupportedCategoryMetadata): Promise<CategoryDetail> {
   const volumes = unwrap(await api.volumes.list(seriesId, category.id));
   const volumeDetails = await Promise.all(
     volumes.map(async (volume): Promise<VolumeDetail> => ({
@@ -183,7 +184,9 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
       .then(async ([seriesResponse, categoriesResponse, seriesListResponse]) => {
         const series = unwrap(seriesResponse);
         const categories = await Promise.all(
-          unwrap(categoriesResponse).map((category) => loadCategory(api, seriesId, category))
+          unwrap(categoriesResponse)
+            .filter(isSupportedCategory)
+            .map((category) => loadCategory(api, seriesId, category))
         );
         const seriesCards = unwrap(seriesListResponse);
 
@@ -440,7 +443,7 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
       {detail.categories.length === 0 ? (
         <section className="empty-state">
           <h2>No categories yet</h2>
-          <p>Add a Light Novel, Web Novel, or Manga category in Manager later.</p>
+          <p>Add a Light Novel or Web Novel category in Manager later.</p>
         </section>
       ) : (
         <>
@@ -486,24 +489,6 @@ function CategoryPanel({
   seriesId: string;
   seriesTitle: string;
 }) {
-  if (category.type === "manga") {
-    return (
-      <section className="category-panel">
-        <div className="category-heading">
-          <h3>{category.title}</h3>
-          <span>Manga</span>
-        </div>
-        <MangaChapterList
-          categoryId={category.id}
-          chapters={category.directChapters}
-          onReadChapter={onReadChapter}
-          seriesId={seriesId}
-          seriesTitle={seriesTitle}
-        />
-      </section>
-    );
-  }
-
   const isEmpty = category.volumes.length === 0 && category.directChapters.length === 0;
 
   return (
@@ -608,57 +593,6 @@ function ChapterList({
           ))}
         </ol>
       )}
-    </details>
-  );
-}
-
-function MangaChapterList({
-  categoryId,
-  chapters,
-  onReadChapter,
-  seriesId,
-  seriesTitle
-}: {
-  categoryId: string;
-  chapters: ChapterMetadata[];
-  onReadChapter: (target: ChapterTarget) => void;
-  seriesId: string;
-  seriesTitle: string;
-}) {
-  if (chapters.length === 0) {
-    return <p className="muted-text">No manga chapters yet.</p>;
-  }
-
-  function targetFor(chapter: ChapterMetadata): ChapterTarget {
-    return {
-      categoryId,
-      categoryType: "manga",
-      chapterId: chapter.id,
-      seriesId,
-      seriesTitle,
-      title: chapter.title,
-      volumeId: null
-    };
-  }
-
-  return (
-    <details className="chapter-group">
-      <summary>
-        <span className="chapter-group-title">Chapters</span>
-        <span className="chapter-group-count">
-          {chapters.length} {chapters.length === 1 ? "chapter" : "chapters"}
-        </span>
-      </summary>
-      <ol>
-        {chapters.map((chapter) => (
-          <li key={chapter.id}>
-            <button className="chapter-row" onClick={() => onReadChapter(targetFor(chapter))} type="button">
-              <span>{chapter.title}</span>
-              <span>{chapter.pageCount ?? 0} pages</span>
-            </button>
-          </li>
-        ))}
-      </ol>
     </details>
   );
 }
