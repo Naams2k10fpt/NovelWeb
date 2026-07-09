@@ -1965,36 +1965,6 @@ body {
   color: #66707a;
 }
 
-.import-text-editors {
-  display: grid;
-  gap: 12px;
-}
-
-.import-text-editor {
-  display: grid;
-  gap: 6px;
-}
-
-.import-text-editor span {
-  font-weight: 700;
-}
-
-.import-text-editor small {
-  color: #66707a;
-}
-
-.import-text-editor textarea {
-  min-height: 180px;
-  resize: vertical;
-  padding: 10px;
-  border: 1px solid #cdbfaf;
-  border-radius: 6px;
-  background: #ffffff;
-  color: inherit;
-  font: inherit;
-  line-height: 1.5;
-}
-
 .import-progress {
   width: 100%;
 }

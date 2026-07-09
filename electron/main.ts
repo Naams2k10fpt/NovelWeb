@@ -1,10 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
 import mammoth from "mammoth";
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { PDFParse } from "pdf-parse";
-import { OPS, getDocument, type PDFDocumentProxy, type PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { GlobalWorkerOptions, OPS, getDocument, type PDFDocumentProxy, type PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
   SERIES_METADATA_SCHEMA_VERSION,
   SERIES_STATUSES,
@@ -54,10 +56,14 @@ const IMPORT_FILE_TYPES = {
 } as const;
 const PDF_IMAGE_RENDER_SCALE = 2;
 const PDF_IMAGE_OPERATORS = new Set<number>([
+  OPS.paintImageMaskXObject,
+  OPS.paintImageMaskXObjectGroup,
+  OPS.paintImageMaskXObjectRepeat,
   OPS.paintImageXObject,
   OPS.paintInlineImageXObject,
   OPS.paintInlineImageXObjectGroup,
-  OPS.paintImageXObjectRepeat
+  OPS.paintImageXObjectRepeat,
+  OPS.paintFormXObjectBegin
 ]);
 const SUPPORTED_SCHEMA_VERSION = 1;
 const MAX_SEARCH_RESULTS = 50;
@@ -154,23 +160,16 @@ type ImportSourceFile = {
   fileType: ImportFileType | null;
 };
 
-type ImportTextPreview = {
-  fileId: string;
-  sourceName: string;
-  fileType: ImportTextFileType;
-  text: string;
-};
-
 type ImportPlanChapter = {
   fileId: string;
   title: string;
   volumeTitle: string;
-  text: string;
 };
 
 type PdfCanvas = {
   width: number;
   height: number;
+  getContext(type: "2d", options?: unknown): CanvasRenderingContext2D;
   toBuffer(mimeType: "image/png"): Buffer;
 };
 
@@ -181,6 +180,7 @@ type PdfCanvasEntry = {
 
 type PdfCanvasFactory = {
   create(width: number, height: number): PdfCanvasEntry;
+  reset(entry: PdfCanvasEntry, width: number, height: number): void;
   destroy(entry: PdfCanvasEntry): void;
 };
 
@@ -189,6 +189,42 @@ type PdfImageImportResult = {
   count: number;
   error: string | null;
 };
+
+type NapiCanvasModule = {
+  createCanvas(width: number, height: number): PdfCanvas;
+};
+
+const requireNodeModule = createRequire(import.meta.url);
+GlobalWorkerOptions.workerSrc = pathToFileURL(requireNodeModule.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs")).href;
+
+function createPdfCanvas(width: number, height: number): PdfCanvas {
+  return (requireNodeModule("@napi-rs/canvas") as NapiCanvasModule).createCanvas(width, height);
+}
+
+class PdfNodeCanvasFactory implements PdfCanvasFactory {
+  create(width: number, height: number): PdfCanvasEntry {
+    if (width <= 0 || height <= 0) {
+      throw new Error("Invalid canvas size.");
+    }
+
+    const canvas = createPdfCanvas(width, height);
+    return { canvas, context: canvas.getContext("2d", { willReadFrequently: true }) };
+  }
+
+  reset(entry: PdfCanvasEntry, width: number, height: number): void {
+    if (width <= 0 || height <= 0) {
+      throw new Error("Invalid canvas size.");
+    }
+
+    entry.canvas.width = width;
+    entry.canvas.height = height;
+  }
+
+  destroy(entry: PdfCanvasEntry): void {
+    entry.canvas.width = 0;
+    entry.canvas.height = 0;
+  }
+}
 
 type ImportVolumeMode = "source" | "existing" | "none";
 
@@ -739,6 +775,23 @@ function recentIndexPath(libraryPath: string): string {
   return libraryChildPath(libraryPath, "index", "recent-index.json");
 }
 
+function importLogPath(libraryPath: string): string {
+  return libraryChildPath(libraryPath, "index", "import.log");
+}
+
+async function appendImportLog(libraryPath: string, message: string): Promise<void> {
+  const filePath = importLogPath(libraryPath);
+
+  try {
+    await withResourceWriteLock(filePath, async () => {
+      await mkdir(dirname(filePath), { recursive: true });
+      await appendFile(filePath, `[${new Date().toISOString()}] ${message}\n`, "utf8");
+    });
+  } catch {
+    // ponytail: import logging must not make import fail.
+  }
+}
+
 function trashSeriesDirectoryPath(libraryPath: string, seriesId: string): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   return libraryChildPath(libraryPath, ".trash", `series-${assertId(seriesId, "seriesId")}-${timestamp}`);
@@ -747,6 +800,22 @@ function trashSeriesDirectoryPath(libraryPath: string, seriesId: string): string
 function trashItemDirectoryPath(libraryPath: string, itemType: string, itemId: string): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   return libraryChildPath(libraryPath, ".trash", `${itemType}-${assertId(itemId, "itemId")}-${timestamp}`);
+}
+
+async function moveDirectoryToTrash(sourcePath: string, trashPath: string): Promise<void> {
+  try {
+    await rename(sourcePath, trashPath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+
+    if (code !== "EXDEV" && code !== "EPERM" && code !== "EACCES") {
+      throw error;
+    }
+
+    // ponytail: Windows can block directory rename; copy/remove is the boring fallback inside Library.
+    await cp(sourcePath, trashPath, { recursive: true, force: false, errorOnExist: true });
+    await rm(sourcePath, { recursive: true });
+  }
 }
 
 function categoryDirectoryPath(libraryPath: string, seriesId: string, categoryId: string): string {
@@ -864,6 +933,16 @@ function chapterAssetPath(
     chapterAssetsDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId),
     basename(fileName)
   );
+}
+
+function pdfImageCheckPath(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): string {
+  return libraryChildPath(chapterAssetsDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), ".pdf-images-checked");
 }
 
 function isSafeImageFileName(fileName: string): boolean {
@@ -1366,21 +1445,6 @@ async function readImportSourceText(sourceFile: ImportSourceFile): Promise<strin
   throw new Error("Import file type is not supported.");
 }
 
-async function readImportTextPreview(importSessionId: unknown, fileId: unknown): Promise<ImportTextPreview> {
-  const sourceFile = await readImportSourceFile(readImportSession(importSessionId), fileId);
-
-  if (!isImportTextFileType(sourceFile.fileType)) {
-    throw new Error("Only TXT, MD, DOCX, and PDF files can be edited in this import step.");
-  }
-
-  return {
-    fileId: sourceFile.fileId,
-    sourceName: basename(sourceFile.relativePath),
-    fileType: sourceFile.fileType,
-    text: normalizeImportText(await readImportSourceText(sourceFile))
-  };
-}
-
 function escapeImportText(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -1578,8 +1642,7 @@ function readImportPlanChapter(input: unknown): ImportPlanChapter {
   return {
     fileId,
     title: readRequiredText(record, "title").trim() || fallbackTitle,
-    volumeTitle: readRequiredText(record, "volumeTitle").trim() || "Imported",
-    text: readRequiredText(record, "text")
+    volumeTitle: readRequiredText(record, "volumeTitle").trim() || "Imported"
   };
 }
 
@@ -1646,12 +1709,13 @@ async function copyImportedPdf(
   volumeId: string | null,
   chapterId: string,
   sourcePath: string
-): Promise<void> {
+): Promise<string> {
   const targetPath = chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, "original.pdf");
   const tmpPath = `${targetPath}.tmp`;
 
   await copyFile(sourcePath, tmpPath);
   await rename(tmpPath, targetPath);
+  return targetPath;
 }
 
 function pdfCanvasFactory(pdf: PDFDocumentProxy): PdfCanvasFactory {
@@ -1664,20 +1728,24 @@ function pdfCanvasFactory(pdf: PDFDocumentProxy): PdfCanvasFactory {
   return factory as PdfCanvasFactory;
 }
 
-async function pdfPageHasImages(page: PDFPageProxy): Promise<boolean> {
+async function pdfPageImageOperatorCount(page: PDFPageProxy): Promise<number> {
   const operatorList = await page.getOperatorList();
-  return operatorList.fnArray.some((operator) => PDF_IMAGE_OPERATORS.has(operator));
+  return operatorList.fnArray.filter((operator) => PDF_IMAGE_OPERATORS.has(operator)).length;
 }
 
 async function importPdfPageImages(
   factory: PdfCanvasFactory,
   page: PDFPageProxy,
   pageNumber: number,
-  writeImage: (fileName: string, image: Buffer) => Promise<void>
-): Promise<string[]> {
+  writeImage: (fileName: string, image: Buffer) => Promise<void>,
+  log?: (message: string) => Promise<void>
+): Promise<{ html: string[]; error: string | null }> {
   try {
-    if (!(await pdfPageHasImages(page))) {
-      return [];
+    const imageOperatorCount = await pdfPageImageOperatorCount(page);
+    await log?.(`pdf page=${pageNumber} imageOperators=${imageOperatorCount}`);
+
+    if (imageOperatorCount === 0) {
+      return { html: [], error: null };
     }
 
     const viewport = page.getViewport({ scale: PDF_IMAGE_RENDER_SCALE });
@@ -1692,11 +1760,20 @@ async function importPdfPageImages(
       await renderTask.promise;
 
       const fileName = `${randomUUID()}.png`;
-      await writeImage(fileName, pageCanvas.canvas.toBuffer("image/png"));
-      return [`<p><img alt="PDF page ${pageNumber}" src="${escapeHtmlAttribute(chapterAssetSource(fileName))}"></p>`];
+      const image = pageCanvas.canvas.toBuffer("image/png");
+      await writeImage(fileName, image);
+      await log?.(`pdf page=${pageNumber} rendered image=${fileName} bytes=${image.byteLength}`);
+      return {
+        html: [`<p><img alt="PDF page ${pageNumber}" src="${escapeHtmlAttribute(chapterAssetSource(fileName))}"></p>`],
+        error: null
+      };
     } finally {
       factory.destroy(pageCanvas);
     }
+  } catch (error) {
+    const message = `page ${pageNumber}: ${String(error)}`;
+    await log?.(`pdf page=${pageNumber} error=${message}`);
+    return { html: [], error: message };
   } finally {
     page.cleanup();
   }
@@ -1708,15 +1785,22 @@ async function copyImportedPdfImages(
   categoryId: string,
   volumeId: string | null,
   chapterId: string,
-  sourcePath: string
+  sourcePath: string,
+  log?: (message: string) => Promise<void>
 ): Promise<PdfImageImportResult> {
   try {
-    const loadingTask = getDocument({ data: new Uint8Array(await readFile(sourcePath)) });
+    await log?.(`pdf images start source=${sourcePath}`);
+    const loadingTask = getDocument({
+      data: new Uint8Array(await readFile(sourcePath)),
+      CanvasFactory: PdfNodeCanvasFactory
+    });
     const pdf = await loadingTask.promise;
 
     try {
       const factory = pdfCanvasFactory(pdf);
       const html: string[] = [];
+      const errors: string[] = [];
+      await log?.(`pdf loaded pages=${pdf.numPages}`);
       await mkdir(chapterAssetsDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), { recursive: true });
 
       const writeImage = async (fileName: string, image: Buffer): Promise<void> => {
@@ -1728,15 +1812,21 @@ async function copyImportedPdfImages(
       };
 
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-        html.push(...(await importPdfPageImages(factory, await pdf.getPage(pageNumber), pageNumber, writeImage)));
+        const pageResult = await importPdfPageImages(factory, await pdf.getPage(pageNumber), pageNumber, writeImage, log);
+        html.push(...pageResult.html);
+        if (pageResult.error) {
+          errors.push(pageResult.error);
+        }
       }
 
-      return { html: html.join("\n"), count: html.length, error: null };
+      await log?.(`pdf images done count=${html.length}${errors[0] ? ` firstError=${errors[0]}` : ""}`);
+      return { html: html.join("\n"), count: html.length, error: errors[0] ?? null };
     } finally {
       await loadingTask.destroy();
     }
   } catch (error) {
     // ponytail: PDF images are best-effort; original.pdf remains the fallback source.
+    await log?.(`pdf images failed error=${String(error)}`);
     return { html: "", count: 0, error: String(error) };
   }
 }
@@ -1832,8 +1922,11 @@ async function prepareImportDestination(
 async function executeImport(libraryPath: string, importSessionId: unknown, input: unknown): Promise<ImportReport> {
   const session = readImportSession(importSessionId);
   const plan = readImportPlan(input);
+  const log = (message: string): Promise<void> => appendImportLog(libraryPath, message);
   const logs: ImportLogEntry[] = [];
-  const importableChapters: Array<ImportPlanChapter & { sourceFile: ImportSourceFile }> = [];
+  const importableChapters: Array<ImportPlanChapter & { sourceFile: ImportSourceFile; text: string }> = [];
+
+  await log(`import start session=${session.id} chapters=${plan.chapters.length}`);
 
   for (const chapter of plan.chapters) {
     try {
@@ -1849,7 +1942,9 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
         continue;
       }
 
-      importableChapters.push({ ...chapter, sourceFile });
+      const text = sourceFile.fileType === "images" ? "" : normalizeImportText(await readImportSourceText(sourceFile));
+      importableChapters.push({ ...chapter, sourceFile, text });
+      await log(`import queued title=${JSON.stringify(chapter.title)} type=${sourceFile.fileType} source=${sourceFile.relativePath}`);
     } catch (error) {
       logs.push({
         status: "failed",
@@ -1857,6 +1952,7 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
         title: chapter.title,
         message: String(error)
       });
+      await log(`import queue failed title=${JSON.stringify(chapter.title)} error=${String(error)}`);
     }
   }
 
@@ -1906,14 +2002,23 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
           chapter.sourceFile.sourcePath
         );
       } else if (chapter.sourceFile.fileType === "pdf") {
-        await copyImportedPdf(libraryPath, series.id, category.id, volumeId, metadata.id, chapter.sourceFile.sourcePath);
-        pdfImages = await copyImportedPdfImages(
+        const originalPdfPath = await copyImportedPdf(
           libraryPath,
           series.id,
           category.id,
           volumeId,
           metadata.id,
           chapter.sourceFile.sourcePath
+        );
+        await log(`pdf original copied title=${JSON.stringify(chapter.title)} path=${originalPdfPath}`);
+        pdfImages = await copyImportedPdfImages(
+          libraryPath,
+          series.id,
+          category.id,
+          volumeId,
+          metadata.id,
+          originalPdfPath,
+          (message) => log(`title=${JSON.stringify(chapter.title)} ${message}`)
         );
         html = [pdfImages.html, html].filter(Boolean).join("\n");
       } else if (chapter.sourceFile.fileType === "md") {
@@ -1939,6 +2044,9 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
               ? `Imported illustrations from ${chapter.sourceFile.relativePath}.`
             : `Imported ${chapter.sourceFile.relativePath}.`
       });
+      await log(
+        `chapter done title=${JSON.stringify(chapter.title)} type=${chapter.sourceFile.fileType} pdfImages=${pdfImages.count} error=${pdfImages.error ?? ""}`
+      );
     } catch (error) {
       logs.push({
         status: "failed",
@@ -1946,8 +2054,11 @@ async function executeImport(libraryPath: string, importSessionId: unknown, inpu
         title: chapter.title,
         message: String(error)
       });
+      await log(`chapter failed title=${JSON.stringify(chapter.title)} error=${String(error)}`);
     }
   }
+
+  await log(`import done imported=${imported} unsupported=${logs.filter((entry) => entry.status === "unsupported").length} failed=${logs.filter((entry) => entry.status === "failed").length}`);
 
   return {
     seriesId: series.id,
@@ -2434,12 +2545,7 @@ async function readRecentIndex(libraryPath: string): Promise<RecentIndex> {
 }
 
 async function listRecentEntries(libraryPath: string): Promise<ReadingListEntry[]> {
-  let index = await readRecentIndex(libraryPath);
-
-  if (index.entries.length === 0) {
-    index = await rebuildRecentIndex(libraryPath);
-  }
-
+  const index = await readRecentIndex(libraryPath);
   return index.entries;
 }
 
@@ -2968,7 +3074,8 @@ async function toSeriesCard(libraryPath: string, entry: SeriesIndexEntry): Promi
     author: entry.author ?? null,
     genres: entry.genres ?? [],
     status: entry.status ?? "planning",
-    coverDataUrl: await readSeriesCoverDataUrl(libraryPath, entry)
+    // ponytail: Library list stays metadata-only; cover thumbnails need a file protocol/thumb cache later.
+    coverDataUrl: null
   };
 }
 
@@ -3056,7 +3163,7 @@ async function moveSeriesToTrash(libraryPath: string, seriesId: string): Promise
 
   const trashPath = trashSeriesDirectoryPath(libraryPath, id);
   await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
-  await rename(seriesDirectoryPath(libraryPath, id), trashPath);
+  await moveDirectoryToTrash(seriesDirectoryPath(libraryPath, id), trashPath);
   await rebuildSeriesIndex(libraryPath);
   await rebuildSearchIndex(libraryPath);
   await rebuildRecentIndex(libraryPath);
@@ -3179,7 +3286,7 @@ async function moveCategoryToTrash(
   const now = new Date().toISOString();
 
   await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
-  await rename(categoryDirectoryPath(libraryPath, series.id, category.id), trashPath);
+  await moveDirectoryToTrash(categoryDirectoryPath(libraryPath, series.id, category.id), trashPath);
   await writeJsonFile(
     seriesMetaPath(libraryPath, series.id),
     { ...series, categoryOrder: series.categoryOrder.filter((id) => id !== category.id), updatedAt: now } satisfies SeriesMetadata,
@@ -3315,7 +3422,7 @@ async function moveVolumeToTrash(
   const now = new Date().toISOString();
 
   await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
-  await rename(volumeDirectoryPath(libraryPath, seriesId, categoryId, volume.id), trashPath);
+  await moveDirectoryToTrash(volumeDirectoryPath(libraryPath, seriesId, categoryId, volume.id), trashPath);
   await writeJsonFile(
     categoryMetaPath(libraryPath, seriesId, categoryId),
     { ...category, volumeOrder: category.volumeOrder.filter((id) => id !== volume.id), updatedAt: now } satisfies CategoryMetadata,
@@ -3626,6 +3733,54 @@ async function readOptionalTextFile(filePath: string): Promise<string> {
   }
 }
 
+async function optionalFileExists(filePath: string): Promise<boolean> {
+  try {
+    await stat(filePath);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+async function repairMissingPdfImages(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  html: string
+): Promise<ChapterContent | null> {
+  if (/<img\b/i.test(html) || (await optionalFileExists(pdfImageCheckPath(libraryPath, seriesId, categoryId, volumeId, chapterId)))) {
+    return null;
+  }
+
+  const pdfImages = await copyImportedPdfImages(
+    libraryPath,
+    seriesId,
+    categoryId,
+    volumeId,
+    chapterId,
+    chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, "original.pdf")
+  );
+
+  if (pdfImages.count === 0) {
+    if (!pdfImages.error) {
+      // ponytail: marker avoids rescanning text-only PDFs on every open.
+      await writeTextFile(pdfImageCheckPath(libraryPath, seriesId, categoryId, volumeId, chapterId), new Date().toISOString());
+    }
+
+    return null;
+  }
+
+  return saveNovelChapterContent(libraryPath, seriesId, categoryId, volumeId, chapterId, {
+    html: [pdfImages.html, html].filter(Boolean).join("\n")
+  });
+}
+
 async function readNovelChapterContent(
   libraryPath: string,
   seriesId: string,
@@ -3634,9 +3789,24 @@ async function readNovelChapterContent(
   chapterId: string
 ): Promise<ChapterContent> {
   const metadata = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
-  const storedHtml = sanitizeNovelHtml(
+  let storedHtml = sanitizeNovelHtml(
     await readOptionalTextFile(chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.contentFile))
   );
+  let contentStats = metadata;
+
+  if (metadata.hasOriginalPdf) {
+    const repairedContent = await repairMissingPdfImages(libraryPath, seriesId, categoryId, volumeId, chapterId, storedHtml);
+    if (repairedContent) {
+      storedHtml = repairedContent.html;
+      contentStats = {
+        ...metadata,
+        wordCount: repairedContent.wordCount,
+        characterCount: repairedContent.characterCount,
+        updatedAt: repairedContent.updatedAt
+      };
+    }
+  }
+
   const html = await hydrateNovelAssetImages(libraryPath, seriesId, categoryId, volumeId, chapterId, storedHtml);
   const text = await readOptionalTextFile(
     chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.plainTextFile)
@@ -3645,9 +3815,9 @@ async function readNovelChapterContent(
   return {
     html,
     text,
-    wordCount: metadata.wordCount,
-    characterCount: metadata.characterCount,
-    updatedAt: metadata.updatedAt
+    wordCount: contentStats.wordCount,
+    characterCount: contentStats.characterCount,
+    updatedAt: contentStats.updatedAt
   };
 }
 
@@ -3872,7 +4042,7 @@ async function moveNovelChapterToTrash(
   const now = new Date().toISOString();
 
   await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
-  await rename(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapter.id), trashPath);
+  await moveDirectoryToTrash(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapter.id), trashPath);
 
   if (volume) {
     await writeJsonFile(
@@ -4818,17 +4988,6 @@ function registerImportIpc(): void {
       return fail(ErrorCode.IMPORT_FAILED, "Could not scan import source folder.", String(error));
     }
   });
-
-  ipcMain.handle(
-    "import:readText",
-    async (_event, importSessionId: unknown, fileId: unknown): Promise<ApiResponse<ImportTextPreview>> => {
-      try {
-        return ok(await readImportTextPreview(importSessionId, fileId));
-      } catch (error) {
-        return fail(ErrorCode.IMPORT_FAILED, "Could not read import text.", String(error));
-      }
-    }
-  );
 
   ipcMain.handle(
     "import:execute",
