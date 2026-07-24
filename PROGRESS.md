@@ -168,7 +168,7 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 - [x] Open result at matching chapter/position.
 - [x] Temporary search highlight fades after navigation.
 - [x] Recent reading with Library carousel.
-- [x] Library load avoids eager cover data URLs and repeated empty recent-index rebuilds.
+- [x] Library load avoids repeated empty recent-index rebuilds.
 - [x] Bookmark chapter/position.
 - [x] Highlight selected reader text with note.
 - [x] Hover highlight to view note.
