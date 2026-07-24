@@ -78,6 +78,9 @@ type CategoryNode = SupportedCategoryMetadata & {
 type SeriesNode = SeriesCard & {
   kind: "series";
   categories: CategoryNode[];
+  childrenLoaded: boolean;
+  childrenLoading: boolean;
+  childrenError: string | null;
 };
 
 type TreeNode = SeriesNode | CategoryNode | VolumeNode | ChapterNode;
@@ -183,7 +186,9 @@ function getApi(): RendererApi | null {
 
 function unwrap<T>(response: ApiResponse<T>): T {
   if (!response.ok) {
-    throw new Error(response.error.message);
+    throw new Error(
+      response.error.details ? `${response.error.message} ${String(response.error.details)}` : response.error.message
+    );
   }
 
   return response.data;
@@ -349,16 +354,21 @@ async function loadCategory(api: RendererApi, seriesId: string, category: Suppor
 async function loadTree(api: RendererApi): Promise<SeriesNode[]> {
   const series = unwrap(await api.series.list());
 
+  return series.map((seriesNode): SeriesNode => ({
+    ...seriesNode,
+    kind: "series",
+    categories: [],
+    childrenLoaded: false,
+    childrenLoading: false,
+    childrenError: null
+  }));
+}
+
+async function loadSeriesChildren(api: RendererApi, seriesNode: SeriesNode): Promise<CategoryNode[]> {
   return Promise.all(
-    series.map(async (seriesNode): Promise<SeriesNode> => ({
-      ...seriesNode,
-      kind: "series",
-      categories: await Promise.all(
-        unwrap(await api.categories.list(seriesNode.id))
-          .filter(isSupportedCategory)
-          .map((category) => loadCategory(api, seriesNode.id, category))
-      )
-    }))
+    unwrap(await api.categories.list(seriesNode.id))
+      .filter(isSupportedCategory)
+      .map((category) => loadCategory(api, seriesNode.id, category))
   );
 }
 
@@ -394,9 +404,63 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     }
 
     try {
-      setTree({ loading: false, series: await loadTree(api), error: null });
+      const rootSeries = await loadTree(api);
+      const expandedSeriesIds = new Set(
+        Array.from(expandedKeys)
+          .filter((key) => key.startsWith("series:"))
+          .map((key) => key.slice("series:".length))
+      );
+      const series = await Promise.all(
+        rootSeries.map(async (seriesNode) =>
+          expandedSeriesIds.has(seriesNode.id)
+            ? {
+                ...seriesNode,
+                categories: await loadSeriesChildren(api, seriesNode),
+                childrenLoaded: true
+              }
+            : seriesNode
+        )
+      );
+      setTree({ loading: false, series, error: null });
     } catch (error) {
       setTree({ loading: false, series: [], error: String(error) });
+    }
+  }
+
+  async function ensureSeriesChildren(seriesId: string): Promise<void> {
+    if (!api) {
+      return;
+    }
+
+    const currentSeries = tree.series.find((seriesNode) => seriesNode.id === seriesId);
+    if (!currentSeries || currentSeries.childrenLoaded || currentSeries.childrenLoading) {
+      return;
+    }
+
+    setTree((current) => ({
+      ...current,
+      series: current.series.map((seriesNode) =>
+        seriesNode.id === seriesId ? { ...seriesNode, childrenLoading: true, childrenError: null } : seriesNode
+      )
+    }));
+
+    try {
+      const categories = await loadSeriesChildren(api, currentSeries);
+      setTree((current) => ({
+        ...current,
+        series: current.series.map((seriesNode) =>
+          seriesNode.id === seriesId
+            ? { ...seriesNode, categories, childrenLoaded: true, childrenLoading: false, childrenError: null }
+            : seriesNode
+        )
+      }));
+    } catch (error) {
+      setTree((current) => ({
+        ...current,
+        series: current.series.map((seriesNode) =>
+          seriesNode.id === seriesId ? { ...seriesNode, childrenLoading: false, childrenError: String(error) } : seriesNode
+        )
+      }));
     }
   }
 
@@ -466,6 +530,8 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
   }
 
   function toggleExpanded(key: string): void {
+    const shouldLoadSeriesId = key.startsWith("series:") && !expandedKeys.has(key) ? key.slice("series:".length) : null;
+
     setExpandedKeys((current) => {
       const next = new Set(current);
 
@@ -477,6 +543,10 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
 
       return next;
     });
+
+    if (shouldLoadSeriesId) {
+      void ensureSeriesChildren(shouldLoadSeriesId);
+    }
   }
 
   function startPanelResize(event: PointerEvent<HTMLButtonElement>): void {
@@ -1254,9 +1324,11 @@ function SeriesTreeItem({
 
   return (
     <div className="tree-group" aria-expanded={expanded} role="treeitem">
-      <TreeButton {...props} expanded={expanded} hasChildren={node.categories.length > 0} node={node} />
+      <TreeButton {...props} expanded={expanded} hasChildren={!node.childrenLoaded || node.categories.length > 0} node={node} />
       {expanded ? (
         <div className="tree-children">
+          {node.childrenLoading ? <p className="muted-text">Loading</p> : null}
+          {node.childrenError ? <p className="error-text">{node.childrenError}</p> : null}
           {node.categories.map((category) => (
             <CategoryTreeItem key={category.id} node={category} {...props} />
           ))}

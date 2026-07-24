@@ -584,6 +584,7 @@ export default function NovelEditor({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [originalPdf, setOriginalPdf] = useState<ChapterOriginalPdf | null>(null);
+  const [originalPdfUrl, setOriginalPdfUrl] = useState<string | null>(null);
   const [originalText, setOriginalText] = useState<ChapterOriginalText | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [textError, setTextError] = useState<string | null>(null);
@@ -636,6 +637,39 @@ export default function NovelEditor({
     clearAutosave();
     autosaveTimerRef.current = setTimeout(() => void save(), AUTOSAVE_DELAY_MS);
   }
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    setOriginalPdfUrl(null);
+
+    if (!originalPdf) {
+      return;
+    }
+
+    void fetch(originalPdf.dataUrl)
+      .then((response) => response.blob())
+      .then((blob) => {
+        if (cancelled) {
+          return;
+        }
+
+        objectUrl = URL.createObjectURL(blob);
+        setOriginalPdfUrl(objectUrl);
+      })
+      .catch((blobError) => {
+        if (!cancelled) {
+          setPdfError(String(blobError));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [originalPdf]);
 
   useEffect(() => {
     if (!editor) {
@@ -1230,7 +1264,7 @@ export default function NovelEditor({
               </div>
               <iframe
                 className="pdf-frame"
-                src={`${originalPdf.dataUrl}#toolbar=0&navpanes=0&view=FitH`}
+                src={originalPdfUrl ? `${originalPdfUrl}#toolbar=0&navpanes=0&view=FitH` : "about:blank"}
                 title={originalPdf.fileName}
               />
             </section>

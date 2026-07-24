@@ -10,7 +10,7 @@ NovelWeb is a personal desktop app for managing, reading, editing, importing, an
 - Data is local-first in a user-selected Library folder.
 - Storage remains JSON + index before SQLite.
 - Every metadata file supports `schemaVersion`.
-- PDF import is best-effort extracted text plus the original file for comparison; scanned PDF/OCR stays out of scope.
+- PDF import is best-effort extracted text/images plus the original file for comparison; OCR stays out of scope.
 
 ## Architecture
 

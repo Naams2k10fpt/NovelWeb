@@ -31,7 +31,7 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 - [x] Library data stored in a user-selected folder.
 - [x] App settings stored in `app.getPath("userData")`.
 - [x] LN/WN-only product scope confirmed.
-- [x] PDF import is best-effort extracted text plus original file.
+- [x] PDF import is best-effort extracted text/images plus original file.
 - [x] OCR/scanned PDF remains out of scope.
 
 ---
@@ -92,10 +92,12 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 - [x] Library page with series cards.
 - [x] Series detail page with category tabs.
 - [x] Manager tree for series/category/volume/chapter.
+- [x] Manager lazy-loads series children to avoid scanning every chapter on open.
 - [x] Manager context actions.
 - [x] Import entry points from Manager.
 - [x] Chapter reorder and move between valid LN/WN folders.
 - [x] Ctrl/Shift multi-select chapters in Manager and drag selected chapters to an exact drop position.
+- [x] Fallback move-to-trash when Windows blocks direct directory rename.
 - [x] Loading/empty/error states.
 
 ---
@@ -136,12 +138,21 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 - [x] Import MD with basic formatting.
 - [x] Import DOCX through `mammoth`.
 - [x] Import PDF through parser with fallback.
+- [x] Import PDF images as best-effort chapter assets.
+- [x] Harden PDF image import to keep successful pages when one page fails.
+- [x] Repair missing imported PDF images when opening older PDF chapters.
+- [x] Detect PDF images inside form XObjects.
 - [x] Strip common PDF page number/footer markers during import.
 - [x] Preserve original PDF.
 - [x] PDF split view.
+- [x] PDF split view renders large originals through Blob URLs.
+- [x] PDF image import uses an explicit Node canvas factory in Electron main.
+- [x] Write `index/import.log` diagnostics for PDF image import.
+- [x] Pin PDF.js worker to the matching `pdfjs-dist` version for image extraction.
 - [x] Preserve original Markdown and show split view.
 - [x] Import `illustrations` folders as image chapters.
 - [x] Import into new or existing series/category/volume.
+- [x] Skip pre-import text preview and read source content during import execution.
 - [x] Progress and report UI.
 
 ---
@@ -157,6 +168,7 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 - [x] Open result at matching chapter/position.
 - [x] Temporary search highlight fades after navigation.
 - [x] Recent reading with Library carousel.
+- [x] Library load avoids repeated empty recent-index rebuilds.
 - [x] Bookmark chapter/position.
 - [x] Highlight selected reader text with note.
 - [x] Hover highlight to view note.
