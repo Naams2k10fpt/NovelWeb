@@ -2057,3 +2057,52 @@ body {
     width: auto;
   }
 }
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1ebd9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cdbfaf;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2f6f73;
+}
+.sidebar::-webkit-scrollbar-track {
+  background: #1b2428;
+}
+.sidebar::-webkit-scrollbar-thumb {
+  background: #36515b;
+  border-radius: 4px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: #2f6f73;
+}
+
+/* Sidebar Lazy Loading Spinner */
+.tree-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  color: #66707a;
+  font-size: 13px;
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ddd4c7;
+  border-top-color: #2f6f73;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

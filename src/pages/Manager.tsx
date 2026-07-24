@@ -1327,7 +1327,12 @@ function SeriesTreeItem({
       <TreeButton {...props} expanded={expanded} hasChildren={!node.childrenLoaded || node.categories.length > 0} node={node} />
       {expanded ? (
         <div className="tree-children">
-          {node.childrenLoading ? <p className="muted-text">Loading</p> : null}
+          {node.childrenLoading ? (
+            <div className="tree-loading">
+              <span className="spinner"></span>
+              <span>Loading...</span>
+            </div>
+          ) : null}
           {node.childrenError ? <p className="error-text">{node.childrenError}</p> : null}
           {node.categories.map((category) => (
             <CategoryTreeItem key={category.id} node={category} {...props} />
