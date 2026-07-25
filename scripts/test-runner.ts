@@ -59,6 +59,7 @@ import JSZip from "jszip";
 import {
   buildChapterPdfHtml,
   buildChapterEpub,
+  buildSeriesEpub,
   buildSeriesPdfHtml,
   buildVolumeEpub,
   buildVolumePdfHtml,
@@ -303,6 +304,27 @@ async function runTests() {
         volumeOpf.includes('<itemref idref="chapter-2"/>') &&
         volumeNav.includes('href="chapter-2.xhtml"'),
       "Volume EPUB contains ordered chapter documents, spine entries, and navigation."
+    );
+    const seriesEpub = await JSZip.loadAsync(
+      await buildSeriesEpub({
+        identifier: `urn:uuid:${newSeries.id}`,
+        title: "Truyện thử",
+        seriesTitle: "Truyện thử",
+        language: "vi",
+        creator: "Tác giả",
+        groups: [
+          { title: "Web Novel", chapters: [{ title: "Chương 1", html: testHtml }] },
+          { title: "Light Novel — Tập 1", chapters: [{ title: "Chương 2", html: "<p>Nội dung.</p>" }] }
+        ],
+        modifiedAt: newSeries.updatedAt
+      })
+    );
+    const seriesNav = await seriesEpub.file("OEBPS/nav.xhtml")!.async("string");
+    assert(
+      !!seriesEpub.file("OEBPS/chapter-2.xhtml") &&
+        seriesNav.includes("Web Novel — Chương 1") &&
+        seriesNav.includes("Light Novel — Tập 1 — Chương 2"),
+      "Series EPUB preserves category/volume order in its chapter documents and navigation."
     );
 
     // ----------------------------------------------------

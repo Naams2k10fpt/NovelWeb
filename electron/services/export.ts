@@ -24,6 +24,11 @@ type PdfChapter = {
   html: string;
 };
 
+type ExportGroup = {
+  title: string;
+  chapters: PdfChapter[];
+};
+
 type ChapterEpubInput = {
   identifier: string;
   title: string;
@@ -130,7 +135,7 @@ export function buildVolumePdfHtml(
 
 export function buildSeriesPdfHtml(
   series: Pick<SeriesMetadata, "title" | "originalTitle" | "originalAuthor" | "translator" | "description">,
-  groups: Array<{ title: string; chapters: PdfChapter[] }>
+  groups: ExportGroup[]
 ): string {
   const details = [
     series.originalTitle && `<p><strong>Original title:</strong> ${escapeHtml(series.originalTitle)}</p>`,
@@ -290,6 +295,18 @@ export function buildChapterEpub(input: ChapterEpubInput): Promise<Buffer> {
 
 export function buildVolumeEpub(input: EpubBookInput): Promise<Buffer> {
   return buildEpub(input);
+}
+
+export function buildSeriesEpub(input: Omit<EpubBookInput, "chapters"> & { groups: ExportGroup[] }): Promise<Buffer> {
+  return buildEpub({
+    ...input,
+    chapters: input.groups.flatMap((group) =>
+      group.chapters.map((chapter) => ({
+        title: `${group.title} — ${chapter.title}`,
+        html: chapter.html
+      }))
+    )
+  });
 }
 
 async function chooseExportPath(
@@ -499,11 +516,22 @@ export async function exportSeriesToPdf(
   libraryPath: string,
   seriesId: string
 ): Promise<ExportResult | null> {
-  const [series, categories] = await Promise.all([
+  const [series, groups] = await Promise.all([
     readSeriesMetadata(libraryPath, seriesId),
-    listCategoryMetadata(libraryPath, seriesId)
+    readSeriesGroups(libraryPath, seriesId)
   ]);
-  const groups = (
+
+  return printHtmlToPdf(
+    ownerWindow,
+    "Export series to PDF",
+    series.title,
+    buildSeriesPdfHtml(series, groups)
+  );
+}
+
+async function readSeriesGroups(libraryPath: string, seriesId: string): Promise<ExportGroup[]> {
+  const categories = await listCategoryMetadata(libraryPath, seriesId);
+  return (
     await Promise.all(
       categories.map(async (category) => {
         if (category.type === "web-novel") {
@@ -523,11 +551,33 @@ export async function exportSeriesToPdf(
       })
     )
   ).flat();
+}
 
-  return printHtmlToPdf(
-    ownerWindow,
-    "Export series to PDF",
-    series.title,
-    buildSeriesPdfHtml(series, groups)
+export async function exportSeriesToEpub(
+  ownerWindow: BrowserWindow | null,
+  libraryPath: string,
+  seriesId: string
+): Promise<ExportResult | null> {
+  const [series, groups] = await Promise.all([
+    readSeriesMetadata(libraryPath, seriesId),
+    readSeriesGroups(libraryPath, seriesId)
+  ]);
+  const filePath = await chooseExportPath(ownerWindow, "Export series to EPUB", series.title, "epub");
+  if (!filePath) {
+    return null;
+  }
+
+  await writeExportFile(
+    filePath,
+    await buildSeriesEpub({
+      identifier: `urn:uuid:${series.id}`,
+      title: series.title,
+      seriesTitle: series.title,
+      language: series.language,
+      creator: series.originalAuthor,
+      groups,
+      modifiedAt: series.updatedAt
+    })
   );
+  return { path: filePath };
 }

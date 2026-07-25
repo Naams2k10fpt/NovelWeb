@@ -202,6 +202,7 @@ type RendererApi = {
       volumeId: string
     ) => Promise<ApiResponse<{ path: string } | null>>;
     seriesPdf: (seriesId: string) => Promise<ApiResponse<{ path: string } | null>>;
+    seriesEpub: (seriesId: string) => Promise<ApiResponse<{ path: string } | null>>;
   };
 };
 
@@ -795,6 +796,13 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
           label: "Export PDF",
           run: async () => {
             unwrap(await api.export.seriesPdf(node.id));
+            return false;
+          }
+        },
+        {
+          label: "Export EPUB",
+          run: async () => {
+            unwrap(await api.export.seriesEpub(node.id));
             return false;
           }
         },

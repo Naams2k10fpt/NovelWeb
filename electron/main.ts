@@ -68,6 +68,7 @@ import { searchLibrary, rebuildSearchIndex } from "./services/search";
 import {
   exportChapterToEpub,
   exportChapterToPdf,
+  exportSeriesToEpub,
   exportSeriesToPdf,
   exportVolumeToEpub,
   exportVolumeToPdf,
@@ -839,6 +840,23 @@ function registerExportIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.EXPORT_FAILED, "Could not export series to PDF.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "export:seriesEpub",
+    async (event, seriesId: unknown): Promise<ApiResponse<ExportResult | null>> => {
+      try {
+        return ok(
+          await exportSeriesToEpub(
+            BrowserWindow.fromWebContents(event.sender),
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.EXPORT_FAILED, "Could not export series to EPUB.", String(error));
       }
     }
   );
