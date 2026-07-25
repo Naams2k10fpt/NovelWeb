@@ -257,7 +257,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 - [x] Test PDF/Markdown split view.
 - [x] Test search.
 - [x] Test bookmark/highlight notes.
-- [ ] Test export PDF/EPUB.
+- [x] Test export PDF/EPUB.
 - [x] Test backup/restore.
 - [ ] Test update without data loss.
 - [ ] Final bug checklist.

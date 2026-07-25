@@ -291,7 +291,7 @@ async function runTests() {
     await saveContent(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id, { html: testHtml });
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m7. Testing Chapter PDF Export Document\x1b[0m");
+    console.log("\n\x1b[35m7. Testing PDF & EPUB Export Documents\x1b[0m");
     const exportHtml = buildChapterPdfHtml(
       "Truyện thử tiếng Việt",
       'Chương 1: "Thức tỉnh"',
