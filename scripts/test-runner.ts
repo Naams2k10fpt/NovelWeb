@@ -186,6 +186,7 @@ async function runTests() {
       originalAuthor: "Test Author",
       status: "translating",
       language: "vi",
+      tags: ["test-series"],
       description: "This is a test description."
     });
     assert(newSeries.title === "Test Novel Series", "Series created with correct title.");
@@ -194,16 +195,19 @@ async function runTests() {
     const seriesList = await listSeriesCards(TEST_LIB_DIR);
     assert(seriesList.length === 1, "Series index contains exactly 1 series.");
     assert(seriesList[0].title === "Test Novel Series", "Series card lists correct title.");
+    assert(seriesList[0].tags[0] === "test-series", "Series card lists free-form tags.");
 
     const loadedSeries = await readSeriesMetadata(TEST_LIB_DIR, newSeries.id);
     assert(loadedSeries.originalAuthor === "Test Author", "Loaded series metadata matches.");
 
     const updatedSeries = await updateSeriesMetadata(TEST_LIB_DIR, newSeries.id, {
       title: "Updated Novel Title",
-      originalAuthor: "Updated Author"
+      originalAuthor: "Updated Author",
+      tags: ["cozy", "isekai"]
     });
     assert(updatedSeries.title === "Updated Novel Title", "Series title updated successfully.");
     assert(updatedSeries.originalAuthor === "Updated Author", "Series author updated successfully.");
+    assert(updatedSeries.tags.join(",") === "cozy,isekai", "Series tags update successfully.");
 
     // ----------------------------------------------------
     console.log("\n\x1b[35m3. Testing Category CRUD\x1b[0m");
@@ -247,9 +251,14 @@ async function runTests() {
     // Web novel chapter (directly under category)
     const chapter1 = await createChapterMetadata(TEST_LIB_DIR, newSeries.id, category.id, null, {
       title: "Chapter 1: The Awakening",
-      order: 1
+      order: 1,
+      tags: ["opening"]
     });
     assert(chapter1.title === "Chapter 1: The Awakening", "Web Novel Chapter created successfully.");
+    const taggedChapter = await updateChapterMetadata(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id, {
+      tags: ["opening", "favorite"]
+    });
+    assert(taggedChapter.tags.join(",") === "opening,favorite", "Chapter tags update successfully.");
 
     const chapters = await listChapterMetadata(TEST_LIB_DIR, newSeries.id, category.id, null);
     assert(chapters.length === 1, "Chapter list contains exactly 1 chapter.");
@@ -593,6 +602,10 @@ async function runTests() {
     assert(searchResults.length === 1, "Search query returned exactly 1 match.");
     assert(searchResults[0].chapterId === chapter1.id, "Search result matches correct chapter.");
     assert(searchResults[0].snippet.includes("bold test"), "Search snippet contains queried text.");
+    assert(
+      (await searchLibrary(TEST_LIB_DIR, "favorite"))[0]?.chapterId === chapter1.id,
+      "Search finds chapters by free-form tag."
+    );
 
     // ----------------------------------------------------
     console.log("\n\x1b[35m13. Testing Full Library Backup\x1b[0m");

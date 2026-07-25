@@ -21,6 +21,7 @@ type SeriesCard = {
   title: string;
   author: string | null;
   genres: string[];
+  tags: string[];
   status: string;
   coverDataUrl: string | null;
 };
@@ -234,7 +235,9 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
   const query = searchQuery.trim().toLowerCase();
   const filteredSeries = query
     ? series.items.filter((item) =>
-        [item.title, item.author ?? "", item.status, ...item.genres].some((value) => value.toLowerCase().includes(query))
+        [item.title, item.author ?? "", item.status, ...item.genres, ...item.tags].some((value) =>
+          value.toLowerCase().includes(query)
+        )
       )
     : series.items;
   const quickSections = (
@@ -277,7 +280,7 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
         <span>Search</span>
         <input
           onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder="Title, author, status"
+          placeholder="Title, author, status, tag"
           type="search"
           value={searchQuery}
         />
@@ -305,6 +308,7 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
                 <h2>{item.title}</h2>
                 <p className="series-author">{item.author ?? "Unknown author"}</p>
                 {item.genres.length > 0 ? <p className="series-genres">{item.genres.slice(0, 3).join(", ")}</p> : null}
+                {item.tags.length > 0 ? <p className="series-genres">{item.tags.map((tag) => `#${tag}`).join(" ")}</p> : null}
                 <span className="series-status">{formatStatus(item.status)}</span>
               </div>
             </button>

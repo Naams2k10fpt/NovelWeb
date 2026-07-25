@@ -14,6 +14,7 @@ export type NovelChapterMetadata = {
   order: number;
   wordCount: number;
   characterCount: number;
+  tags: string[];
   translationStatus: TranslationStatus;
   hasOriginalPdf: boolean;
   originalFileName: string | null;

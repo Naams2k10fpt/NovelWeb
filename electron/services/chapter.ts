@@ -28,6 +28,7 @@ import {
   readOptionalInteger,
   readOptionalNonNegativeInteger,
   readOptionalNullableString,
+  readOptionalStringArray,
   readRequiredIdArray,
   readRequiredString,
   readRequiredText,
@@ -89,6 +90,7 @@ export function parseNovelChapterCreateInput(input: unknown, orderFallback: numb
     order: readOptionalInteger(record, "order", orderFallback),
     wordCount: readOptionalNonNegativeInteger(record, "wordCount", 0),
     characterCount: readOptionalNonNegativeInteger(record, "characterCount", 0),
+    tags: readOptionalStringArray(record, "tags", []),
     translationStatus: readTranslationStatus(record, "draft"),
     hasOriginalPdf: readOptionalBoolean(record, "hasOriginalPdf", false),
     originalFileName: readOptionalNullableString(record, "originalFileName", null),
@@ -109,6 +111,7 @@ export function parseNovelChapterUpdateInput(input: unknown, current: NovelChapt
     order: readOptionalInteger(record, "order", current.order),
     wordCount: readOptionalNonNegativeInteger(record, "wordCount", current.wordCount),
     characterCount: readOptionalNonNegativeInteger(record, "characterCount", current.characterCount),
+    tags: readOptionalStringArray(record, "tags", current.tags),
     translationStatus: readTranslationStatus(record, current.translationStatus),
     hasOriginalPdf: readOptionalBoolean(record, "hasOriginalPdf", current.hasOriginalPdf),
     originalFileName: readOptionalNullableString(record, "originalFileName", current.originalFileName),
@@ -128,7 +131,7 @@ export async function readNovelChapterMetadata(
     chapterMetaPath(libraryPath, seriesId, categoryId, volumeId, chapterId)
   );
   assertSupportedSchemaVersion(`series/${seriesId}/categories/${categoryId}/chapters/${chapterId}/meta.json`, metadata);
-  return metadata;
+  return { ...metadata, tags: Array.isArray(metadata.tags) ? metadata.tags.filter((tag) => typeof tag === "string") : [] };
 }
 
 // Re-export as alias used by preload/handlers

@@ -33,6 +33,7 @@ export type SearchDocument = {
   volumeTitle: string | null;
   chapterId: string;
   chapterTitle: string;
+  tags: string[];
   text: string;
   updatedAt: string;
 };
@@ -72,7 +73,10 @@ export async function readSearchIndex(libraryPath: string): Promise<SearchIndex>
   try {
     const index = await readJsonFile<SearchIndex>(searchIndexPath(libraryPath));
     assertSupportedSchemaVersion("search-index.json", index);
-    return Array.isArray(index.documents) ? index : { ...index, documents: [] };
+    if (!Array.isArray(index.documents) || index.documents.some((document) => !Array.isArray(document.tags))) {
+      return rebuildSearchIndex(libraryPath);
+    }
+    return index;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       throw error;
@@ -98,6 +102,7 @@ export async function toSearchDocument(
     volumeTitle: volume?.title ?? null,
     chapterId: chapter.id,
     chapterTitle: chapter.title,
+    tags: [...series.tags, ...chapter.tags],
     text: await readOptionalTextFile(
       chapterContentPath(libraryPath, series.id, category.id, volume?.id ?? null, chapter.id, chapter.plainTextFile)
     ),
@@ -186,6 +191,7 @@ export async function upsertSearchDocument(
       volumeTitle: volume?.title ?? null,
       chapterId: chapter.id,
       chapterTitle: chapter.title,
+      tags: [...series.tags, ...chapter.tags],
       text,
       updatedAt: chapter.updatedAt
     };
@@ -242,6 +248,7 @@ export async function searchLibrary(libraryPath: string, queryInput: unknown): P
       document.categoryTitle,
       document.volumeTitle ?? "",
       document.chapterTitle,
+      ...document.tags,
       document.text
     ]
         .join("\n")

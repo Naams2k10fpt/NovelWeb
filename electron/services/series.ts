@@ -70,12 +70,13 @@ export async function readSeriesCoverDataUrl(libraryPath: string, entry: { id: s
   }
 }
 
-export async function toSeriesCard(libraryPath: string, entry: { id: string; title: string; author?: string | null; genres?: string[]; status?: any; coverImage?: string | null }): Promise<SeriesCard> {
+export async function toSeriesCard(libraryPath: string, entry: { id: string; title: string; author?: string | null; genres?: string[]; tags?: string[]; status?: any; coverImage?: string | null }): Promise<SeriesCard> {
   return {
     id: entry.id,
     title: entry.title,
     author: entry.author ?? null,
     genres: entry.genres ?? [],
+    tags: entry.tags ?? [],
     status: entry.status ?? "planning",
     coverDataUrl: await readSeriesCoverDataUrl(libraryPath, entry)
   };
@@ -94,7 +95,7 @@ export async function toSeriesDetailData(libraryPath: string, metadata: SeriesMe
 export async function readSeriesMetadata(libraryPath: string, seriesId: string): Promise<SeriesMetadata> {
   const metadata = await readJsonFile<SeriesMetadata>(seriesMetaPath(libraryPath, seriesId));
   assertSupportedSchemaVersion(`series/${seriesId}/meta.json`, metadata);
-  return metadata;
+  return { ...metadata, tags: Array.isArray(metadata.tags) ? metadata.tags.filter((tag) => typeof tag === "string") : [] };
 }
 
 export async function listSeriesCards(libraryPath: string): Promise<SeriesCard[]> {

@@ -32,6 +32,7 @@ export type SeriesIndex = {
     title: string;
     author?: string | null;
     genres?: string[];
+    tags?: string[];
     status?: SeriesStatus;
     coverImage?: string | null;
     updatedAt?: string;
@@ -131,6 +132,9 @@ export async function rebuildSeriesIndex(libraryPath: string): Promise<void> {
           genres: Array.isArray(metadata.genres)
             ? metadata.genres.filter((genre): genre is string => typeof genre === "string")
             : [],
+          tags: Array.isArray(metadata.tags)
+            ? metadata.tags.filter((tag): tag is string => typeof tag === "string")
+            : [],
           status:
             typeof metadata.status === "string" && (SERIES_STATUSES as readonly string[]).includes(metadata.status)
               ? (metadata.status as SeriesStatus)
@@ -198,7 +202,7 @@ export async function readSeriesIndex(libraryPath: string): Promise<SeriesIndex>
     const index = await readJsonFile<SeriesIndex>(seriesIndexPath(libraryPath));
     assertSupportedSchemaVersion("series-index.json", index);
 
-    if (index.series.some((entry) => !Array.isArray(entry.genres))) {
+    if (index.series.some((entry) => !Array.isArray(entry.genres) || !Array.isArray(entry.tags))) {
       await rebuildSeriesIndex(libraryPath);
       return readJsonFile<SeriesIndex>(seriesIndexPath(libraryPath));
     }

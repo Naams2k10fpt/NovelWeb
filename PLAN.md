@@ -160,6 +160,7 @@ Category `type` is `light-novel` or `web-novel`.
   "order": 1,
   "wordCount": 5000,
   "characterCount": 23000,
+  "tags": [],
   "translationStatus": "draft",
   "hasOriginalPdf": true,
   "originalFileName": "source.pdf",

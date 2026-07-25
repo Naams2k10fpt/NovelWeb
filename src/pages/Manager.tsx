@@ -45,6 +45,7 @@ type VolumeMetadata = {
 type ChapterMetadata = {
   id: string;
   title: string;
+  tags: string[];
   translationStatus?: string;
 };
 
@@ -109,6 +110,7 @@ type ManagerFormState = {
   label: string;
   title: string;
   categoryType: CategoryType | null;
+  allowEmpty: boolean;
   submit: (title: string, categoryType: CategoryType | null) => Promise<void>;
 };
 
@@ -222,6 +224,10 @@ function unwrap<T>(response: ApiResponse<T>): T {
 
 function formatLabel(value: string): string {
   return value.replace(/-/g, " ").replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
+function parseTags(value: string): string[] {
+  return [...new Set(value.split(",").map((tag) => tag.trim()).filter(Boolean))];
 }
 
 function isSupportedCategory(category: CategoryMetadata): category is SupportedCategoryMetadata {
@@ -723,10 +729,11 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     label: string,
     title: string,
     submit: ManagerFormState["submit"],
-    categoryType: CategoryType | null = null
+    categoryType: CategoryType | null = null,
+    allowEmpty = false
   ): void {
     setImportPanel(null);
-    setForm({ heading, label, title, categoryType, submit });
+    setForm({ heading, label, title, categoryType, allowEmpty, submit });
   }
 
   async function openImport(heading: string, target: ImportTargetPreset, sourceKind: "folder" | "files" = "folder"): Promise<void> {
@@ -754,7 +761,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     }
 
     const title = form.title.trim();
-    if (!title) {
+    if (!title && !form.allowEmpty) {
       return;
     }
 
@@ -990,6 +997,26 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
         label: "Export EPUB",
         run: async () => {
           unwrap(await api.export.chapterEpub(node.seriesId, node.categoryId, node.volumeId, node.id));
+          return false;
+        }
+      },
+      {
+        label: "Edit tags",
+        run: async () => {
+          openForm(
+            "Edit chapter tags",
+            "Comma-separated tags",
+            node.tags.join(", "),
+            async (tags) => {
+              unwrap(
+                await api.chapters.update(node.seriesId, node.categoryId, node.volumeId, node.id, {
+                  tags: parseTags(tags)
+                })
+              );
+            },
+            null,
+            true
+          );
           return false;
         }
       },
@@ -1243,7 +1270,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
               />
             </label>
             <div className="manager-actions">
-              <button className="primary-action" disabled={!form.title.trim()} type="submit">
+              <button className="primary-action" disabled={!form.allowEmpty && !form.title.trim()} type="submit">
                 Save
               </button>
               <button onClick={() => setForm(null)} type="button">

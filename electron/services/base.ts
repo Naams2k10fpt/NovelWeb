@@ -99,6 +99,7 @@ export type SeriesCard = {
   title: string;
   author: string | null;
   genres: string[];
+  tags: string[];
   status: SeriesStatus;
   coverDataUrl: string | null;
 };
