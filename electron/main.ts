@@ -69,6 +69,7 @@ import {
   exportChapterToEpub,
   exportChapterToPdf,
   exportSeriesToPdf,
+  exportVolumeToEpub,
   exportVolumeToPdf,
   type ExportResult
 } from "./services/export";
@@ -802,6 +803,25 @@ function registerExportIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.EXPORT_FAILED, "Could not export volume to PDF.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "export:volumeEpub",
+    async (event, seriesId: unknown, categoryId: unknown, volumeId: unknown): Promise<ApiResponse<ExportResult | null>> => {
+      try {
+        return ok(
+          await exportVolumeToEpub(
+            BrowserWindow.fromWebContents(event.sender),
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(volumeId, "volumeId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.EXPORT_FAILED, "Could not export volume to EPUB.", String(error));
       }
     }
   );

@@ -39,7 +39,7 @@ Current scope change:
 - Trash browser with restore and confirmed permanent delete.
 - Chapter content history with restore from the editor.
 - Chapter, volume, and series PDF export with metadata, headings, inline images, table of contents, and A4 print styling.
-- Chapter EPUB 3 export with metadata, navigation, XHTML content, and packaged inline images.
+- Chapter and volume EPUB 3 export with metadata, navigation, ordered XHTML content, and packaged inline images.
 
 ## Roadmap
 

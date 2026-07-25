@@ -196,6 +196,11 @@ type RendererApi = {
       categoryId: string,
       volumeId: string
     ) => Promise<ApiResponse<{ path: string } | null>>;
+    volumeEpub: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string
+    ) => Promise<ApiResponse<{ path: string } | null>>;
     seriesPdf: (seriesId: string) => Promise<ApiResponse<{ path: string } | null>>;
   };
 };
@@ -932,6 +937,13 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
           label: "Export PDF",
           run: async () => {
             unwrap(await api.export.volumePdf(node.seriesId, node.categoryId, node.id));
+            return false;
+          }
+        },
+        {
+          label: "Export EPUB",
+          run: async () => {
+            unwrap(await api.export.volumeEpub(node.seriesId, node.categoryId, node.id));
             return false;
           }
         },

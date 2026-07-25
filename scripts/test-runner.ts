@@ -60,6 +60,7 @@ import {
   buildChapterPdfHtml,
   buildChapterEpub,
   buildSeriesPdfHtml,
+  buildVolumeEpub,
   buildVolumePdfHtml,
   safeExportFileName
 } from "../electron/services/export";
@@ -277,9 +278,31 @@ async function runTests() {
         !!epub.file("OEBPS/content.opf") &&
         !!epub.file("OEBPS/nav.xhtml") &&
         !!epub.file("OEBPS/chapter-1.xhtml") &&
-        !!epub.file("OEBPS/images/image-1.png") &&
-        (await epub.file("OEBPS/chapter-1.xhtml")!.async("string")).includes('src="images/image-1.png"'),
+        !!epub.file("OEBPS/images/chapter-1-image-1.png") &&
+        (await epub.file("OEBPS/chapter-1.xhtml")!.async("string")).includes('src="images/chapter-1-image-1.png"'),
       "Chapter EPUB contains valid package files, navigation, XHTML, and extracted inline images."
+    );
+    const volumeEpub = await JSZip.loadAsync(
+      await buildVolumeEpub({
+        identifier: `urn:uuid:${volume.id}`,
+        title: "Tập 1",
+        seriesTitle: "Truyện thử",
+        language: "vi",
+        creator: "Tác giả",
+        chapters: [
+          { title: "Chương 1", html: testHtml },
+          { title: "Chương 2", html: "<p>Nội dung chương 2.</p>" }
+        ],
+        modifiedAt: volume.updatedAt
+      })
+    );
+    const volumeOpf = await volumeEpub.file("OEBPS/content.opf")!.async("string");
+    const volumeNav = await volumeEpub.file("OEBPS/nav.xhtml")!.async("string");
+    assert(
+      !!volumeEpub.file("OEBPS/chapter-2.xhtml") &&
+        volumeOpf.includes('<itemref idref="chapter-2"/>') &&
+        volumeNav.includes('href="chapter-2.xhtml"'),
+      "Volume EPUB contains ordered chapter documents, spine entries, and navigation."
     );
 
     // ----------------------------------------------------

@@ -34,6 +34,10 @@ type ChapterEpubInput = {
   modifiedAt: string;
 };
 
+type EpubBookInput = Omit<ChapterEpubInput, "html"> & {
+  chapters: PdfChapter[];
+};
+
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
@@ -179,7 +183,10 @@ function epubModifiedDate(value: string): string {
   return (Number.isNaN(date.getTime()) ? new Date() : date).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-function prepareEpubHtml(html: string): { html: string; images: Array<{ path: string; mediaType: string; data: Buffer }> } {
+function prepareEpubHtml(
+  html: string,
+  chapterNumber: number
+): { html: string; images: Array<{ path: string; mediaType: string; data: Buffer }> } {
   const images: Array<{ path: string; mediaType: string; data: Buffer }> = [];
   const preparedHtml = html.replace(/<img\b[^>]*>/gi, (tag) => {
     const source = readHtmlAttribute(tag, "src");
@@ -191,7 +198,7 @@ function prepareEpubHtml(html: string): { html: string; images: Array<{ path: st
 
     const mediaType = match[1].toLowerCase();
     const extension = mediaType === "image/jpeg" ? "jpg" : mediaType.slice("image/".length);
-    const path = `images/image-${images.length + 1}.${extension}`;
+    const path = `images/chapter-${chapterNumber}-image-${images.length + 1}.${extension}`;
     images.push({ path, mediaType, data: Buffer.from(match[2].replace(/\s/g, ""), "base64") });
     return removeHtmlAttribute(setHtmlAttribute(tag, "src", path), "data-asset-src");
   });
@@ -204,16 +211,31 @@ function prepareEpubHtml(html: string): { html: string; images: Array<{ path: st
   };
 }
 
-export async function buildChapterEpub(input: ChapterEpubInput): Promise<Buffer> {
+async function buildEpub(input: EpubBookInput): Promise<Buffer> {
   const zip = new JSZip();
-  const prepared = prepareEpubHtml(chapterBody(input.html));
+  const chapters = input.chapters.map((chapter, index) => ({
+    ...chapter,
+    prepared: prepareEpubHtml(chapterBody(chapter.html), index + 1)
+  }));
   const creator = input.creator ? `<dc:creator>${escapeHtml(input.creator)}</dc:creator>` : "";
-  const imageManifest = prepared.images
-    .map(
-      (image, index) =>
-        `<item id="image-${index + 1}" href="${image.path}" media-type="${image.mediaType}"/>`
+  const chapterManifest = chapters
+    .map((_chapter, index) => `<item id="chapter-${index + 1}" href="chapter-${index + 1}.xhtml" media-type="application/xhtml+xml"/>`)
+    .join("\n    ");
+  const imageManifest = chapters
+    .flatMap((chapter, chapterIndex) =>
+      chapter.prepared.images.map(
+        (image, imageIndex) =>
+          `<item id="chapter-${chapterIndex + 1}-image-${imageIndex + 1}" href="${image.path}" media-type="${image.mediaType}"/>`
+      )
     )
     .join("\n    ");
+  const spine = chapters.map((_chapter, index) => `<itemref idref="chapter-${index + 1}"/>`).join("");
+  const navigation = chapters
+    .map(
+      (chapter, index) =>
+        `<li><a href="chapter-${index + 1}.xhtml">${escapeHtml(chapter.title)}</a></li>`
+    )
+    .join("");
 
   zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
   zip.file("META-INF/container.xml", `<?xml version="1.0" encoding="UTF-8"?>
@@ -231,33 +253,43 @@ export async function buildChapterEpub(input: ChapterEpubInput): Promise<Buffer>
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
-    <item id="chapter-1" href="chapter-1.xhtml" media-type="application/xhtml+xml"/>
+    ${chapterManifest}
     ${imageManifest}
   </manifest>
-  <spine><itemref idref="chapter-1"/></spine>
+  <spine>${spine}</spine>
 </package>`);
   zip.file("OEBPS/nav.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="${escapeHtml(input.language)}" xml:lang="${escapeHtml(input.language)}">
 <head><title>Table of Contents</title></head>
-<body><nav epub:type="toc"><h1>${escapeHtml(input.seriesTitle)}</h1><ol><li><a href="chapter-1.xhtml">${escapeHtml(input.title)}</a></li></ol></nav></body>
+<body><nav epub:type="toc"><h1>${escapeHtml(input.title)}</h1><p>${escapeHtml(input.seriesTitle)}</p><ol>${navigation}</ol></nav></body>
 </html>`);
-  zip.file("OEBPS/chapter-1.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
+  chapters.forEach((chapter, index) => {
+    zip.file(`OEBPS/chapter-${index + 1}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" lang="${escapeHtml(input.language)}" xml:lang="${escapeHtml(input.language)}">
 <head>
-  <title>${escapeHtml(input.title)}</title>
+  <title>${escapeHtml(chapter.title)}</title>
   <style>body{font-family:serif;line-height:1.7}img{display:block;height:auto;margin:1.5em auto;max-width:100%}</style>
 </head>
-<body><h1>${escapeHtml(input.title)}</h1>${prepared.html}</body>
+<body><h1>${escapeHtml(chapter.title)}</h1>${chapter.prepared.html}</body>
 </html>`);
-  prepared.images.forEach((image) => zip.file(`OEBPS/${image.path}`, image.data));
+    chapter.prepared.images.forEach((image) => zip.file(`OEBPS/${image.path}`, image.data));
+  });
 
   return zip.generateAsync({
     type: "nodebuffer",
     compression: "DEFLATE",
     compressionOptions: { level: 6 }
   });
+}
+
+export function buildChapterEpub(input: ChapterEpubInput): Promise<Buffer> {
+  return buildEpub({ ...input, chapters: [{ title: input.title, html: input.html }] });
+}
+
+export function buildVolumeEpub(input: EpubBookInput): Promise<Buffer> {
+  return buildEpub(input);
 }
 
 async function chooseExportPath(
@@ -410,6 +442,43 @@ export async function exportVolumeToPdf(
       chapters
     )
   );
+}
+
+export async function exportVolumeToEpub(
+  ownerWindow: BrowserWindow | null,
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string
+): Promise<ExportResult | null> {
+  const [series, volume, chapters] = await Promise.all([
+    readSeriesMetadata(libraryPath, seriesId),
+    readVolumeMetadata(libraryPath, seriesId, categoryId, volumeId),
+    readPdfChapters(libraryPath, seriesId, categoryId, volumeId)
+  ]);
+  const filePath = await chooseExportPath(
+    ownerWindow,
+    "Export volume to EPUB",
+    `${series.title} - ${volume.title}`,
+    "epub"
+  );
+  if (!filePath) {
+    return null;
+  }
+
+  await writeExportFile(
+    filePath,
+    await buildVolumeEpub({
+      identifier: `urn:uuid:${volume.id}`,
+      title: volume.title,
+      seriesTitle: series.title,
+      language: series.language,
+      creator: series.originalAuthor,
+      chapters,
+      modifiedAt: volume.updatedAt
+    })
+  );
+  return { path: filePath };
 }
 
 async function readPdfChapters(

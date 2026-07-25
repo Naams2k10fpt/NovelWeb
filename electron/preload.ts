@@ -88,6 +88,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("export:chapterEpub", seriesId, categoryId, volumeId, chapterId),
     volumePdf: (seriesId: string, categoryId: string, volumeId: string) =>
       ipcRenderer.invoke("export:volumePdf", seriesId, categoryId, volumeId),
+    volumeEpub: (seriesId: string, categoryId: string, volumeId: string) =>
+      ipcRenderer.invoke("export:volumeEpub", seriesId, categoryId, volumeId),
     seriesPdf: (seriesId: string) => ipcRenderer.invoke("export:seriesPdf", seriesId)
   },
   search: {
