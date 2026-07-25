@@ -84,14 +84,19 @@ contextBridge.exposeInMainWorld("api", {
     execute: (importSessionId: string, input: unknown) => ipcRenderer.invoke("import:execute", importSessionId, input)
   },
   export: {
+    chapterPreview: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
+      ipcRenderer.invoke("export:chapterPreview", seriesId, categoryId, volumeId, chapterId),
     chapterPdf: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
       ipcRenderer.invoke("export:chapterPdf", seriesId, categoryId, volumeId, chapterId),
     chapterEpub: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
       ipcRenderer.invoke("export:chapterEpub", seriesId, categoryId, volumeId, chapterId),
+    volumePreview: (seriesId: string, categoryId: string, volumeId: string) =>
+      ipcRenderer.invoke("export:volumePreview", seriesId, categoryId, volumeId),
     volumePdf: (seriesId: string, categoryId: string, volumeId: string) =>
       ipcRenderer.invoke("export:volumePdf", seriesId, categoryId, volumeId),
     volumeEpub: (seriesId: string, categoryId: string, volumeId: string) =>
       ipcRenderer.invoke("export:volumeEpub", seriesId, categoryId, volumeId),
+    seriesPreview: (seriesId: string) => ipcRenderer.invoke("export:seriesPreview", seriesId),
     seriesPdf: (seriesId: string) => ipcRenderer.invoke("export:seriesPdf", seriesId),
     seriesEpub: (seriesId: string) => ipcRenderer.invoke("export:seriesEpub", seriesId)
   },

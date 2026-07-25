@@ -71,6 +71,9 @@ import { searchLibrary, rebuildSearchIndex } from "./services/search";
 import {
   exportChapterToEpub,
   exportChapterToPdf,
+  previewChapterExport,
+  previewSeriesExport,
+  previewVolumeExport,
   exportSeriesToEpub,
   exportSeriesToPdf,
   exportVolumeToEpub,
@@ -753,6 +756,59 @@ function registerImportIpc(): void {
 }
 
 function registerExportIpc(): void {
+  ipcMain.handle(
+    "export:chapterPreview",
+    async (event, seriesId: unknown, categoryId: unknown, volumeId: unknown, chapterId: unknown): Promise<ApiResponse<null>> => {
+      try {
+        await previewChapterExport(
+          BrowserWindow.fromWebContents(event.sender),
+          await currentLibraryPathOrThrow(),
+          assertId(seriesId, "seriesId"),
+          assertId(categoryId, "categoryId"),
+          optionalVolumeId(volumeId),
+          assertId(chapterId, "chapterId")
+        );
+        return ok(null);
+      } catch (error) {
+        return fail(ErrorCode.EXPORT_FAILED, "Could not preview chapter export.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "export:volumePreview",
+    async (event, seriesId: unknown, categoryId: unknown, volumeId: unknown): Promise<ApiResponse<null>> => {
+      try {
+        await previewVolumeExport(
+          BrowserWindow.fromWebContents(event.sender),
+          await currentLibraryPathOrThrow(),
+          assertId(seriesId, "seriesId"),
+          assertId(categoryId, "categoryId"),
+          assertId(volumeId, "volumeId")
+        );
+        return ok(null);
+      } catch (error) {
+        return fail(ErrorCode.EXPORT_FAILED, "Could not preview volume export.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "export:seriesPreview",
+    async (event, seriesId: unknown): Promise<ApiResponse<null>> => {
+      try {
+        await previewSeriesExport(
+          BrowserWindow.fromWebContents(event.sender),
+          await currentLibraryPathOrThrow(),
+          assertId(seriesId, "seriesId")
+        );
+        return ok(null);
+      } catch (error) {
+        return fail(ErrorCode.EXPORT_FAILED, "Could not preview series export.", String(error));
+      }
+    }
+  );
+
   ipcMain.handle(
     "export:chapterPdf",
     async (

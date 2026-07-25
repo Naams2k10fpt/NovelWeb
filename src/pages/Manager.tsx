@@ -181,6 +181,12 @@ type RendererApi = {
     scan: (importSessionId: string) => Promise<ApiResponse<ImportPreview>>;
   };
   export: {
+    chapterPreview: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string
+    ) => Promise<ApiResponse<null>>;
     chapterPdf: (
       seriesId: string,
       categoryId: string,
@@ -193,6 +199,11 @@ type RendererApi = {
       volumeId: string | null,
       chapterId: string
     ) => Promise<ApiResponse<{ path: string } | null>>;
+    volumePreview: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string
+    ) => Promise<ApiResponse<null>>;
     volumePdf: (
       seriesId: string,
       categoryId: string,
@@ -203,6 +214,7 @@ type RendererApi = {
       categoryId: string,
       volumeId: string
     ) => Promise<ApiResponse<{ path: string } | null>>;
+    seriesPreview: (seriesId: string) => Promise<ApiResponse<null>>;
     seriesPdf: (seriesId: string) => Promise<ApiResponse<{ path: string } | null>>;
     seriesEpub: (seriesId: string) => Promise<ApiResponse<{ path: string } | null>>;
   };
@@ -800,6 +812,13 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     if (node.kind === "series") {
       return [
         {
+          label: "Preview export",
+          run: async () => {
+            unwrap(await api.export.seriesPreview(node.id));
+            return false;
+          }
+        },
+        {
           label: "Export PDF",
           run: async () => {
             unwrap(await api.export.seriesPdf(node.id));
@@ -949,6 +968,13 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
           }
         },
         {
+          label: "Preview export",
+          run: async () => {
+            unwrap(await api.export.volumePreview(node.seriesId, node.categoryId, node.id));
+            return false;
+          }
+        },
+        {
           label: "Export PDF",
           run: async () => {
             unwrap(await api.export.volumePdf(node.seriesId, node.categoryId, node.id));
@@ -986,6 +1012,13 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     }
 
     return [
+      {
+        label: "Preview export",
+        run: async () => {
+          unwrap(await api.export.chapterPreview(node.seriesId, node.categoryId, node.volumeId, node.id));
+          return false;
+        }
+      },
       {
         label: "Export PDF",
         run: async () => {

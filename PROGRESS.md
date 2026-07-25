@@ -271,4 +271,4 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 - [x] Free-form tags for series/chapter.
 - [x] Collections: Reading, Favorite, Needs Edit, Completed.
 - [x] Detailed import history.
-- [ ] Export preview.
+- [x] Export preview.

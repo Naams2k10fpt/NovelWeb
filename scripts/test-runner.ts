@@ -67,6 +67,7 @@ import {
   buildSeriesPdfHtml,
   buildVolumeEpub,
   buildVolumePdfHtml,
+  openExportPreview,
   safeExportFileName
 } from "../electron/services/export";
 import {
@@ -329,6 +330,12 @@ async function runTests() {
         safeExportFileName('Chương 1: "Thức tỉnh"?') === "Chương 1_ _Thức tỉnh__",
       "PDF document uses one chapter heading and a Windows-safe file name."
     );
+    const previewWindow = await openExportPreview(null, "Chapter preview", exportHtml);
+    assert(
+      previewWindow.isVisible() && previewWindow.webContents.getURL().endsWith("/preview.html"),
+      "Export preview loads and shows the generated export document."
+    );
+    previewWindow.destroy();
     const volumeExportHtml = buildVolumePdfHtml("Truyện thử", "Tập 1", [
       { title: "Chương 1", html: testHtml },
       { title: "Chương 2", html: "<h1>Duplicate title</h1><p>Nội dung chương 2.</p>" }

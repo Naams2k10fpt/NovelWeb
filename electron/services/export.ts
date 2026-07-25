@@ -19,6 +19,8 @@ export type ExportResult = {
   path: string;
 };
 
+const openPreviewWindows = new Set<BrowserWindow>();
+
 type PdfChapter = {
   title: string;
   html: string;
@@ -392,6 +394,47 @@ async function writeExportFile(filePath: string, content: Buffer): Promise<void>
   }
 }
 
+export async function openExportPreview(
+  ownerWindow: BrowserWindow | null,
+  title: string,
+  html: string
+): Promise<BrowserWindow> {
+  const tempDirectory = await mkdtemp(join(app.getPath("temp"), "novelweb-preview-"));
+  const htmlPath = join(tempDirectory, "preview.html");
+  const previewWindow = new BrowserWindow({
+    title: `${title} - Export Preview`,
+    width: 920,
+    height: 760,
+    show: false,
+    parent: ownerWindow ?? undefined,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  let cleanupPromise: Promise<void> | null = null;
+  const cleanup = (): Promise<void> =>
+    cleanupPromise ??= rm(tempDirectory, { recursive: true, force: true });
+
+  openPreviewWindows.add(previewWindow);
+  previewWindow.once("closed", () => {
+    openPreviewWindows.delete(previewWindow);
+    void cleanup();
+  });
+
+  try {
+    await writeFile(htmlPath, html, "utf8");
+    await previewWindow.loadFile(htmlPath);
+    previewWindow.show();
+    return previewWindow;
+  } catch (error) {
+    previewWindow.destroy();
+    await cleanup();
+    throw error;
+  }
+}
+
 async function printHtmlToPdf(
   ownerWindow: BrowserWindow | null,
   dialogTitle: string,
@@ -449,6 +492,26 @@ export async function exportChapterToPdf(
     "Export chapter to PDF",
     chapter.title,
     buildChapterPdfHtml(series.title, chapter.title, content.html, coverDataUrl)
+  );
+}
+
+export async function previewChapterExport(
+  ownerWindow: BrowserWindow | null,
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<void> {
+  const [series, chapter, content] = await Promise.all([
+    readSeriesMetadata(libraryPath, seriesId),
+    readChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId),
+    getContent(libraryPath, seriesId, categoryId, volumeId, chapterId)
+  ]);
+  await openExportPreview(
+    ownerWindow,
+    chapter.title,
+    buildChapterPdfHtml(series.title, chapter.title, content.html, await readSeriesCoverDataUrl(libraryPath, series))
   );
 }
 
@@ -510,6 +573,30 @@ export async function exportVolumeToPdf(
       volume.title,
       chapters,
       coverDataUrl
+    )
+  );
+}
+
+export async function previewVolumeExport(
+  ownerWindow: BrowserWindow | null,
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string
+): Promise<void> {
+  const [series, volume, chapters] = await Promise.all([
+    readSeriesMetadata(libraryPath, seriesId),
+    readVolumeMetadata(libraryPath, seriesId, categoryId, volumeId),
+    readPdfChapters(libraryPath, seriesId, categoryId, volumeId)
+  ]);
+  await openExportPreview(
+    ownerWindow,
+    `${series.title} - ${volume.title}`,
+    buildVolumePdfHtml(
+      series.title,
+      volume.title,
+      chapters,
+      await readSeriesCoverDataUrl(libraryPath, series)
     )
   );
 }
@@ -582,6 +669,22 @@ export async function exportSeriesToPdf(
     "Export series to PDF",
     series.title,
     buildSeriesPdfHtml(series, groups, coverDataUrl)
+  );
+}
+
+export async function previewSeriesExport(
+  ownerWindow: BrowserWindow | null,
+  libraryPath: string,
+  seriesId: string
+): Promise<void> {
+  const [series, groups] = await Promise.all([
+    readSeriesMetadata(libraryPath, seriesId),
+    readSeriesGroups(libraryPath, seriesId)
+  ]);
+  await openExportPreview(
+    ownerWindow,
+    series.title,
+    buildSeriesPdfHtml(series, groups, await readSeriesCoverDataUrl(libraryPath, series))
   );
 }
 
