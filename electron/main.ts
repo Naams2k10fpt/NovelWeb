@@ -65,7 +65,13 @@ import {
   executeImport
 } from "./services/import";
 import { searchLibrary, rebuildSearchIndex } from "./services/search";
-import { exportChapterToPdf, exportSeriesToPdf, exportVolumeToPdf, type ExportResult } from "./services/export";
+import {
+  exportChapterToEpub,
+  exportChapterToPdf,
+  exportSeriesToPdf,
+  exportVolumeToPdf,
+  type ExportResult
+} from "./services/export";
 import {
   listRecentEntries,
   listBookmarks,
@@ -204,41 +210,6 @@ function registerLibraryIpc(): void {
     }
   );
 
-  ipcMain.handle(
-    "export:volumePdf",
-    async (event, seriesId: unknown, categoryId: unknown, volumeId: unknown): Promise<ApiResponse<ExportResult | null>> => {
-      try {
-        return ok(
-          await exportVolumeToPdf(
-            BrowserWindow.fromWebContents(event.sender),
-            await currentLibraryPathOrThrow(),
-            assertId(seriesId, "seriesId"),
-            assertId(categoryId, "categoryId"),
-            assertId(volumeId, "volumeId")
-          )
-        );
-      } catch (error) {
-        return fail(ErrorCode.EXPORT_FAILED, "Could not export volume to PDF.", String(error));
-      }
-    }
-  );
-
-  ipcMain.handle(
-    "export:seriesPdf",
-    async (event, seriesId: unknown): Promise<ApiResponse<ExportResult | null>> => {
-      try {
-        return ok(
-          await exportSeriesToPdf(
-            BrowserWindow.fromWebContents(event.sender),
-            await currentLibraryPathOrThrow(),
-            assertId(seriesId, "seriesId")
-          )
-        );
-      } catch (error) {
-        return fail(ErrorCode.EXPORT_FAILED, "Could not export series to PDF.", String(error));
-      }
-    }
-  );
 }
 
 function registerSeriesIpc(): void {
@@ -786,6 +757,68 @@ function registerExportIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.EXPORT_FAILED, "Could not export chapter to PDF.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "export:chapterEpub",
+    async (
+      event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown
+    ): Promise<ApiResponse<ExportResult | null>> => {
+      try {
+        return ok(
+          await exportChapterToEpub(
+            BrowserWindow.fromWebContents(event.sender),
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.EXPORT_FAILED, "Could not export chapter to EPUB.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "export:volumePdf",
+    async (event, seriesId: unknown, categoryId: unknown, volumeId: unknown): Promise<ApiResponse<ExportResult | null>> => {
+      try {
+        return ok(
+          await exportVolumeToPdf(
+            BrowserWindow.fromWebContents(event.sender),
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(volumeId, "volumeId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.EXPORT_FAILED, "Could not export volume to PDF.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "export:seriesPdf",
+    async (event, seriesId: unknown): Promise<ApiResponse<ExportResult | null>> => {
+      try {
+        return ok(
+          await exportSeriesToPdf(
+            BrowserWindow.fromWebContents(event.sender),
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.EXPORT_FAILED, "Could not export series to PDF.", String(error));
       }
     }
   );

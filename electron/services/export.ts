@@ -1,7 +1,15 @@
 import { app, BrowserWindow, dialog, type SaveDialogOptions } from "electron";
 import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { getContent, listChapterMetadata, readChapterMetadata } from "./chapter";
+import JSZip from "jszip";
+import {
+  getContent,
+  listChapterMetadata,
+  readChapterMetadata,
+  readHtmlAttribute,
+  removeHtmlAttribute,
+  setHtmlAttribute
+} from "./chapter";
 import { readSeriesMetadata } from "./series";
 import { listCategoryMetadata } from "./category";
 import { listVolumeMetadata, readVolumeMetadata } from "./volume";
@@ -14,6 +22,16 @@ export type ExportResult = {
 type PdfChapter = {
   title: string;
   html: string;
+};
+
+type ChapterEpubInput = {
+  identifier: string;
+  title: string;
+  seriesTitle: string;
+  language: string;
+  creator: string | null;
+  html: string;
+  modifiedAt: string;
 };
 
 function escapeHtml(value: string): string {
@@ -156,16 +174,103 @@ export function buildSeriesPdfHtml(
   ${parts}`);
 }
 
-async function printHtmlToPdf(
+function epubModifiedDate(value: string): string {
+  const date = new Date(value);
+  return (Number.isNaN(date.getTime()) ? new Date() : date).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function prepareEpubHtml(html: string): { html: string; images: Array<{ path: string; mediaType: string; data: Buffer }> } {
+  const images: Array<{ path: string; mediaType: string; data: Buffer }> = [];
+  const preparedHtml = html.replace(/<img\b[^>]*>/gi, (tag) => {
+    const source = readHtmlAttribute(tag, "src");
+    const match = source?.match(/^data:(image\/(?:gif|jpeg|png|webp));base64,([a-z0-9+/=\s]+)$/i);
+
+    if (!match) {
+      return tag;
+    }
+
+    const mediaType = match[1].toLowerCase();
+    const extension = mediaType === "image/jpeg" ? "jpg" : mediaType.slice("image/".length);
+    const path = `images/image-${images.length + 1}.${extension}`;
+    images.push({ path, mediaType, data: Buffer.from(match[2].replace(/\s/g, ""), "base64") });
+    return removeHtmlAttribute(setHtmlAttribute(tag, "src", path), "data-asset-src");
+  });
+
+  return {
+    html: preparedHtml
+      .replace(/&nbsp;/gi, "&#160;")
+      .replace(/<(br|hr|img)\b([^>]*?)(?<!\/)>/gi, "<$1$2 />"),
+    images
+  };
+}
+
+export async function buildChapterEpub(input: ChapterEpubInput): Promise<Buffer> {
+  const zip = new JSZip();
+  const prepared = prepareEpubHtml(chapterBody(input.html));
+  const creator = input.creator ? `<dc:creator>${escapeHtml(input.creator)}</dc:creator>` : "";
+  const imageManifest = prepared.images
+    .map(
+      (image, index) =>
+        `<item id="image-${index + 1}" href="${image.path}" media-type="${image.mediaType}"/>`
+    )
+    .join("\n    ");
+
+  zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
+  zip.file("META-INF/container.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`);
+  zip.file("OEBPS/content.opf", `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="pub-id">${escapeHtml(input.identifier)}</dc:identifier>
+    <dc:title>${escapeHtml(input.title)}</dc:title>
+    <dc:language>${escapeHtml(input.language)}</dc:language>
+    ${creator}
+    <meta property="dcterms:modified">${epubModifiedDate(input.modifiedAt)}</meta>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="chapter-1" href="chapter-1.xhtml" media-type="application/xhtml+xml"/>
+    ${imageManifest}
+  </manifest>
+  <spine><itemref idref="chapter-1"/></spine>
+</package>`);
+  zip.file("OEBPS/nav.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="${escapeHtml(input.language)}" xml:lang="${escapeHtml(input.language)}">
+<head><title>Table of Contents</title></head>
+<body><nav epub:type="toc"><h1>${escapeHtml(input.seriesTitle)}</h1><ol><li><a href="chapter-1.xhtml">${escapeHtml(input.title)}</a></li></ol></nav></body>
+</html>`);
+  zip.file("OEBPS/chapter-1.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="${escapeHtml(input.language)}" xml:lang="${escapeHtml(input.language)}">
+<head>
+  <title>${escapeHtml(input.title)}</title>
+  <style>body{font-family:serif;line-height:1.7}img{display:block;height:auto;margin:1.5em auto;max-width:100%}</style>
+</head>
+<body><h1>${escapeHtml(input.title)}</h1>${prepared.html}</body>
+</html>`);
+  prepared.images.forEach((image) => zip.file(`OEBPS/${image.path}`, image.data));
+
+  return zip.generateAsync({
+    type: "nodebuffer",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 }
+  });
+}
+
+async function chooseExportPath(
   ownerWindow: BrowserWindow | null,
-  dialogTitle: string,
+  title: string,
   defaultFileName: string,
-  html: string
-): Promise<ExportResult | null> {
+  extension: "pdf" | "epub"
+): Promise<string | null> {
+  const format = extension.toUpperCase();
   const options: SaveDialogOptions = {
-    title: dialogTitle,
-    defaultPath: `${safeExportFileName(defaultFileName)}.pdf`,
-    filters: [{ name: "PDF", extensions: ["pdf"] }]
+    title,
+    defaultPath: `${safeExportFileName(defaultFileName)}.${extension}`,
+    filters: [{ name: format, extensions: [extension] }]
   };
   const selection = ownerWindow
     ? await dialog.showSaveDialog(ownerWindow, options)
@@ -175,10 +280,32 @@ async function printHtmlToPdf(
     return null;
   }
 
-  const filePath = selection.filePath.toLowerCase().endsWith(".pdf")
+  return selection.filePath.toLowerCase().endsWith(`.${extension}`)
     ? selection.filePath
-    : `${selection.filePath}.pdf`;
-  const tempPdfPath = `${filePath}.tmp`;
+    : `${selection.filePath}.${extension}`;
+}
+
+async function writeExportFile(filePath: string, content: Buffer): Promise<void> {
+  const tempPath = `${filePath}.tmp`;
+  try {
+    await writeFile(tempPath, content);
+    await rename(tempPath, filePath);
+  } finally {
+    await rm(tempPath, { force: true });
+  }
+}
+
+async function printHtmlToPdf(
+  ownerWindow: BrowserWindow | null,
+  dialogTitle: string,
+  defaultFileName: string,
+  html: string
+): Promise<ExportResult | null> {
+  const filePath = await chooseExportPath(ownerWindow, dialogTitle, defaultFileName, "pdf");
+  if (!filePath) {
+    return null;
+  }
+
   const tempDirectory = await mkdtemp(join(app.getPath("temp"), "novelweb-export-"));
   const htmlPath = join(tempDirectory, "export.html");
   const exportWindow = new BrowserWindow({
@@ -198,15 +325,11 @@ async function printHtmlToPdf(
       preferCSSPageSize: true,
       printBackground: true
     });
-    await writeFile(tempPdfPath, pdf);
-    await rename(tempPdfPath, filePath);
+    await writeExportFile(filePath, pdf);
     return { path: filePath };
   } finally {
     exportWindow.destroy();
-    await Promise.all([
-      rm(tempPdfPath, { force: true }),
-      rm(tempDirectory, { recursive: true, force: true })
-    ]);
+    await rm(tempDirectory, { recursive: true, force: true });
   }
 }
 
@@ -229,6 +352,39 @@ export async function exportChapterToPdf(
     chapter.title,
     buildChapterPdfHtml(series.title, chapter.title, content.html)
   );
+}
+
+export async function exportChapterToEpub(
+  ownerWindow: BrowserWindow | null,
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<ExportResult | null> {
+  const [series, chapter, content] = await Promise.all([
+    readSeriesMetadata(libraryPath, seriesId),
+    readChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId),
+    getContent(libraryPath, seriesId, categoryId, volumeId, chapterId)
+  ]);
+  const filePath = await chooseExportPath(ownerWindow, "Export chapter to EPUB", chapter.title, "epub");
+  if (!filePath) {
+    return null;
+  }
+
+  await writeExportFile(
+    filePath,
+    await buildChapterEpub({
+      identifier: `urn:uuid:${chapter.id}`,
+      title: chapter.title,
+      seriesTitle: series.title,
+      language: series.language,
+      creator: series.originalAuthor,
+      html: content.html,
+      modifiedAt: chapter.updatedAt
+    })
+  );
+  return { path: filePath };
 }
 
 export async function exportVolumeToPdf(

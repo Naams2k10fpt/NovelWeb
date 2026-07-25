@@ -55,8 +55,10 @@ import {
   listRecentEntries
 } from "../electron/services/readingState";
 import { deleteTrashItem, listTrashEntries, restoreTrashItem } from "../electron/services/trash";
+import JSZip from "jszip";
 import {
   buildChapterPdfHtml,
+  buildChapterEpub,
   buildSeriesPdfHtml,
   buildVolumePdfHtml,
   safeExportFileName
@@ -256,6 +258,28 @@ async function runTests() {
         seriesExportHtml.includes('href="#part-2-chapter-1"') &&
         (seriesExportHtml.match(/class="series-part"/g) ?? []).length === 2,
       "Series PDF document includes metadata and ordered category/volume chapter groups."
+    );
+    const epubBuffer = await buildChapterEpub({
+      identifier: `urn:uuid:${chapter1.id}`,
+      title: "Chương 1",
+      seriesTitle: "Truyện thử",
+      language: "vi",
+      creator: "Tác giả",
+      html: `${testHtml}<img src="data:image/png;base64,AA==">`,
+      modifiedAt: chapter1.updatedAt
+    });
+    const epub = await JSZip.loadAsync(epubBuffer);
+    assert(
+      epubBuffer.readUInt16LE(8) === 0 &&
+        epubBuffer.subarray(30, 38).toString("utf8") === "mimetype" &&
+        await epub.file("mimetype")!.async("string") === "application/epub+zip" &&
+        !!epub.file("META-INF/container.xml") &&
+        !!epub.file("OEBPS/content.opf") &&
+        !!epub.file("OEBPS/nav.xhtml") &&
+        !!epub.file("OEBPS/chapter-1.xhtml") &&
+        !!epub.file("OEBPS/images/image-1.png") &&
+        (await epub.file("OEBPS/chapter-1.xhtml")!.async("string")).includes('src="images/image-1.png"'),
+      "Chapter EPUB contains valid package files, navigation, XHTML, and extracted inline images."
     );
 
     // ----------------------------------------------------
