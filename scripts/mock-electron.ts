@@ -3,7 +3,7 @@ import { join } from "node:path";
 export const app = {
   getPath(name: string): string {
     if (name === "userData") {
-      return join(process.cwd(), "temp-test-library", "userData");
+      return join(process.cwd(), "temp-test-app-data");
     }
     return join(process.cwd(), "temp-test-library");
   }

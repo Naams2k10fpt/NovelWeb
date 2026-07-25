@@ -10,11 +10,13 @@ import {
   libraryChildPath,
   moveDirectorySafely,
   readJsonFile,
+  readAppSettings,
   seriesIndexPath,
   searchIndexPath,
   recentIndexPath,
   withResourceWriteLock,
   writeJsonFile,
+  writeAppSettings,
   type LibraryMetadata,
   type LibrarySettings,
   type VersionedMetadata,
@@ -43,6 +45,13 @@ export type LibraryBackupResult = {
   createdAt: string;
   type: LibraryBackupType;
 };
+
+export async function activateLibraryPath(libraryPath: string): Promise<string> {
+  const settings = await readAppSettings();
+  await migrateLibrary(libraryPath);
+  await writeAppSettings({ ...settings, currentLibraryPath: libraryPath });
+  return libraryPath;
+}
 
 export async function ensureJsonFile(filePath: string, createData: () => unknown): Promise<void> {
   try {

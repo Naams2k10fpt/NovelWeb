@@ -13,6 +13,7 @@ import {
 } from "./services/base";
 import {
   createLibraryBackup,
+  activateLibraryPath,
   migrateLibrary,
   repairSeriesIndex,
   restoreFullLibraryBackup,
@@ -136,10 +137,7 @@ function registerLibraryIpc(): void {
         return ok({ path: null });
       }
 
-      const settings = await readAppSettings();
-      const currentLibraryPath = result.filePaths[0];
-      await migrateLibrary(currentLibraryPath);
-      await writeAppSettings({ ...settings, currentLibraryPath });
+      const currentLibraryPath = await activateLibraryPath(result.filePaths[0]);
 
       return ok({ path: currentLibraryPath });
     } catch (error) {

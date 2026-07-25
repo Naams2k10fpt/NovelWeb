@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   createFullLibraryBackup,
   createLibraryBackup,
+  activateLibraryPath,
   ensureLibraryFiles,
   migrateLibrary,
   repairSeriesIndex,
@@ -55,6 +56,7 @@ import {
   listRecentEntries
 } from "../electron/services/readingState";
 import { deleteTrashItem, listTrashEntries, restoreTrashItem } from "../electron/services/trash";
+import { currentLibraryPathOrThrow } from "../electron/services/base";
 import JSZip from "jszip";
 import {
   buildChapterPdfHtml,
@@ -68,6 +70,8 @@ import {
 
 const TEST_LIB_DIR = join(process.cwd(), "temp-test-library");
 const RESTORED_TEST_LIB_DIR = join(process.cwd(), "temp-test-restored-library");
+const SELECTED_TEST_LIB_DIR = join(process.cwd(), "temp-test-selected-library");
+const TEST_APP_DATA_DIR = join(process.cwd(), "temp-test-app-data");
 
 let totalTests = 0;
 let passedTests = 0;
@@ -96,6 +100,8 @@ async function cleanUp() {
   try {
     await rm(TEST_LIB_DIR, { recursive: true, force: true });
     await rm(RESTORED_TEST_LIB_DIR, { recursive: true, force: true });
+    await rm(SELECTED_TEST_LIB_DIR, { recursive: true, force: true });
+    await rm(TEST_APP_DATA_DIR, { recursive: true, force: true });
   } catch (err) {}
 }
 
@@ -107,7 +113,16 @@ async function runTests() {
 
   try {
     // ----------------------------------------------------
-    console.log("\x1b[35m1. Testing Library Initialization & Health\x1b[0m");
+    console.log("\x1b[35m1. Testing Library Selection, Initialization & Health\x1b[0m");
+    await activateLibraryPath(SELECTED_TEST_LIB_DIR);
+    assert(
+      (await currentLibraryPathOrThrow()) === SELECTED_TEST_LIB_DIR,
+      "Selected Library path persists in app settings."
+    );
+    assert(
+      await fileExists(join(SELECTED_TEST_LIB_DIR, "library.json")),
+      "Selecting a new folder initializes its Library files."
+    );
     await ensureLibraryFiles(TEST_LIB_DIR);
     assert(true, "Library files initialized successfully.");
 
