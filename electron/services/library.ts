@@ -1,5 +1,5 @@
 import { basename, isAbsolute, relative, resolve } from "node:path";
-import { cp, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, stat } from "node:fs/promises";
 import {
   SUPPORTED_SCHEMA_VERSION,
   REQUIRED_LIBRARY_DIRECTORIES,
@@ -8,6 +8,7 @@ import {
   ensureLibraryDirectory,
   ensureLibraryFolder,
   libraryChildPath,
+  moveDirectorySafely,
   readJsonFile,
   seriesIndexPath,
   searchIndexPath,
@@ -268,7 +269,7 @@ export async function createLibraryBackup(
         reason: options.reason ?? "manual",
         createdAt
       });
-      await rename(temporaryPath, targetPath);
+      await moveDirectorySafely(temporaryPath, targetPath);
 
       return { name, path: targetPath, createdAt, type };
     } catch (error) {
