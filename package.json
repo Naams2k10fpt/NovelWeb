@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "tsc --noEmit && electron-vite build",
+    "package:dir": "npm run build && electron-builder --dir --win --x64",
+    "package:win": "npm run build && electron-builder --win --x64",
     "test": "tsx --tsconfig tsconfig.test.json scripts/test-runner.ts",
     "test:pdf": "electron scripts/pdf-export-smoke.mjs",
     "typecheck": "tsc --noEmit"
@@ -27,6 +29,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.2",
     "electron": "^39.2.7",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^4.0.1",
     "tsx": "^4.23.1",
     "typescript": "^5.9.3",

@@ -1,0 +1,22 @@
+appId: com.novelweb.desktop
+productName: NovelWeb
+asar: true
+asarUnpack:
+  - node_modules/pdfjs-dist/**
+directories:
+  output: dist
+files:
+  - out/**/*
+  - package.json
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+artifactName: ${productName}-${version}-${arch}-setup.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false

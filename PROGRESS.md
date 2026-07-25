@@ -246,7 +246,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 
 **Status:** `[~]`
 
-- [ ] Configure Windows packaging.
+- [x] Configure Windows packaging.
 - [ ] Prepare app icon.
 - [ ] Build installer.
 - [ ] Test Library selection.

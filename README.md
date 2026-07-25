@@ -104,6 +104,8 @@ npm run dev
 npm test
 npm run test:pdf
 npm run build
+npm run package:dir
+npm run package:win
 ```
 
 ## Branch Workflow
