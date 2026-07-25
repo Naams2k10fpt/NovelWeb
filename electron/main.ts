@@ -93,7 +93,7 @@ import { type VolumeMetadata } from "./schemas/volume";
 import { type NovelChapterMetadata as ChapterMetadata } from "./schemas/chapter";
 import { type ImportPreview, type ImportReport } from "./services/import";
 import { type SearchResult, type SearchIndexSummary } from "./services/search";
-import { listTrashEntries, restoreTrashItem, type TrashEntry } from "./services/trash";
+import { deleteTrashItem, listTrashEntries, restoreTrashItem, type TrashEntry } from "./services/trash";
 
 function registerLibraryIpc(): void {
   ipcMain.handle("library:getCurrent", async (): Promise<ApiResponse<{ path: string | null }>> => {
@@ -274,6 +274,14 @@ function registerTrashIpc(): void {
       return ok(await restoreTrashItem(await currentLibraryPathOrThrow(), assertId(trashId, "trashId")));
     } catch (error) {
       return fail(ErrorCode.TRASH_FAILED, "Could not restore trash item.", String(error));
+    }
+  });
+
+  ipcMain.handle("trash:delete", async (_event, trashId: unknown): Promise<ApiResponse<TrashEntry>> => {
+    try {
+      return ok(await deleteTrashItem(await currentLibraryPathOrThrow(), assertId(trashId, "trashId")));
+    } catch (error) {
+      return fail(ErrorCode.TRASH_FAILED, "Could not permanently delete trash item.", String(error));
     }
   });
 }

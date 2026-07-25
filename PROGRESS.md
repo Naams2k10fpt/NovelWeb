@@ -237,7 +237,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 - [x] Backup before migration.
 - [x] Migration by `schemaVersion`.
 - [x] Restore from `.trash`.
-- [ ] Permanent delete with confirmation.
+- [x] Permanent delete with confirmation.
 - [ ] Simple chapter version history.
 
 ---

@@ -195,3 +195,9 @@ export async function restoreTrashItem(libraryPath: string, trashId: string): Pr
   await rebuildRecentIndex(libraryPath);
   return entry;
 }
+
+export async function deleteTrashItem(libraryPath: string, trashId: string): Promise<TrashEntry> {
+  const entry = await readTrashEntry(libraryPath, trashId);
+  await rm(libraryChildPath(libraryPath, ".trash", entry.trashId), { recursive: true });
+  return entry;
+}

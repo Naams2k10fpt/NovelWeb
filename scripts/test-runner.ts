@@ -52,7 +52,7 @@ import {
   listHighlights,
   listRecentEntries
 } from "../electron/services/readingState";
-import { listTrashEntries, restoreTrashItem } from "../electron/services/trash";
+import { deleteTrashItem, listTrashEntries, restoreTrashItem } from "../electron/services/trash";
 
 const TEST_LIB_DIR = join(process.cwd(), "temp-test-library");
 const RESTORED_TEST_LIB_DIR = join(process.cwd(), "temp-test-restored-library");
@@ -348,6 +348,22 @@ async function runTests() {
     // Rebuild indexes after trashing
     await repairSeriesIndex(TEST_LIB_DIR);
     assert(true, "Library indexes repaired successfully.");
+
+    // ----------------------------------------------------
+    console.log("\n\x1b[35m14. Testing Permanent Trash Delete\x1b[0m");
+    const disposableChapter = await createChapterMetadata(TEST_LIB_DIR, newSeries.id, category.id, null, {
+      title: "Disposable Chapter"
+    });
+    await moveChapterToTrash(TEST_LIB_DIR, newSeries.id, category.id, null, disposableChapter.id);
+    const disposableTrash = (await listTrashEntries(TEST_LIB_DIR)).find(
+      (entry) => entry.itemId === disposableChapter.id
+    );
+    await deleteTrashItem(TEST_LIB_DIR, disposableTrash!.trashId);
+    assert(
+      !(await fileExists(join(TEST_LIB_DIR, ".trash", disposableTrash!.trashId))) &&
+        (await listTrashEntries(TEST_LIB_DIR)).length === 0,
+      "Trash item is permanently deleted."
+    );
 
     // ----------------------------------------------------
     console.log("\n\x1b[32m=== All Tests Passed Successfully! ===\x1b[0m");

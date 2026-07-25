@@ -10,7 +10,8 @@ contextBridge.exposeInMainWorld("api", {
   },
   trash: {
     list: () => ipcRenderer.invoke("trash:list"),
-    restore: (trashId: string) => ipcRenderer.invoke("trash:restore", trashId)
+    restore: (trashId: string) => ipcRenderer.invoke("trash:restore", trashId),
+    delete: (trashId: string) => ipcRenderer.invoke("trash:delete", trashId)
   },
   series: {
     list: () => ipcRenderer.invoke("series:list"),

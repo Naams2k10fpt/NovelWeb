@@ -31,6 +31,7 @@ type RendererApi = {
   trash: {
     list: () => Promise<ApiResponse<TrashEntry[]>>;
     restore: (trashId: string) => Promise<ApiResponse<TrashEntry>>;
+    delete: (trashId: string) => Promise<ApiResponse<TrashEntry>>;
   };
 };
 
@@ -72,7 +73,7 @@ export default function App() {
   const [chapterDirty, setChapterDirty] = useState(false);
   const [chapterMode, setChapterMode] = useState<ChapterMode>("read");
   const [mode, setMode] = useState<Mode>("library");
-  const [restoringTrashId, setRestoringTrashId] = useState<string | null>(null);
+  const [trashTask, setTrashTask] = useState<{ id: string; action: "restore" | "delete" } | null>(null);
   const [selectedChapter, setSelectedChapter] = useState<ChapterTarget | null>(null);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null);
   const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([]);
@@ -231,7 +232,7 @@ export default function App() {
       return;
     }
 
-    setRestoringTrashId(trashId);
+    setTrashTask({ id: trashId, action: "restore" });
     try {
       const response = await api.trash.restore(trashId);
       if (response.ok) {
@@ -242,7 +243,28 @@ export default function App() {
     } catch (error) {
       window.alert(`Could not restore Trash item.\n${String(error)}`);
     } finally {
-      setRestoringTrashId(null);
+      setTrashTask(null);
+    }
+  }
+
+  async function deleteTrash(trashId: string, title: string): Promise<void> {
+    const api = getApi();
+    if (!api || !window.confirm(`Permanently delete "${title}"? This cannot be undone.`)) {
+      return;
+    }
+
+    setTrashTask({ id: trashId, action: "delete" });
+    try {
+      const response = await api.trash.delete(trashId);
+      if (response.ok) {
+        setTrashEntries((entries) => entries.filter((entry) => entry.trashId !== trashId));
+      } else {
+        window.alert(response.error.message);
+      }
+    } catch (error) {
+      window.alert(`Could not permanently delete Trash item.\n${String(error)}`);
+    } finally {
+      setTrashTask(null);
     }
   }
 
@@ -423,11 +445,18 @@ export default function App() {
                     {entry.title} · {entry.itemType} · {new Date(entry.deletedAt).toLocaleString()}
                   </span>
                   <button
-                    disabled={restoringTrashId !== null}
+                    disabled={trashTask !== null}
                     onClick={() => void restoreTrash(entry.trashId, entry.title)}
                     type="button"
                   >
-                    {restoringTrashId === entry.trashId ? "Restoring..." : "Restore"}
+                    {trashTask?.id === entry.trashId && trashTask.action === "restore" ? "Restoring..." : "Restore"}
+                  </button>
+                  <button
+                    disabled={trashTask !== null}
+                    onClick={() => void deleteTrash(entry.trashId, entry.title)}
+                    type="button"
+                  >
+                    {trashTask?.id === entry.trashId && trashTask.action === "delete" ? "Deleting..." : "Delete forever"}
                   </button>
                 </div>
               ))}
