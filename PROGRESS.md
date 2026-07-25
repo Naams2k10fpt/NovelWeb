@@ -217,7 +217,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 
 - [x] Export chapter to PDF.
 - [x] Export volume to PDF.
-- [ ] Export series to PDF.
+- [x] Export series to PDF.
 - [ ] Export chapter to EPUB.
 - [ ] Export volume to EPUB.
 - [ ] Export series to EPUB.

@@ -190,6 +190,7 @@ type RendererApi = {
       categoryId: string,
       volumeId: string
     ) => Promise<ApiResponse<{ path: string } | null>>;
+    seriesPdf: (seriesId: string) => Promise<ApiResponse<{ path: string } | null>>;
   };
 };
 
@@ -779,6 +780,13 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
 
     if (node.kind === "series") {
       return [
+        {
+          label: "Export PDF",
+          run: async () => {
+            unwrap(await api.export.seriesPdf(node.id));
+            return false;
+          }
+        },
         {
           label: "Add category",
           run: async () => {

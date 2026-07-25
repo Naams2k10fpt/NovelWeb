@@ -65,7 +65,7 @@ import {
   executeImport
 } from "./services/import";
 import { searchLibrary, rebuildSearchIndex } from "./services/search";
-import { exportChapterToPdf, exportVolumeToPdf, type ExportResult } from "./services/export";
+import { exportChapterToPdf, exportSeriesToPdf, exportVolumeToPdf, type ExportResult } from "./services/export";
 import {
   listRecentEntries,
   listBookmarks,
@@ -219,6 +219,23 @@ function registerLibraryIpc(): void {
         );
       } catch (error) {
         return fail(ErrorCode.EXPORT_FAILED, "Could not export volume to PDF.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "export:seriesPdf",
+    async (event, seriesId: unknown): Promise<ApiResponse<ExportResult | null>> => {
+      try {
+        return ok(
+          await exportSeriesToPdf(
+            BrowserWindow.fromWebContents(event.sender),
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.EXPORT_FAILED, "Could not export series to PDF.", String(error));
       }
     }
   );

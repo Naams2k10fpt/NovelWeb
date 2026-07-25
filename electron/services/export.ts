@@ -3,10 +3,17 @@ import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getContent, listChapterMetadata, readChapterMetadata } from "./chapter";
 import { readSeriesMetadata } from "./series";
-import { readVolumeMetadata } from "./volume";
+import { listCategoryMetadata } from "./category";
+import { listVolumeMetadata, readVolumeMetadata } from "./volume";
+import { type SeriesMetadata } from "../schemas/series";
 
 export type ExportResult = {
   path: string;
+};
+
+type PdfChapter = {
+  title: string;
+  html: string;
 };
 
 function escapeHtml(value: string): string {
@@ -53,6 +60,8 @@ function buildPdfHtml(title: string, body: string): string {
     .title-page p { color: #666; }
     .toc a { color: inherit; text-decoration: none; }
     .chapter { break-before: page; }
+    .series-part { break-before: page; }
+    .series-chapter + .series-chapter { break-before: page; }
   </style>
 </head>
 <body>${body}</body>
@@ -71,7 +80,7 @@ export function buildChapterPdfHtml(seriesTitle: string, chapterTitle: string, c
 export function buildVolumePdfHtml(
   seriesTitle: string,
   volumeTitle: string,
-  chapters: Array<{ title: string; html: string }>
+  chapters: PdfChapter[]
 ): string {
   const tableOfContents = chapters
     .map((chapter, index) => `<li><a href="#chapter-${index + 1}">${escapeHtml(chapter.title)}</a></li>`)
@@ -95,6 +104,56 @@ export function buildVolumePdfHtml(
     <ol>${tableOfContents}</ol>
   </nav>
   ${chapterSections}`);
+}
+
+export function buildSeriesPdfHtml(
+  series: Pick<SeriesMetadata, "title" | "originalTitle" | "originalAuthor" | "translator" | "description">,
+  groups: Array<{ title: string; chapters: PdfChapter[] }>
+): string {
+  const details = [
+    series.originalTitle && `<p><strong>Original title:</strong> ${escapeHtml(series.originalTitle)}</p>`,
+    series.originalAuthor && `<p><strong>Author:</strong> ${escapeHtml(series.originalAuthor)}</p>`,
+    series.translator && `<p><strong>Translator:</strong> ${escapeHtml(series.translator)}</p>`
+  ].filter(Boolean).join("");
+  const tableOfContents = groups
+    .map(
+      (group, groupIndex) => `<li><a href="#part-${groupIndex + 1}">${escapeHtml(group.title)}</a>
+      <ol>${group.chapters
+        .map(
+          (chapter, chapterIndex) =>
+            `<li><a href="#part-${groupIndex + 1}-chapter-${chapterIndex + 1}">${escapeHtml(chapter.title)}</a></li>`
+        )
+        .join("")}</ol>
+    </li>`
+    )
+    .join("");
+  const parts = groups
+    .map(
+      (group, groupIndex) => `<section class="series-part" id="part-${groupIndex + 1}">
+    <h1>${escapeHtml(group.title)}</h1>
+    ${group.chapters
+      .map(
+        (chapter, chapterIndex) => `<section class="series-chapter" id="part-${groupIndex + 1}-chapter-${chapterIndex + 1}">
+      <h2>${escapeHtml(chapter.title)}</h2>
+      ${chapterBody(chapter.html)}
+    </section>`
+      )
+      .join("\n")}
+  </section>`
+    )
+    .join("\n");
+
+  return buildPdfHtml(series.title, `
+  <section class="title-page">
+    <h1>${escapeHtml(series.title)}</h1>
+    ${details}
+    ${series.description ? `<p>${escapeHtml(series.description)}</p>` : ""}
+  </section>
+  <nav class="toc">
+    <h1>Table of Contents</h1>
+    <ol>${tableOfContents}</ol>
+  </nav>
+  ${parts}`);
 }
 
 async function printHtmlToPdf(
@@ -182,11 +241,8 @@ export async function exportVolumeToPdf(
   const [series, volume, chapters] = await Promise.all([
     readSeriesMetadata(libraryPath, seriesId),
     readVolumeMetadata(libraryPath, seriesId, categoryId, volumeId),
-    listChapterMetadata(libraryPath, seriesId, categoryId, volumeId)
+    readPdfChapters(libraryPath, seriesId, categoryId, volumeId)
   ]);
-  const contents = await Promise.all(
-    chapters.map((chapter) => getContent(libraryPath, seriesId, categoryId, volumeId, chapter.id))
-  );
 
   return printHtmlToPdf(
     ownerWindow,
@@ -195,7 +251,58 @@ export async function exportVolumeToPdf(
     buildVolumePdfHtml(
       series.title,
       volume.title,
-      chapters.map((chapter, index) => ({ title: chapter.title, html: contents[index].html }))
+      chapters
     )
+  );
+}
+
+async function readPdfChapters(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null
+): Promise<PdfChapter[]> {
+  const chapters = await listChapterMetadata(libraryPath, seriesId, categoryId, volumeId);
+  const contents = await Promise.all(
+    chapters.map((chapter) => getContent(libraryPath, seriesId, categoryId, volumeId, chapter.id))
+  );
+  return chapters.map((chapter, index) => ({ title: chapter.title, html: contents[index].html }));
+}
+
+export async function exportSeriesToPdf(
+  ownerWindow: BrowserWindow | null,
+  libraryPath: string,
+  seriesId: string
+): Promise<ExportResult | null> {
+  const [series, categories] = await Promise.all([
+    readSeriesMetadata(libraryPath, seriesId),
+    listCategoryMetadata(libraryPath, seriesId)
+  ]);
+  const groups = (
+    await Promise.all(
+      categories.map(async (category) => {
+        if (category.type === "web-novel") {
+          return [{
+            title: category.title,
+            chapters: await readPdfChapters(libraryPath, seriesId, category.id, null)
+          }];
+        }
+
+        const volumes = await listVolumeMetadata(libraryPath, seriesId, category.id);
+        return Promise.all(
+          volumes.map(async (volume) => ({
+            title: `${category.title} — ${volume.title}`,
+            chapters: await readPdfChapters(libraryPath, seriesId, category.id, volume.id)
+          }))
+        );
+      })
+    )
+  ).flat();
+
+  return printHtmlToPdf(
+    ownerWindow,
+    "Export series to PDF",
+    series.title,
+    buildSeriesPdfHtml(series, groups)
   );
 }

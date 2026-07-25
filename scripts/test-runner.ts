@@ -55,7 +55,12 @@ import {
   listRecentEntries
 } from "../electron/services/readingState";
 import { deleteTrashItem, listTrashEntries, restoreTrashItem } from "../electron/services/trash";
-import { buildChapterPdfHtml, buildVolumePdfHtml, safeExportFileName } from "../electron/services/export";
+import {
+  buildChapterPdfHtml,
+  buildSeriesPdfHtml,
+  buildVolumePdfHtml,
+  safeExportFileName
+} from "../electron/services/export";
 
 const TEST_LIB_DIR = join(process.cwd(), "temp-test-library");
 const RESTORED_TEST_LIB_DIR = join(process.cwd(), "temp-test-restored-library");
@@ -232,6 +237,25 @@ async function runTests() {
         (volumeExportHtml.match(/class="chapter"/g) ?? []).length === 2 &&
         !volumeExportHtml.includes("Duplicate title"),
       "Volume PDF document includes an ordered table of contents and page-broken chapters."
+    );
+    const seriesExportHtml = buildSeriesPdfHtml(
+      {
+        title: "Truyện thử",
+        originalTitle: "Test Novel",
+        originalAuthor: "Tác giả",
+        translator: "Dịch giả",
+        description: "Mô tả"
+      },
+      [
+        { title: "Web Novel", chapters: [{ title: "Chương 1", html: testHtml }] },
+        { title: "Light Novel — Tập 1", chapters: [{ title: "Chương 2", html: "<p>Nội dung.</p>" }] }
+      ]
+    );
+    assert(
+      seriesExportHtml.includes("Original title:") &&
+        seriesExportHtml.includes('href="#part-2-chapter-1"') &&
+        (seriesExportHtml.match(/class="series-part"/g) ?? []).length === 2,
+      "Series PDF document includes metadata and ordered category/volume chapter groups."
     );
 
     // ----------------------------------------------------
