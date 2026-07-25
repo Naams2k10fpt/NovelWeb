@@ -217,14 +217,16 @@ async function runTests() {
     const exportHtml = buildChapterPdfHtml(
       "Truyện thử tiếng Việt",
       'Chương 1: "Thức tỉnh"',
-      `<h1>Old title</h1>${testHtml}<img src="data:image/png;base64,AA==">`
+      `<h1>Old title</h1>${testHtml}<img src="data:image/png;base64,AA==">`,
+      "data:image/jpeg;base64,AA=="
     );
     assert(
       exportHtml.includes('charset="utf-8"') &&
         exportHtml.includes("Truyện thử tiếng Việt") &&
         exportHtml.includes("This is <strong>bold</strong>") &&
-        exportHtml.includes("data:image/png;base64,AA=="),
-      "PDF document preserves Vietnamese text, formatting, and inline images."
+        exportHtml.includes("data:image/png;base64,AA==") &&
+        exportHtml.includes('class="cover"'),
+      "PDF document preserves Vietnamese text, cover, formatting, and inline images."
     );
     assert(
       (exportHtml.match(/<h1/g) ?? []).length === 1 &&
@@ -268,7 +270,8 @@ async function runTests() {
       language: "vi",
       creator: "Tác giả",
       html: `${testHtml}<img src="data:image/png;base64,AA==">`,
-      modifiedAt: chapter1.updatedAt
+      modifiedAt: chapter1.updatedAt,
+      coverDataUrl: "data:image/jpeg;base64,AA=="
     });
     const epub = await JSZip.loadAsync(epubBuffer);
     assert(
@@ -278,6 +281,8 @@ async function runTests() {
         !!epub.file("META-INF/container.xml") &&
         !!epub.file("OEBPS/content.opf") &&
         !!epub.file("OEBPS/nav.xhtml") &&
+        !!epub.file("OEBPS/cover.xhtml") &&
+        !!epub.file("OEBPS/images/cover.jpg") &&
         !!epub.file("OEBPS/chapter-1.xhtml") &&
         !!epub.file("OEBPS/images/chapter-1-image-1.png") &&
         (await epub.file("OEBPS/chapter-1.xhtml")!.async("string")).includes('src="images/chapter-1-image-1.png"'),

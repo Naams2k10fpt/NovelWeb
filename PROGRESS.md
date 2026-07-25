@@ -221,7 +221,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 - [x] Export chapter to EPUB.
 - [x] Export volume to EPUB.
 - [x] Export series to EPUB.
-- [ ] Include cover, metadata, table of contents, headings, inline images, and page breaks.
+- [x] Include cover, metadata, table of contents, headings, inline images, and page breaks.
 - [ ] Test Vietnamese fonts.
 
 ---

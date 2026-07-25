@@ -40,6 +40,7 @@ Current scope change:
 - Chapter content history with restore from the editor.
 - Chapter, volume, and series PDF export with metadata, headings, inline images, table of contents, and A4 print styling.
 - Chapter, volume, and series EPUB 3 export with metadata, navigation, ordered XHTML content, and packaged inline images.
+- Series covers are included in PDF title pages and EPUB cover documents.
 
 ## Roadmap
 

@@ -10,7 +10,7 @@ import {
   removeHtmlAttribute,
   setHtmlAttribute
 } from "./chapter";
-import { readSeriesMetadata } from "./series";
+import { readSeriesCoverDataUrl, readSeriesMetadata } from "./series";
 import { listCategoryMetadata } from "./category";
 import { listVolumeMetadata, readVolumeMetadata } from "./volume";
 import { type SeriesMetadata } from "../schemas/series";
@@ -37,6 +37,7 @@ type ChapterEpubInput = {
   creator: string | null;
   html: string;
   modifiedAt: string;
+  coverDataUrl?: string | null;
 };
 
 type EpubBookInput = Omit<ChapterEpubInput, "html"> & {
@@ -85,6 +86,7 @@ function buildPdfHtml(title: string, body: string): string {
     .title-page, .toc { break-after: page; }
     .title-page { align-items: center; display: flex; flex-direction: column; justify-content: center; min-height: 220mm; text-align: center; }
     .title-page p { color: #666; }
+    .cover { max-height: 185mm; max-width: 85%; }
     .toc a { color: inherit; text-decoration: none; }
     .chapter { break-before: page; }
     .series-part { break-before: page; }
@@ -95,19 +97,30 @@ function buildPdfHtml(title: string, body: string): string {
 </html>`;
 }
 
-export function buildChapterPdfHtml(seriesTitle: string, chapterTitle: string, chapterHtml: string): string {
+function coverImage(coverDataUrl?: string | null): string {
+  return coverDataUrl ? `<img class="cover" src="${escapeHtml(coverDataUrl)}" alt="Cover">` : "";
+}
+
+export function buildChapterPdfHtml(
+  seriesTitle: string,
+  chapterTitle: string,
+  chapterHtml: string,
+  coverDataUrl?: string | null
+): string {
+  const heading = coverDataUrl
+    ? `<section class="title-page">${coverImage(coverDataUrl)}<p>${escapeHtml(seriesTitle)}</p><h1>${escapeHtml(chapterTitle)}</h1></section>`
+    : `<header><p>${escapeHtml(seriesTitle)}</p><h1>${escapeHtml(chapterTitle)}</h1></header>`;
+
   return buildPdfHtml(chapterTitle, `
-  <header>
-    <p>${escapeHtml(seriesTitle)}</p>
-    <h1>${escapeHtml(chapterTitle)}</h1>
-  </header>
+  ${heading}
   <article>${chapterBody(chapterHtml)}</article>`);
 }
 
 export function buildVolumePdfHtml(
   seriesTitle: string,
   volumeTitle: string,
-  chapters: PdfChapter[]
+  chapters: PdfChapter[],
+  coverDataUrl?: string | null
 ): string {
   const tableOfContents = chapters
     .map((chapter, index) => `<li><a href="#chapter-${index + 1}">${escapeHtml(chapter.title)}</a></li>`)
@@ -123,6 +136,7 @@ export function buildVolumePdfHtml(
 
   return buildPdfHtml(volumeTitle, `
   <section class="title-page">
+    ${coverImage(coverDataUrl)}
     <p>${escapeHtml(seriesTitle)}</p>
     <h1>${escapeHtml(volumeTitle)}</h1>
   </section>
@@ -135,7 +149,8 @@ export function buildVolumePdfHtml(
 
 export function buildSeriesPdfHtml(
   series: Pick<SeriesMetadata, "title" | "originalTitle" | "originalAuthor" | "translator" | "description">,
-  groups: ExportGroup[]
+  groups: ExportGroup[],
+  coverDataUrl?: string | null
 ): string {
   const details = [
     series.originalTitle && `<p><strong>Original title:</strong> ${escapeHtml(series.originalTitle)}</p>`,
@@ -172,6 +187,7 @@ export function buildSeriesPdfHtml(
 
   return buildPdfHtml(series.title, `
   <section class="title-page">
+    ${coverImage(coverDataUrl)}
     <h1>${escapeHtml(series.title)}</h1>
     ${details}
     ${series.description ? `<p>${escapeHtml(series.description)}</p>` : ""}
@@ -188,24 +204,41 @@ function epubModifiedDate(value: string): string {
   return (Number.isNaN(date.getTime()) ? new Date() : date).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
+type EpubImage = {
+  path: string;
+  mediaType: string;
+  data: Buffer;
+};
+
+function epubImage(source: string | null | undefined, pathWithoutExtension: string): EpubImage | null {
+  const match = source?.match(/^data:(image\/(?:gif|jpeg|png|webp));base64,([a-z0-9+/=\s]+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const mediaType = match[1].toLowerCase();
+  const extension = mediaType === "image/jpeg" ? "jpg" : mediaType.slice("image/".length);
+  return {
+    path: `${pathWithoutExtension}.${extension}`,
+    mediaType,
+    data: Buffer.from(match[2].replace(/\s/g, ""), "base64")
+  };
+}
+
 function prepareEpubHtml(
   html: string,
   chapterNumber: number
-): { html: string; images: Array<{ path: string; mediaType: string; data: Buffer }> } {
-  const images: Array<{ path: string; mediaType: string; data: Buffer }> = [];
+): { html: string; images: EpubImage[] } {
+  const images: EpubImage[] = [];
   const preparedHtml = html.replace(/<img\b[^>]*>/gi, (tag) => {
     const source = readHtmlAttribute(tag, "src");
-    const match = source?.match(/^data:(image\/(?:gif|jpeg|png|webp));base64,([a-z0-9+/=\s]+)$/i);
-
-    if (!match) {
+    const image = epubImage(source, `images/chapter-${chapterNumber}-image-${images.length + 1}`);
+    if (!image) {
       return tag;
     }
 
-    const mediaType = match[1].toLowerCase();
-    const extension = mediaType === "image/jpeg" ? "jpg" : mediaType.slice("image/".length);
-    const path = `images/chapter-${chapterNumber}-image-${images.length + 1}.${extension}`;
-    images.push({ path, mediaType, data: Buffer.from(match[2].replace(/\s/g, ""), "base64") });
-    return removeHtmlAttribute(setHtmlAttribute(tag, "src", path), "data-asset-src");
+    images.push(image);
+    return removeHtmlAttribute(setHtmlAttribute(tag, "src", image.path), "data-asset-src");
   });
 
   return {
@@ -218,6 +251,7 @@ function prepareEpubHtml(
 
 async function buildEpub(input: EpubBookInput): Promise<Buffer> {
   const zip = new JSZip();
+  const cover = epubImage(input.coverDataUrl, "images/cover");
   const chapters = input.chapters.map((chapter, index) => ({
     ...chapter,
     prepared: prepareEpubHtml(chapterBody(chapter.html), index + 1)
@@ -241,6 +275,10 @@ async function buildEpub(input: EpubBookInput): Promise<Buffer> {
         `<li><a href="chapter-${index + 1}.xhtml">${escapeHtml(chapter.title)}</a></li>`
     )
     .join("");
+  const coverManifest = cover
+    ? `<item id="cover-page" href="cover.xhtml" media-type="application/xhtml+xml"/>
+    <item id="cover-image" href="${cover.path}" media-type="${cover.mediaType}" properties="cover-image"/>`
+    : "";
 
   zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
   zip.file("META-INF/container.xml", `<?xml version="1.0" encoding="UTF-8"?>
@@ -258,10 +296,11 @@ async function buildEpub(input: EpubBookInput): Promise<Buffer> {
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    ${coverManifest}
     ${chapterManifest}
     ${imageManifest}
   </manifest>
-  <spine>${spine}</spine>
+  <spine>${cover ? '<itemref idref="cover-page"/>' : ""}${spine}</spine>
 </package>`);
   zip.file("OEBPS/nav.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
@@ -269,6 +308,15 @@ async function buildEpub(input: EpubBookInput): Promise<Buffer> {
 <head><title>Table of Contents</title></head>
 <body><nav epub:type="toc"><h1>${escapeHtml(input.title)}</h1><p>${escapeHtml(input.seriesTitle)}</p><ol>${navigation}</ol></nav></body>
 </html>`);
+  if (cover) {
+    zip.file("OEBPS/cover.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="${escapeHtml(input.language)}" xml:lang="${escapeHtml(input.language)}">
+<head><title>${escapeHtml(input.title)}</title><style>body{text-align:center}img{max-height:95vh;max-width:100%}</style></head>
+<body><img src="${cover.path}" alt="${escapeHtml(input.title)}"/></body>
+</html>`);
+    zip.file(`OEBPS/${cover.path}`, cover.data);
+  }
   chapters.forEach((chapter, index) => {
     zip.file(`OEBPS/chapter-${index + 1}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
@@ -395,11 +443,12 @@ export async function exportChapterToPdf(
     readChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId),
     getContent(libraryPath, seriesId, categoryId, volumeId, chapterId)
   ]);
+  const coverDataUrl = await readSeriesCoverDataUrl(libraryPath, series);
   return printHtmlToPdf(
     ownerWindow,
     "Export chapter to PDF",
     chapter.title,
-    buildChapterPdfHtml(series.title, chapter.title, content.html)
+    buildChapterPdfHtml(series.title, chapter.title, content.html, coverDataUrl)
   );
 }
 
@@ -416,6 +465,7 @@ export async function exportChapterToEpub(
     readChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId),
     getContent(libraryPath, seriesId, categoryId, volumeId, chapterId)
   ]);
+  const coverDataUrl = await readSeriesCoverDataUrl(libraryPath, series);
   const filePath = await chooseExportPath(ownerWindow, "Export chapter to EPUB", chapter.title, "epub");
   if (!filePath) {
     return null;
@@ -430,7 +480,8 @@ export async function exportChapterToEpub(
       language: series.language,
       creator: series.originalAuthor,
       html: content.html,
-      modifiedAt: chapter.updatedAt
+      modifiedAt: chapter.updatedAt,
+      coverDataUrl
     })
   );
   return { path: filePath };
@@ -448,6 +499,7 @@ export async function exportVolumeToPdf(
     readVolumeMetadata(libraryPath, seriesId, categoryId, volumeId),
     readPdfChapters(libraryPath, seriesId, categoryId, volumeId)
   ]);
+  const coverDataUrl = await readSeriesCoverDataUrl(libraryPath, series);
 
   return printHtmlToPdf(
     ownerWindow,
@@ -456,7 +508,8 @@ export async function exportVolumeToPdf(
     buildVolumePdfHtml(
       series.title,
       volume.title,
-      chapters
+      chapters,
+      coverDataUrl
     )
   );
 }
@@ -473,6 +526,7 @@ export async function exportVolumeToEpub(
     readVolumeMetadata(libraryPath, seriesId, categoryId, volumeId),
     readPdfChapters(libraryPath, seriesId, categoryId, volumeId)
   ]);
+  const coverDataUrl = await readSeriesCoverDataUrl(libraryPath, series);
   const filePath = await chooseExportPath(
     ownerWindow,
     "Export volume to EPUB",
@@ -492,7 +546,8 @@ export async function exportVolumeToEpub(
       language: series.language,
       creator: series.originalAuthor,
       chapters,
-      modifiedAt: volume.updatedAt
+      modifiedAt: volume.updatedAt,
+      coverDataUrl
     })
   );
   return { path: filePath };
@@ -520,12 +575,13 @@ export async function exportSeriesToPdf(
     readSeriesMetadata(libraryPath, seriesId),
     readSeriesGroups(libraryPath, seriesId)
   ]);
+  const coverDataUrl = await readSeriesCoverDataUrl(libraryPath, series);
 
   return printHtmlToPdf(
     ownerWindow,
     "Export series to PDF",
     series.title,
-    buildSeriesPdfHtml(series, groups)
+    buildSeriesPdfHtml(series, groups, coverDataUrl)
   );
 }
 
@@ -562,6 +618,7 @@ export async function exportSeriesToEpub(
     readSeriesMetadata(libraryPath, seriesId),
     readSeriesGroups(libraryPath, seriesId)
   ]);
+  const coverDataUrl = await readSeriesCoverDataUrl(libraryPath, series);
   const filePath = await chooseExportPath(ownerWindow, "Export series to EPUB", series.title, "epub");
   if (!filePath) {
     return null;
@@ -576,7 +633,8 @@ export async function exportSeriesToEpub(
       language: series.language,
       creator: series.originalAuthor,
       groups,
-      modifiedAt: series.updatedAt
+      modifiedAt: series.updatedAt,
+      coverDataUrl
     })
   );
   return { path: filePath };
