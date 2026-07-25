@@ -22,6 +22,7 @@ type SeriesCard = {
   author: string | null;
   genres: string[];
   tags: string[];
+  collections: SeriesCollection[];
   status: string;
   coverDataUrl: string | null;
 };
@@ -38,6 +39,17 @@ type ReadingListEntry = {
   scrollTop: number;
   updatedAt: string;
 };
+
+type SeriesCollection = "reading" | "favorite" | "needs-edit" | "completed";
+type CollectionFilter = "all" | SeriesCollection;
+
+const COLLECTION_FILTERS: Array<{ value: CollectionFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "reading", label: "Reading" },
+  { value: "favorite", label: "Favorite" },
+  { value: "needs-edit", label: "Needs Edit" },
+  { value: "completed", label: "Completed" }
+];
 
 type LibraryStatistics = {
   series: number;
@@ -114,6 +126,7 @@ function formatBytes(value: number): string {
 }
 
 export default function Library({ library, onOpenChapter, onOpenSettings, onOpenSeries }: LibraryPageProps) {
+  const [collectionFilter, setCollectionFilter] = useState<CollectionFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [reading, setReading] = useState<ReadingState>({
     loading: false,
@@ -233,13 +246,17 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
   }
 
   const query = searchQuery.trim().toLowerCase();
+  const collectionSeries =
+    collectionFilter === "all"
+      ? series.items
+      : series.items.filter((item) => item.collections.includes(collectionFilter));
   const filteredSeries = query
-    ? series.items.filter((item) =>
+    ? collectionSeries.filter((item) =>
         [item.title, item.author ?? "", item.status, ...item.genres, ...item.tags].some((value) =>
           value.toLowerCase().includes(query)
         )
       )
-    : series.items;
+    : collectionSeries;
   const quickSections = (
     <ReadingQuickSections
       bookmarks={reading.bookmarks}
@@ -276,6 +293,19 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
       {quickSections}
       {statisticsSection}
 
+      <nav className="collection-filters" aria-label="Collections">
+        {COLLECTION_FILTERS.map((filter) => (
+          <button
+            aria-pressed={collectionFilter === filter.value}
+            key={filter.value}
+            onClick={() => setCollectionFilter(filter.value)}
+            type="button"
+          >
+            {filter.label}
+          </button>
+        ))}
+      </nav>
+
       <label className="library-search">
         <span>Search</span>
         <input
@@ -309,6 +339,9 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
                 <p className="series-author">{item.author ?? "Unknown author"}</p>
                 {item.genres.length > 0 ? <p className="series-genres">{item.genres.slice(0, 3).join(", ")}</p> : null}
                 {item.tags.length > 0 ? <p className="series-genres">{item.tags.map((tag) => `#${tag}`).join(" ")}</p> : null}
+                {item.collections.length > 0 ? (
+                  <p className="series-genres">{item.collections.map(formatStatus).join(" · ")}</p>
+                ) : null}
                 <span className="series-status">{formatStatus(item.status)}</span>
               </div>
             </button>

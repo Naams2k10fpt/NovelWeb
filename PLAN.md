@@ -104,6 +104,7 @@ NovelWeb Library
   "translator": "Naams",
   "genres": ["Romance"],
   "tags": [],
+  "collections": ["reading"],
   "status": "translating",
   "publisher": null,
   "year": null,

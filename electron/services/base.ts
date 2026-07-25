@@ -3,7 +3,9 @@ import { copyFile, mkdir, readFile, rename, stat, writeFile, cp, rm, appendFile 
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   SERIES_METADATA_SCHEMA_VERSION,
+  SERIES_COLLECTIONS,
   SERIES_STATUSES,
+  type SeriesCollection,
   type SeriesMetadata,
   type SeriesStatus
 } from "../schemas/series";
@@ -100,6 +102,7 @@ export type SeriesCard = {
   author: string | null;
   genres: string[];
   tags: string[];
+  collections: SeriesCollection[];
   status: SeriesStatus;
   coverDataUrl: string | null;
 };
@@ -495,6 +498,20 @@ export function readSeriesStatus(record: JsonRecord, fallback: SeriesStatus): Se
   }
 
   throw new Error("status is invalid.");
+}
+
+export function readSeriesCollections(record: JsonRecord, fallback: SeriesCollection[]): SeriesCollection[] {
+  const value = record.collections;
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (!Array.isArray(value) || value.some((item) => !SERIES_COLLECTIONS.includes(item as SeriesCollection))) {
+    throw new Error("collections is invalid.");
+  }
+
+  return [...new Set(value as SeriesCollection[])];
 }
 
 export function readCategoryType(record: JsonRecord, fallback?: CategoryType): CategoryType {

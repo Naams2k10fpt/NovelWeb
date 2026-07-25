@@ -187,6 +187,7 @@ async function runTests() {
       status: "translating",
       language: "vi",
       tags: ["test-series"],
+      collections: ["reading"],
       description: "This is a test description."
     });
     assert(newSeries.title === "Test Novel Series", "Series created with correct title.");
@@ -196,6 +197,7 @@ async function runTests() {
     assert(seriesList.length === 1, "Series index contains exactly 1 series.");
     assert(seriesList[0].title === "Test Novel Series", "Series card lists correct title.");
     assert(seriesList[0].tags[0] === "test-series", "Series card lists free-form tags.");
+    assert(seriesList[0].collections[0] === "reading", "Series card lists collection membership.");
 
     const loadedSeries = await readSeriesMetadata(TEST_LIB_DIR, newSeries.id);
     assert(loadedSeries.originalAuthor === "Test Author", "Loaded series metadata matches.");
@@ -203,11 +205,16 @@ async function runTests() {
     const updatedSeries = await updateSeriesMetadata(TEST_LIB_DIR, newSeries.id, {
       title: "Updated Novel Title",
       originalAuthor: "Updated Author",
-      tags: ["cozy", "isekai"]
+      tags: ["cozy", "isekai"],
+      collections: ["favorite", "needs-edit"]
     });
     assert(updatedSeries.title === "Updated Novel Title", "Series title updated successfully.");
     assert(updatedSeries.originalAuthor === "Updated Author", "Series author updated successfully.");
     assert(updatedSeries.tags.join(",") === "cozy,isekai", "Series tags update successfully.");
+    assert(
+      updatedSeries.collections.join(",") === "favorite,needs-edit",
+      "Series collection membership updates successfully."
+    );
 
     // ----------------------------------------------------
     console.log("\n\x1b[35m3. Testing Category CRUD\x1b[0m");

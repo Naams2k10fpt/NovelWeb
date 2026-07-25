@@ -19,6 +19,7 @@ type SeriesMetadata = {
   translator: string | null;
   genres: string[];
   tags: string[];
+  collections: SeriesCollection[];
   status: SeriesStatus;
   description: string;
   coverImage: string | null;
@@ -26,8 +27,10 @@ type SeriesMetadata = {
 };
 
 type SeriesStatus = "planning" | "translating" | "completed" | "paused" | "dropped";
+type SeriesCollection = "reading" | "favorite" | "needs-edit" | "completed";
 
 const SERIES_STATUSES: SeriesStatus[] = ["planning", "translating", "completed", "paused", "dropped"];
+const SERIES_COLLECTIONS: SeriesCollection[] = ["reading", "favorite", "needs-edit", "completed"];
 
 type SeriesFormState = {
   title: string;
@@ -35,6 +38,7 @@ type SeriesFormState = {
   genres: string[];
   newGenre: string;
   tags: string;
+  collections: SeriesCollection[];
   status: SeriesStatus;
   description: string;
 };
@@ -128,6 +132,7 @@ function formFromSeries(series: SeriesMetadata): SeriesFormState {
     genres: series.genres,
     newGenre: "",
     tags: series.tags.join(", "),
+    collections: series.collections,
     status: series.status,
     description: series.description
   };
@@ -243,6 +248,7 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
           originalAuthor: form.originalAuthor.trim() || null,
           genres: form.genres,
           tags: parseTags(form.tags),
+          collections: form.collections,
           status: form.status,
           description: form.description
         })
@@ -310,6 +316,19 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
     setForm({ ...form, genres: uniqueGenres([...form.genres, genre]), newGenre: "" });
   }
 
+  function toggleCollection(collection: SeriesCollection): void {
+    setForm((current) =>
+      current
+        ? {
+            ...current,
+            collections: current.collections.includes(collection)
+              ? current.collections.filter((item) => item !== collection)
+              : [...current.collections, collection]
+          }
+        : current
+    );
+  }
+
   if (detail.loading) {
     return (
       <section className="empty-state">
@@ -356,6 +375,9 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
           ) : null}
           {detail.series.tags.length > 0 ? (
             <p className="series-detail-genres">{detail.series.tags.map((tag) => `#${tag}`).join(" ")}</p>
+          ) : null}
+          {detail.series.collections.length > 0 ? (
+            <p className="series-detail-genres">{detail.series.collections.map(formatLabel).join(" · ")}</p>
           ) : null}
           {detail.series.description ? <p>{detail.series.description}</p> : null}
           <div className="series-detail-actions">
@@ -431,6 +453,21 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
               <button disabled={!form.newGenre.trim()} onClick={addGenre} type="button">
                 Add
               </button>
+            </div>
+          </fieldset>
+          <fieldset className="series-genre-picker">
+            <legend>Collections</legend>
+            <div className="series-genre-options">
+              {SERIES_COLLECTIONS.map((collection) => (
+                <label key={collection}>
+                  <input
+                    checked={form.collections.includes(collection)}
+                    onChange={() => toggleCollection(collection)}
+                    type="checkbox"
+                  />
+                  <span>{formatLabel(collection)}</span>
+                </label>
+              ))}
             </div>
           </fieldset>
           <label>

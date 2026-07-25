@@ -22,7 +22,7 @@ import {
   type VersionedMetadata,
   type SeriesCard
 } from "./base";
-import { SERIES_STATUSES, type SeriesStatus } from "../schemas/series";
+import { SERIES_COLLECTIONS, SERIES_STATUSES, type SeriesCollection, type SeriesStatus } from "../schemas/series";
 
 export type SeriesIndex = {
   schemaVersion: number;
@@ -33,6 +33,7 @@ export type SeriesIndex = {
     author?: string | null;
     genres?: string[];
     tags?: string[];
+    collections?: SeriesCollection[];
     status?: SeriesStatus;
     coverImage?: string | null;
     updatedAt?: string;
@@ -135,6 +136,12 @@ export async function rebuildSeriesIndex(libraryPath: string): Promise<void> {
           tags: Array.isArray(metadata.tags)
             ? metadata.tags.filter((tag): tag is string => typeof tag === "string")
             : [],
+          collections: Array.isArray(metadata.collections)
+            ? metadata.collections.filter(
+                (collection): collection is SeriesCollection =>
+                  typeof collection === "string" && (SERIES_COLLECTIONS as readonly string[]).includes(collection)
+              )
+            : [],
           status:
             typeof metadata.status === "string" && (SERIES_STATUSES as readonly string[]).includes(metadata.status)
               ? (metadata.status as SeriesStatus)
@@ -202,7 +209,12 @@ export async function readSeriesIndex(libraryPath: string): Promise<SeriesIndex>
     const index = await readJsonFile<SeriesIndex>(seriesIndexPath(libraryPath));
     assertSupportedSchemaVersion("series-index.json", index);
 
-    if (index.series.some((entry) => !Array.isArray(entry.genres) || !Array.isArray(entry.tags))) {
+    if (
+      index.series.some(
+        (entry) =>
+          !Array.isArray(entry.genres) || !Array.isArray(entry.tags) || !Array.isArray(entry.collections)
+      )
+    ) {
       await rebuildSeriesIndex(libraryPath);
       return readJsonFile<SeriesIndex>(seriesIndexPath(libraryPath));
     }
