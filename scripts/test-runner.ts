@@ -468,7 +468,7 @@ async function runTests() {
         importPreview.counts.pdf === 1,
       "Import scan detects TXT, Markdown, DOCX, and PDF chapters."
     );
-    const importReport = await executeImport(TEST_LIB_DIR, importSessionId, {
+    const importPlan = {
       target: {
         mode: "existing",
         seriesId: newSeries.id,
@@ -481,7 +481,8 @@ async function runTests() {
         { fileId: importFileId("chapter.docx"), title: "Imported DOCX", volumeTitle: "Import Tests" },
         { fileId: importFileId("chapter.pdf"), title: "Imported PDF", volumeTitle: "Import Tests" }
       ]
-    });
+    };
+    const importReport = await executeImport(TEST_LIB_DIR, importSessionId, importPlan);
     const importVolume = (await listVolumeMetadata(TEST_LIB_DIR, newSeries.id, lnCategory.id)).find(
       (item) => item.title === "Import Tests"
     )!;
@@ -504,6 +505,13 @@ async function runTests() {
         importedText.get("Imported DOCX") === "DOCX import content." &&
         importedText.get("Imported PDF")?.includes("PDF import content."),
       "Imported TXT, Markdown, DOCX, and PDF content remains readable."
+    );
+    const duplicateImportReport = await executeImport(TEST_LIB_DIR, importSessionId, importPlan);
+    assert(
+      duplicateImportReport.imported === 0 &&
+        duplicateImportReport.skipped === 4 &&
+        (await listChapterMetadata(TEST_LIB_DIR, newSeries.id, lnCategory.id, importVolume.id)).length === 4,
+      "Import skips duplicate source files by hash within the same series."
     );
 
     // ----------------------------------------------------

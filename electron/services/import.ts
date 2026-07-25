@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { BrowserWindow, dialog, type OpenDialogOptions } from "electron";
 import { readdir, stat, mkdir, readFile, copyFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, resolve, isAbsolute, join, relative } from "node:path";
@@ -190,6 +190,11 @@ export type ImportReport = {
   skipped: number;
   failed: number;
   logs: ImportLogEntry[];
+};
+
+export type ImportHashIndex = {
+  schemaVersion: number;
+  hashes: Record<string, string[]>;
 };
 
 export const PDF_IMAGE_RENDER_SCALE = 2;
@@ -658,6 +663,30 @@ export async function readImportSourceText(sourceFile: ImportSourceFile): Promis
   }
 
   throw new Error("Import file type is not supported.");
+}
+
+export async function importSourceFileHash(sourceFile: ImportSourceFile): Promise<string | null> {
+  return sourceFile.fileType === "images"
+    ? null
+    : createHash("sha256").update(await readFile(sourceFile.sourcePath)).digest("hex");
+}
+
+export async function readImportHashIndex(libraryPath: string): Promise<ImportHashIndex> {
+  try {
+    const index = await readJsonFile<ImportHashIndex>(libraryChildPath(libraryPath, "index", "import-hashes.json"));
+    assertSupportedSchemaVersion("import-hashes.json", index);
+    return { schemaVersion: SUPPORTED_SCHEMA_VERSION, hashes: index.hashes ?? {} };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { schemaVersion: SUPPORTED_SCHEMA_VERSION, hashes: {} };
+    }
+
+    throw error;
+  }
+}
+
+export async function writeImportHashIndex(libraryPath: string, index: ImportHashIndex): Promise<void> {
+  await writeJsonFile(libraryChildPath(libraryPath, "index", "import-hashes.json"), index);
 }
 
 export function escapeImportText(text: string): string {
@@ -1138,7 +1167,10 @@ export async function executeImport(libraryPath: string, importSessionId: unknow
   const plan = readImportPlan(input);
   const log = (message: string): Promise<void> => appendImportLog(libraryPath, message);
   const logs: ImportLogEntry[] = [];
-  const importableChapters: Array<ImportPlanChapter & { sourceFile: ImportSourceFile; text: string }> = [];
+  const importHashIndex = await readImportHashIndex(libraryPath);
+  const importableChapters: Array<
+    ImportPlanChapter & { sourceFile: ImportSourceFile; sourceHash: string | null; text: string }
+  > = [];
 
   await log(`import start session=${session.id} chapters=${plan.chapters.length}`);
 
@@ -1157,7 +1189,7 @@ export async function executeImport(libraryPath: string, importSessionId: unknow
       }
 
       const text = sourceFile.fileType === "images" ? "" : normalizeImportText(await readImportSourceText(sourceFile));
-      importableChapters.push({ ...chapter, sourceFile, text });
+      importableChapters.push({ ...chapter, sourceFile, sourceHash: await importSourceFileHash(sourceFile), text });
       await log(`import queued title=${JSON.stringify(chapter.title)} type=${sourceFile.fileType} source=${sourceFile.relativePath}`);
     } catch (error) {
       logs.push({
@@ -1192,6 +1224,16 @@ export async function executeImport(libraryPath: string, importSessionId: unknow
       }
 
       const volumeId = volume?.id ?? null;
+      if (chapter.sourceHash && importHashIndex.hashes[chapter.sourceHash]?.includes(series.id)) {
+        logs.push({
+          status: "skipped",
+          fileId: chapter.fileId,
+          title: chapter.title,
+          message: `Skipped duplicate ${chapter.sourceFile.relativePath}.`
+        });
+        await log(`chapter skipped duplicate title=${JSON.stringify(chapter.title)} hash=${chapter.sourceHash}`);
+        continue;
+      }
 
       const metadata = await createNovelChapterMetadata(libraryPath, series.id, category.id, volumeId, {
         title: chapter.title,
@@ -1242,6 +1284,16 @@ export async function executeImport(libraryPath: string, importSessionId: unknow
       await saveNovelChapterContent(libraryPath, series.id, category.id, volumeId, metadata.id, {
         html
       });
+      if (chapter.sourceHash) {
+        importHashIndex.hashes[chapter.sourceHash] = [
+          ...new Set([...(importHashIndex.hashes[chapter.sourceHash] ?? []), series.id])
+        ];
+        try {
+          await writeImportHashIndex(libraryPath, importHashIndex);
+        } catch (error) {
+          await log(`import hash index warning title=${JSON.stringify(chapter.title)} error=${String(error)}`);
+        }
+      }
       imported += 1;
       const unsupportedPdf =
         chapter.sourceFile.fileType === "pdf" && normalizeImportText(chapter.text).trim() === "" && pdfImages.count === 0;
