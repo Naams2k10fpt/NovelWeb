@@ -47,6 +47,11 @@ type ChapterOriginalText = {
   fileType: "md";
 };
 
+type ChapterVersion = {
+  id: string;
+  createdAt: string;
+};
+
 type HighlightEntry = {
   id: string;
   text: string;
@@ -69,6 +74,19 @@ type RendererApi = {
       volumeId: string | null,
       chapterId: string,
       input: unknown
+    ) => Promise<ApiResponse<ChapterContent>>;
+    listVersions: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string
+    ) => Promise<ApiResponse<ChapterVersion[]>>;
+    restoreVersion: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string,
+      versionId: string
     ) => Promise<ApiResponse<ChapterContent>>;
     getOriginalPdf: (
       seriesId: string,
@@ -591,6 +609,8 @@ export default function NovelEditor({
   const [status, setStatus] = useState<EditorStatus>("loading");
   const [title, setTitle] = useState("");
   const [linkHref, setLinkHref] = useState("");
+  const [selectedVersionId, setSelectedVersionId] = useState("");
+  const [versions, setVersions] = useState<ChapterVersion[]>([]);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadedRef = useRef(false);
   const lastSavedHtmlRef = useRef("");
@@ -699,20 +719,24 @@ export default function NovelEditor({
     setTextError(null);
     setTitle("");
     setLinkHref("");
+    setSelectedVersionId("");
+    setVersions([]);
     titleRef.current = "";
 
     void Promise.all([
       api.chapters.getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId),
       api.highlights?.listForChapter(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
-        Promise.resolve({ ok: true, data: [] } as ApiResponse<HighlightEntry[]>)
+        Promise.resolve({ ok: true, data: [] } as ApiResponse<HighlightEntry[]>),
+      api.chapters.listVersions(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
     ])
-      .then(([response, highlightsResponse]) => {
+      .then(([response, highlightsResponse, versionsResponse]) => {
         if (!isMounted) {
           return;
         }
 
         const content = unwrap(response);
         const highlights = unwrap(highlightsResponse);
+        setVersions(unwrap(versionsResponse));
         const nextContent = splitTitleHtml(content.html);
         setTitle(nextContent.title);
         titleRef.current = nextContent.title;
@@ -859,6 +883,10 @@ export default function NovelEditor({
           html
         })
       );
+      void api.chapters
+        .listVersions(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
+        .then((response) => setVersions(unwrap(response)))
+        .catch(() => undefined);
       lastSavedHtmlRef.current = html;
       latestHtmlRef.current = composeChapterHtml(titleRef.current, editor.getHTML());
 
@@ -881,6 +909,55 @@ export default function NovelEditor({
         saveAgainRef.current = false;
         void save();
       }
+    }
+  }
+
+  async function restoreSelectedVersion(): Promise<void> {
+    const api = getApi();
+    if (
+      !api ||
+      !editor ||
+      !selectedVersionId ||
+      (status !== "ready" && status !== "saved") ||
+      !window.confirm("Restore this chapter version? The current saved content will remain in history.")
+    ) {
+      return;
+    }
+
+    clearAutosave();
+    setStatus("loading");
+    setError(null);
+
+    try {
+      unwrap(
+        await api.chapters.restoreVersion(
+          target.seriesId,
+          target.categoryId,
+          target.volumeId,
+          target.chapterId,
+          selectedVersionId
+        )
+      );
+      const content = unwrap(
+        await api.chapters.getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
+      );
+      const nextContent = splitTitleHtml(content.html);
+      setTitle(nextContent.title);
+      titleRef.current = nextContent.title;
+      editor.commands.setContent(nextContent.bodyHtml, { emitUpdate: false });
+      lastSavedHtmlRef.current = composeChapterHtml(nextContent.title, editor.getHTML());
+      latestHtmlRef.current = lastSavedHtmlRef.current;
+      setVersions(
+        unwrap(
+          await api.chapters.listVersions(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
+        )
+      );
+      setSelectedVersionId("");
+      onDirtyChange(false);
+      setStatus("saved");
+    } catch (restoreError) {
+      setStatus("error");
+      setError(String(restoreError));
     }
   }
 
@@ -1233,6 +1310,26 @@ export default function NovelEditor({
         </div>
 
         <div className="toolbar-actions">
+          <select
+            aria-label="Chapter version"
+            disabled={versions.length === 0 || status === "loading" || status === "saving"}
+            onChange={(event) => setSelectedVersionId(event.target.value)}
+            value={selectedVersionId}
+          >
+            <option value="">History</option>
+            {versions.map((version) => (
+              <option key={version.id} value={version.id}>
+                {new Date(version.createdAt).toLocaleString()}
+              </option>
+            ))}
+          </select>
+          <button
+            disabled={!selectedVersionId || (status !== "ready" && status !== "saved")}
+            onClick={() => void restoreSelectedVersion()}
+            type="button"
+          >
+            Restore
+          </button>
           <button
             className="primary-action"
             disabled={status === "loading" || status === "saving"}

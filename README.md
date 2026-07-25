@@ -37,6 +37,7 @@ Current scope change:
 - Metadata, content, and full Library backups from Settings.
 - Safe restore to a new Library folder and automatic backed-up `schemaVersion` migration.
 - Trash browser with restore and confirmed permanent delete.
+- Chapter content history with restore from the editor.
 
 ## Roadmap
 

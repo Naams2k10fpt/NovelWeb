@@ -53,7 +53,10 @@ import {
   getOriginalPdf,
   getOriginalText,
   chooseImage,
-  moveToTrash as moveChapterToTrash
+  listChapterVersions,
+  restoreChapterVersion,
+  moveToTrash as moveChapterToTrash,
+  type ChapterVersion
 } from "./services/chapter";
 import {
   chooseImportSourceFolder,
@@ -554,6 +557,39 @@ function registerChapterIpc(): void {
       );
     } catch (error) {
       return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not save chapter content.", String(error));
+    }
+  });
+
+  ipcMain.handle("chapters:listVersions", async (_event, seriesId: unknown, categoryId: unknown, volumeId: unknown, chapterId: unknown): Promise<ApiResponse<ChapterVersion[]>> => {
+    try {
+      return ok(
+        await listChapterVersions(
+          await currentLibraryPathOrThrow(),
+          assertId(seriesId, "seriesId"),
+          assertId(categoryId, "categoryId"),
+          optionalVolumeId(volumeId),
+          assertId(chapterId, "chapterId")
+        )
+      );
+    } catch (error) {
+      return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not list chapter versions.", String(error));
+    }
+  });
+
+  ipcMain.handle("chapters:restoreVersion", async (_event, seriesId: unknown, categoryId: unknown, volumeId: unknown, chapterId: unknown, versionId: unknown): Promise<ApiResponse<ChapterContent>> => {
+    try {
+      return ok(
+        await restoreChapterVersion(
+          await currentLibraryPathOrThrow(),
+          assertId(seriesId, "seriesId"),
+          assertId(categoryId, "categoryId"),
+          optionalVolumeId(volumeId),
+          assertId(chapterId, "chapterId"),
+          assertId(versionId, "versionId")
+        )
+      );
+    } catch (error) {
+      return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not restore chapter version.", String(error));
     }
   });
 

@@ -25,7 +25,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 
 1. **Data safety and migration — complete**
    - Metadata backup, content backup, backup before migration, and migration by `schemaVersion`.
-2. **Recovery and history**
+2. **Recovery and history — complete**
    - Restore from `.trash`, permanent delete with confirmation, and simple chapter version history.
 3. **Export**
    - Shared chapter/volume/series export flow for PDF and EPUB, including cover, metadata, table of contents, headings, inline images, page breaks, Vietnamese fonts, export tests, and export preview.
@@ -228,7 +228,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 
 ## Phase 11 - Backup, Restore, Migration
 
-**Status:** `[~]`
+**Status:** `[x]`
 
 - [x] Metadata backup.
 - [x] Content backup.
@@ -238,7 +238,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 - [x] Migration by `schemaVersion`.
 - [x] Restore from `.trash`.
 - [x] Permanent delete with confirmation.
-- [ ] Simple chapter version history.
+- [x] Simple chapter version history.
 
 ---
 

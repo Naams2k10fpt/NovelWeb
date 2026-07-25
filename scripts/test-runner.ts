@@ -37,6 +37,8 @@ import {
   updateChapterMetadata,
   saveContent,
   getContent,
+  listChapterVersions,
+  restoreChapterVersion,
   moveToTrash as moveChapterToTrash
 } from "../electron/services/chapter";
 import {
@@ -187,7 +189,21 @@ async function runTests() {
     assert(loadedContent.text.includes("This is bold test content of chapter 1."), "Plain-text content correctly extracted.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m6. Testing Reading Progress & Recents\x1b[0m");
+    console.log("\n\x1b[35m6. Testing Chapter Version History\x1b[0m");
+    await saveContent(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id, {
+      html: "<p>Changed chapter content.</p>"
+    });
+    const versions = await listChapterVersions(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id);
+    assert(versions.length === 1, "Saving changed content creates one chapter version.");
+    await restoreChapterVersion(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id, versions[0].id);
+    assert(
+      (await getContent(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id)).html === testHtml &&
+        (await listChapterVersions(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id)).length === 2,
+      "Restoring a version preserves the replaced content in history."
+    );
+
+    // ----------------------------------------------------
+    console.log("\n\x1b[35m7. Testing Reading Progress & Recents\x1b[0m");
     const initialProgress = await readChapterReadingProgress(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id);
     assert(initialProgress.scrollTop === 0, "Initial progress scroll top is 0.");
 
@@ -202,7 +218,7 @@ async function runTests() {
     assert(recents[0].chapterId === chapter1.id, "Recent entry references correct chapter.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m7. Testing Bookmarks & Highlights\x1b[0m");
+    console.log("\n\x1b[35m8. Testing Bookmarks & Highlights\x1b[0m");
     const bookmarked = await toggleChapterBookmark(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id, {
       scrollTop: 350
     });
@@ -226,7 +242,7 @@ async function runTests() {
     assert(highlights.length === 1, "Highlights list contains exactly 1 highlight.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m8. Testing Search Index & Queries\x1b[0m");
+    console.log("\n\x1b[35m9. Testing Search Index & Queries\x1b[0m");
     await rebuildSearchIndex(TEST_LIB_DIR);
     assert(true, "Search index rebuilt successfully.");
 
@@ -236,7 +252,7 @@ async function runTests() {
     assert(searchResults[0].snippet.includes("bold test"), "Search snippet contains queried text.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m9. Testing Full Library Backup\x1b[0m");
+    console.log("\n\x1b[35m10. Testing Full Library Backup\x1b[0m");
     const backup = await createFullLibraryBackup(TEST_LIB_DIR);
     const backupManifest = JSON.parse(await readFile(join(backup.path, "backup.json"), "utf8")) as {
       schemaVersion: number;
@@ -250,7 +266,7 @@ async function runTests() {
     assert(backedUpContent === testHtml, "Full backup preserves chapter content.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m10. Testing Selective Backups\x1b[0m");
+    console.log("\n\x1b[35m11. Testing Selective Backups\x1b[0m");
     const metadataBackup = await createLibraryBackup(TEST_LIB_DIR, "metadata");
     const contentBackup = await createLibraryBackup(TEST_LIB_DIR, "content");
     const chapterRelativePath = join(
@@ -273,7 +289,7 @@ async function runTests() {
     );
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m11. Testing Full Library Restore\x1b[0m");
+    console.log("\n\x1b[35m12. Testing Full Library Restore\x1b[0m");
     const restored = await restoreFullLibraryBackup(TEST_LIB_DIR, backup.path, RESTORED_TEST_LIB_DIR);
     const restoredContent = await readFile(
       join(restored.path, "series", newSeries.id, "categories", category.id, "chapters", chapter1.id, "content.html"),
@@ -282,7 +298,7 @@ async function runTests() {
     assert(restoredContent === testHtml, "Full restore preserves chapter content.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m12. Testing Schema Migration\x1b[0m");
+    console.log("\n\x1b[35m13. Testing Schema Migration\x1b[0m");
     const restoredLibraryJsonPath = join(restored.path, "library.json");
     const restoredLibraryJson = JSON.parse(await readFile(restoredLibraryJsonPath, "utf8")) as Record<string, unknown>;
     delete restoredLibraryJson.schemaVersion;
@@ -308,7 +324,7 @@ async function runTests() {
     );
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m13. Testing Trash Restore\x1b[0m");
+    console.log("\n\x1b[35m14. Testing Trash Restore\x1b[0m");
     await moveChapterToTrash(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id);
     const chaptersAfterDelete = await listChapterMetadata(TEST_LIB_DIR, newSeries.id, category.id, null);
     assert(chaptersAfterDelete.length === 0, "Chapter removed from category list.");
@@ -350,7 +366,7 @@ async function runTests() {
     assert(true, "Library indexes repaired successfully.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m14. Testing Permanent Trash Delete\x1b[0m");
+    console.log("\n\x1b[35m15. Testing Permanent Trash Delete\x1b[0m");
     const disposableChapter = await createChapterMetadata(TEST_LIB_DIR, newSeries.id, category.id, null, {
       title: "Disposable Chapter"
     });
