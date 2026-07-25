@@ -67,11 +67,18 @@ import {
   buildVolumePdfHtml,
   safeExportFileName
 } from "../electron/services/export";
+import {
+  executeImport,
+  importFileId,
+  importSessions,
+  scanImportSession
+} from "../electron/services/import";
 
 const TEST_LIB_DIR = join(process.cwd(), "temp-test-library");
 const RESTORED_TEST_LIB_DIR = join(process.cwd(), "temp-test-restored-library");
 const SELECTED_TEST_LIB_DIR = join(process.cwd(), "temp-test-selected-library");
 const TEST_APP_DATA_DIR = join(process.cwd(), "temp-test-app-data");
+const TEST_IMPORT_DIR = join(process.cwd(), "temp-test-import");
 
 let totalTests = 0;
 let passedTests = 0;
@@ -96,12 +103,53 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
+async function writeTestDocx(filePath: string): Promise<void> {
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'
+  );
+  zip.file(
+    "_rels/.rels",
+    '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'
+  );
+  zip.file(
+    "word/document.xml",
+    '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>DOCX import content.</w:t></w:r></w:p></w:body></w:document>'
+  );
+  await writeFile(filePath, await zip.generateAsync({ type: "nodebuffer" }));
+}
+
+async function writeTestPdf(filePath: string): Promise<void> {
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    "<< /Length 52 >>\nstream\nBT /F1 18 Tf 72 720 Td (PDF import content.) Tj ET\nendstream"
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(pdf));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+
+  const xrefOffset = Buffer.byteLength(pdf);
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  await writeFile(filePath, pdf, "ascii");
+}
+
 async function cleanUp() {
   try {
     await rm(TEST_LIB_DIR, { recursive: true, force: true });
     await rm(RESTORED_TEST_LIB_DIR, { recursive: true, force: true });
     await rm(SELECTED_TEST_LIB_DIR, { recursive: true, force: true });
     await rm(TEST_APP_DATA_DIR, { recursive: true, force: true });
+    await rm(TEST_IMPORT_DIR, { recursive: true, force: true });
   } catch (err) {}
 }
 
@@ -397,7 +445,67 @@ async function runTests() {
     assert(recents[0].chapterId === chapter1.id, "Recent entry references correct chapter.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m9. Testing Bookmarks & Highlights\x1b[0m");
+    console.log("\n\x1b[35m9. Testing TXT, Markdown, DOCX & PDF Import\x1b[0m");
+    await mkdir(TEST_IMPORT_DIR, { recursive: true });
+    await writeFile(join(TEST_IMPORT_DIR, "chapter.txt"), "TXT import content.", "utf8");
+    await writeFile(join(TEST_IMPORT_DIR, "chapter.md"), "# Markdown\n\n**Markdown import content.**", "utf8");
+    await writeTestDocx(join(TEST_IMPORT_DIR, "chapter.docx"));
+    await writeTestPdf(join(TEST_IMPORT_DIR, "chapter.pdf"));
+    const importSessionId = "integration-import-session";
+    importSessions.set(importSessionId, {
+      id: importSessionId,
+      sourceFolderPath: TEST_IMPORT_DIR,
+      createdAt: new Date().toISOString()
+    });
+    const importPreview = await scanImportSession(importSessionId);
+    assert(
+      importPreview.counts.chapters === 4 &&
+        importPreview.counts.txt === 1 &&
+        importPreview.counts.md === 1 &&
+        importPreview.counts.docx === 1 &&
+        importPreview.counts.pdf === 1,
+      "Import scan detects TXT, Markdown, DOCX, and PDF chapters."
+    );
+    const importReport = await executeImport(TEST_LIB_DIR, importSessionId, {
+      target: {
+        mode: "existing",
+        seriesId: newSeries.id,
+        categoryId: lnCategory.id,
+        volumeMode: "source"
+      },
+      chapters: [
+        { fileId: importFileId("chapter.txt"), title: "Imported TXT", volumeTitle: "Import Tests" },
+        { fileId: importFileId("chapter.md"), title: "Imported Markdown", volumeTitle: "Import Tests" },
+        { fileId: importFileId("chapter.docx"), title: "Imported DOCX", volumeTitle: "Import Tests" },
+        { fileId: importFileId("chapter.pdf"), title: "Imported PDF", volumeTitle: "Import Tests" }
+      ]
+    });
+    const importVolume = (await listVolumeMetadata(TEST_LIB_DIR, newSeries.id, lnCategory.id)).find(
+      (item) => item.title === "Import Tests"
+    )!;
+    const importedChapters = await listChapterMetadata(TEST_LIB_DIR, newSeries.id, lnCategory.id, importVolume.id);
+    const importedText = new Map(
+      await Promise.all(
+        importedChapters.map(async (chapter) => [
+          chapter.title,
+          (await getContent(TEST_LIB_DIR, newSeries.id, lnCategory.id, importVolume.id, chapter.id)).text
+        ] as const)
+      )
+    );
+    assert(
+      importReport.imported === 4 && importReport.failed === 0 && importedChapters.length === 4,
+      "Import execution creates all four chapters without failures."
+    );
+    assert(
+      importedText.get("Imported TXT") === "TXT import content." &&
+        importedText.get("Imported Markdown")?.includes("Markdown import content.") &&
+        importedText.get("Imported DOCX") === "DOCX import content." &&
+        importedText.get("Imported PDF")?.includes("PDF import content."),
+      "Imported TXT, Markdown, DOCX, and PDF content remains readable."
+    );
+
+    // ----------------------------------------------------
+    console.log("\n\x1b[35m10. Testing Bookmarks & Highlights\x1b[0m");
     const bookmarked = await toggleChapterBookmark(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id, {
       scrollTop: 350
     });
@@ -421,7 +529,7 @@ async function runTests() {
     assert(highlights.length === 1, "Highlights list contains exactly 1 highlight.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m10. Testing Search Index & Queries\x1b[0m");
+    console.log("\n\x1b[35m11. Testing Search Index & Queries\x1b[0m");
     await rebuildSearchIndex(TEST_LIB_DIR);
     assert(true, "Search index rebuilt successfully.");
 
@@ -431,7 +539,7 @@ async function runTests() {
     assert(searchResults[0].snippet.includes("bold test"), "Search snippet contains queried text.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m11. Testing Full Library Backup\x1b[0m");
+    console.log("\n\x1b[35m12. Testing Full Library Backup\x1b[0m");
     const backup = await createFullLibraryBackup(TEST_LIB_DIR);
     const backupManifest = JSON.parse(await readFile(join(backup.path, "backup.json"), "utf8")) as {
       schemaVersion: number;
@@ -445,7 +553,7 @@ async function runTests() {
     assert(backedUpContent === testHtml, "Full backup preserves chapter content.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m12. Testing Selective Backups\x1b[0m");
+    console.log("\n\x1b[35m13. Testing Selective Backups\x1b[0m");
     const metadataBackup = await createLibraryBackup(TEST_LIB_DIR, "metadata");
     const contentBackup = await createLibraryBackup(TEST_LIB_DIR, "content");
     const chapterRelativePath = join(
@@ -468,7 +576,7 @@ async function runTests() {
     );
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m13. Testing Full Library Restore\x1b[0m");
+    console.log("\n\x1b[35m14. Testing Full Library Restore\x1b[0m");
     const restored = await restoreFullLibraryBackup(TEST_LIB_DIR, backup.path, RESTORED_TEST_LIB_DIR);
     const restoredContent = await readFile(
       join(restored.path, "series", newSeries.id, "categories", category.id, "chapters", chapter1.id, "content.html"),
@@ -477,7 +585,7 @@ async function runTests() {
     assert(restoredContent === testHtml, "Full restore preserves chapter content.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m14. Testing Schema Migration\x1b[0m");
+    console.log("\n\x1b[35m15. Testing Schema Migration\x1b[0m");
     const restoredLibraryJsonPath = join(restored.path, "library.json");
     const restoredLibraryJson = JSON.parse(await readFile(restoredLibraryJsonPath, "utf8")) as Record<string, unknown>;
     delete restoredLibraryJson.schemaVersion;
@@ -503,7 +611,7 @@ async function runTests() {
     );
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m15. Testing Trash Restore\x1b[0m");
+    console.log("\n\x1b[35m16. Testing Trash Restore\x1b[0m");
     await moveChapterToTrash(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id);
     const chaptersAfterDelete = await listChapterMetadata(TEST_LIB_DIR, newSeries.id, category.id, null);
     assert(chaptersAfterDelete.length === 0, "Chapter removed from category list.");
@@ -545,7 +653,7 @@ async function runTests() {
     assert(true, "Library indexes repaired successfully.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m16. Testing Permanent Trash Delete\x1b[0m");
+    console.log("\n\x1b[35m17. Testing Permanent Trash Delete\x1b[0m");
     const disposableChapter = await createChapterMetadata(TEST_LIB_DIR, newSeries.id, category.id, null, {
       title: "Disposable Chapter"
     });
