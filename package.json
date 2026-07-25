@@ -1,7 +1,8 @@
 {
   "name": "novelweb",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
+  "description": "A local-first desktop app for managing, editing, reading, importing, and exporting Light Novels and Web Novels.",
   "type": "module",
   "main": "out/main/main.js",
   "scripts": {

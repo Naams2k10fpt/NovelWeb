@@ -248,7 +248,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 
 - [x] Configure Windows packaging.
 - [x] Prepare app icon.
-- [ ] Build installer.
+- [x] Build installer.
 - [ ] Test Library selection.
 - [x] Test CRUD series/category/volume/chapter.
 - [ ] Test editor and autosave.
