@@ -178,6 +178,14 @@ type RendererApi = {
     chooseSourceFiles: () => Promise<ApiResponse<ImportSource | null>>;
     scan: (importSessionId: string) => Promise<ApiResponse<ImportPreview>>;
   };
+  export: {
+    chapterPdf: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string
+    ) => Promise<ApiResponse<{ path: string } | null>>;
+  };
 };
 
 function getApi(): RendererApi | null {
@@ -925,6 +933,13 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     }
 
     return [
+      {
+        label: "Export PDF",
+        run: async () => {
+          unwrap(await api.export.chapterPdf(node.seriesId, node.categoryId, node.volumeId, node.id));
+          return false;
+        }
+      },
       {
         label: "Rename",
         run: async () => {

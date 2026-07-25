@@ -55,6 +55,7 @@ import {
   listRecentEntries
 } from "../electron/services/readingState";
 import { deleteTrashItem, listTrashEntries, restoreTrashItem } from "../electron/services/trash";
+import { buildChapterPdfHtml, safeExportFileName } from "../electron/services/export";
 
 const TEST_LIB_DIR = join(process.cwd(), "temp-test-library");
 const RESTORED_TEST_LIB_DIR = join(process.cwd(), "temp-test-restored-library");
@@ -203,7 +204,27 @@ async function runTests() {
     );
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m7. Testing Reading Progress & Recents\x1b[0m");
+    console.log("\n\x1b[35m7. Testing Chapter PDF Export Document\x1b[0m");
+    const exportHtml = buildChapterPdfHtml(
+      "Truyện thử tiếng Việt",
+      'Chương 1: "Thức tỉnh"',
+      `<h1>Old title</h1>${testHtml}<img src="data:image/png;base64,AA==">`
+    );
+    assert(
+      exportHtml.includes('charset="utf-8"') &&
+        exportHtml.includes("Truyện thử tiếng Việt") &&
+        exportHtml.includes("This is <strong>bold</strong>") &&
+        exportHtml.includes("data:image/png;base64,AA=="),
+      "PDF document preserves Vietnamese text, formatting, and inline images."
+    );
+    assert(
+      (exportHtml.match(/<h1/g) ?? []).length === 1 &&
+        safeExportFileName('Chương 1: "Thức tỉnh"?') === "Chương 1_ _Thức tỉnh__",
+      "PDF document uses one chapter heading and a Windows-safe file name."
+    );
+
+    // ----------------------------------------------------
+    console.log("\n\x1b[35m8. Testing Reading Progress & Recents\x1b[0m");
     const initialProgress = await readChapterReadingProgress(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id);
     assert(initialProgress.scrollTop === 0, "Initial progress scroll top is 0.");
 
@@ -218,7 +239,7 @@ async function runTests() {
     assert(recents[0].chapterId === chapter1.id, "Recent entry references correct chapter.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m8. Testing Bookmarks & Highlights\x1b[0m");
+    console.log("\n\x1b[35m9. Testing Bookmarks & Highlights\x1b[0m");
     const bookmarked = await toggleChapterBookmark(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id, {
       scrollTop: 350
     });
@@ -242,7 +263,7 @@ async function runTests() {
     assert(highlights.length === 1, "Highlights list contains exactly 1 highlight.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m9. Testing Search Index & Queries\x1b[0m");
+    console.log("\n\x1b[35m10. Testing Search Index & Queries\x1b[0m");
     await rebuildSearchIndex(TEST_LIB_DIR);
     assert(true, "Search index rebuilt successfully.");
 
@@ -252,7 +273,7 @@ async function runTests() {
     assert(searchResults[0].snippet.includes("bold test"), "Search snippet contains queried text.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m10. Testing Full Library Backup\x1b[0m");
+    console.log("\n\x1b[35m11. Testing Full Library Backup\x1b[0m");
     const backup = await createFullLibraryBackup(TEST_LIB_DIR);
     const backupManifest = JSON.parse(await readFile(join(backup.path, "backup.json"), "utf8")) as {
       schemaVersion: number;
@@ -266,7 +287,7 @@ async function runTests() {
     assert(backedUpContent === testHtml, "Full backup preserves chapter content.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m11. Testing Selective Backups\x1b[0m");
+    console.log("\n\x1b[35m12. Testing Selective Backups\x1b[0m");
     const metadataBackup = await createLibraryBackup(TEST_LIB_DIR, "metadata");
     const contentBackup = await createLibraryBackup(TEST_LIB_DIR, "content");
     const chapterRelativePath = join(
@@ -289,7 +310,7 @@ async function runTests() {
     );
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m12. Testing Full Library Restore\x1b[0m");
+    console.log("\n\x1b[35m13. Testing Full Library Restore\x1b[0m");
     const restored = await restoreFullLibraryBackup(TEST_LIB_DIR, backup.path, RESTORED_TEST_LIB_DIR);
     const restoredContent = await readFile(
       join(restored.path, "series", newSeries.id, "categories", category.id, "chapters", chapter1.id, "content.html"),
@@ -298,7 +319,7 @@ async function runTests() {
     assert(restoredContent === testHtml, "Full restore preserves chapter content.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m13. Testing Schema Migration\x1b[0m");
+    console.log("\n\x1b[35m14. Testing Schema Migration\x1b[0m");
     const restoredLibraryJsonPath = join(restored.path, "library.json");
     const restoredLibraryJson = JSON.parse(await readFile(restoredLibraryJsonPath, "utf8")) as Record<string, unknown>;
     delete restoredLibraryJson.schemaVersion;
@@ -324,7 +345,7 @@ async function runTests() {
     );
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m14. Testing Trash Restore\x1b[0m");
+    console.log("\n\x1b[35m15. Testing Trash Restore\x1b[0m");
     await moveChapterToTrash(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id);
     const chaptersAfterDelete = await listChapterMetadata(TEST_LIB_DIR, newSeries.id, category.id, null);
     assert(chaptersAfterDelete.length === 0, "Chapter removed from category list.");
@@ -366,7 +387,7 @@ async function runTests() {
     assert(true, "Library indexes repaired successfully.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m15. Testing Permanent Trash Delete\x1b[0m");
+    console.log("\n\x1b[35m16. Testing Permanent Trash Delete\x1b[0m");
     const disposableChapter = await createChapterMetadata(TEST_LIB_DIR, newSeries.id, category.id, null, {
       title: "Disposable Chapter"
     });

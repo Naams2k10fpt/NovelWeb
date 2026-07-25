@@ -38,6 +38,7 @@ Current scope change:
 - Safe restore to a new Library folder and automatic backed-up `schemaVersion` migration.
 - Trash browser with restore and confirmed permanent delete.
 - Chapter content history with restore from the editor.
+- Chapter PDF export with headings, inline images, and A4 print styling.
 
 ## Roadmap
 

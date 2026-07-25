@@ -213,9 +213,9 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 
 ## Phase 10 - Export
 
-**Status:** `[ ]`
+**Status:** `[~]`
 
-- [ ] Export chapter to PDF.
+- [x] Export chapter to PDF.
 - [ ] Export volume to PDF.
 - [ ] Export series to PDF.
 - [ ] Export chapter to EPUB.

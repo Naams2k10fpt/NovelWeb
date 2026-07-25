@@ -65,6 +65,7 @@ import {
   executeImport
 } from "./services/import";
 import { searchLibrary, rebuildSearchIndex } from "./services/search";
+import { exportChapterToPdf, type ExportResult } from "./services/export";
 import {
   listRecentEntries,
   listBookmarks,
@@ -726,6 +727,34 @@ function registerImportIpc(): void {
   });
 }
 
+function registerExportIpc(): void {
+  ipcMain.handle(
+    "export:chapterPdf",
+    async (
+      event,
+      seriesId: unknown,
+      categoryId: unknown,
+      volumeId: unknown,
+      chapterId: unknown
+    ): Promise<ApiResponse<ExportResult | null>> => {
+      try {
+        return ok(
+          await exportChapterToPdf(
+            BrowserWindow.fromWebContents(event.sender),
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            optionalVolumeId(volumeId),
+            assertId(chapterId, "chapterId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.EXPORT_FAILED, "Could not export chapter to PDF.", String(error));
+      }
+    }
+  );
+}
+
 function registerSearchIpc(): void {
   ipcMain.handle("search:query", async (_event, query: unknown): Promise<ApiResponse<SearchResult[]>> => {
     try {
@@ -879,6 +908,7 @@ void app.whenReady().then(() => {
   registerVolumeIpc();
   registerChapterIpc();
   registerImportIpc();
+  registerExportIpc();
   registerSearchIpc();
   registerReadingStateIpc();
   registerTrashIpc();
