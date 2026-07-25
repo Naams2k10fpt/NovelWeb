@@ -259,7 +259,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 - [x] Test bookmark/highlight notes.
 - [x] Test export PDF/EPUB.
 - [x] Test backup/restore.
-- [ ] Test update without data loss.
+- [x] Test update without data loss.
 - [ ] Final bug checklist.
 
 ---

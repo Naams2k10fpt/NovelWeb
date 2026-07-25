@@ -615,7 +615,7 @@ async function runTests() {
     assert(restoredContent === testHtml, "Full restore preserves chapter content.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m16. Testing Schema Migration\x1b[0m");
+    console.log("\n\x1b[35m16. Testing Schema Migration & Update Data Preservation\x1b[0m");
     const restoredLibraryJsonPath = join(restored.path, "library.json");
     const restoredLibraryJson = JSON.parse(await readFile(restoredLibraryJsonPath, "utf8")) as Record<string, unknown>;
     delete restoredLibraryJson.schemaVersion;
@@ -638,6 +638,12 @@ async function runTests() {
     assert(
       migration.backupPath !== null && preMigrationLibraryJson.schemaVersion === undefined,
       "Migration creates a full pre-migration backup."
+    );
+    await ensureLibraryFiles(restored.path);
+    assert(
+      (await readSeriesMetadata(restored.path, newSeries.id)).title === "Updated Novel Title" &&
+        (await getContent(restored.path, newSeries.id, category.id, null, chapter1.id)).html === testHtml,
+      "Opening the Library after an app update preserves metadata and chapter content."
     );
 
     // ----------------------------------------------------
