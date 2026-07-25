@@ -20,6 +20,7 @@ import {
   type LibraryBackupResult,
   type LibraryBackupType
 } from "./services/library";
+import { getLibraryStatistics, type LibraryStatistics } from "./services/statistics";
 import {
   listSeriesCards,
   readSeriesMetadata,
@@ -110,6 +111,14 @@ import { type SearchResult, type SearchIndexSummary } from "./services/search";
 import { deleteTrashItem, listTrashEntries, restoreTrashItem, type TrashEntry } from "./services/trash";
 
 function registerLibraryIpc(): void {
+  ipcMain.handle("library:statistics", async (): Promise<ApiResponse<LibraryStatistics>> => {
+    try {
+      return ok(await getLibraryStatistics(await currentLibraryPathOrThrow()));
+    } catch (error) {
+      return fail(ErrorCode.LIBRARY_FOLDER_LOAD_FAILED, "Could not calculate Library statistics.", String(error));
+    }
+  });
+
   ipcMain.handle("library:getCurrent", async (): Promise<ApiResponse<{ path: string | null }>> => {
     try {
       const settings = await readAppSettings();

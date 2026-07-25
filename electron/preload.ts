@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("api", {
   library: {
     getCurrent: () => ipcRenderer.invoke("library:getCurrent"),
+    statistics: () => ipcRenderer.invoke("library:statistics"),
     chooseFolder: () => ipcRenderer.invoke("library:chooseFolder"),
     repairSeriesIndex: () => ipcRenderer.invoke("library:repairSeriesIndex"),
     createBackup: (type: "metadata" | "content" | "full") => ipcRenderer.invoke("library:createBackup", type),

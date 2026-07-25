@@ -76,6 +76,7 @@ import {
   listImportHistory,
   scanImportSession
 } from "../electron/services/import";
+import { getLibraryStatistics } from "../electron/services/statistics";
 
 const TEST_LIB_DIR = join(process.cwd(), "temp-test-library");
 const RESTORED_TEST_LIB_DIR = join(process.cwd(), "temp-test-restored-library");
@@ -521,6 +522,14 @@ async function runTests() {
         importHistory[1].imported === 4 &&
         importHistory.every((entry) => entry.logs.length === 4),
       "Import history preserves detailed results for recent import sessions."
+    );
+    const libraryStatistics = await getLibraryStatistics(TEST_LIB_DIR);
+    assert(
+      libraryStatistics.series === 1 &&
+        libraryStatistics.chapters === 7 &&
+        libraryStatistics.words > 0 &&
+        libraryStatistics.sizeBytes > 0,
+      "Library statistics count series, chapters, words, and storage size."
     );
 
     // ----------------------------------------------------

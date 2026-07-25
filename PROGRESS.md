@@ -267,7 +267,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 ## Backlog
 
 - [x] Duplicate detection on import by file hash.
-- [ ] Statistics: series, chapters, words, and Library size.
+- [x] Statistics: series, chapters, words, and Library size.
 - [ ] Free-form tags for series/chapter.
 - [ ] Collections: Reading, Favorite, Needs Edit, Completed.
 - [x] Detailed import history.

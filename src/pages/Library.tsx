@@ -38,7 +38,17 @@ type ReadingListEntry = {
   updatedAt: string;
 };
 
+type LibraryStatistics = {
+  series: number;
+  chapters: number;
+  words: number;
+  sizeBytes: number;
+};
+
 type RendererApi = {
+  library: {
+    statistics: () => Promise<ApiResponse<LibraryStatistics>>;
+  };
   series: {
     list: () => Promise<ApiResponse<SeriesCard[]>>;
   };
@@ -87,6 +97,21 @@ function formatDate(value: string): string {
   return new Date(value).toLocaleString();
 }
 
+function formatBytes(value: number): string {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+
+  const units = ["KB", "MB", "GB"];
+  let size = value / 1024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && size >= 1024; index += 1) {
+    size /= 1024;
+    unit = units[index];
+  }
+  return `${size.toFixed(size >= 10 ? 0 : 1)} ${unit}`;
+}
+
 export default function Library({ library, onOpenChapter, onOpenSettings, onOpenSeries }: LibraryPageProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [reading, setReading] = useState<ReadingState>({
@@ -100,6 +125,7 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
     items: [],
     error: null
   });
+  const [statistics, setStatistics] = useState<LibraryStatistics | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -107,6 +133,7 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
     if (!library.path) {
       setSeries({ loading: false, items: [], error: null });
       setReading({ loading: false, recent: [], bookmarks: [], error: null });
+      setStatistics(null);
       return;
     }
 
@@ -127,9 +154,10 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
     void Promise.all([
       api.series.list(),
       api.reading?.listRecent() ?? Promise.resolve({ ok: true, data: [] } as ApiResponse<ReadingListEntry[]>),
-      api.bookmarks?.list() ?? Promise.resolve({ ok: true, data: [] } as ApiResponse<ReadingListEntry[]>)
+      api.bookmarks?.list() ?? Promise.resolve({ ok: true, data: [] } as ApiResponse<ReadingListEntry[]>),
+      api.library.statistics()
     ])
-      .then(([seriesResponse, recentResponse, bookmarksResponse]) => {
+      .then(([seriesResponse, recentResponse, bookmarksResponse, statisticsResponse]) => {
         if (!isMounted) {
           return;
         }
@@ -150,6 +178,7 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
               ? bookmarksResponse.error.message
               : null
         });
+        setStatistics(statisticsResponse.ok ? statisticsResponse.data : null);
       })
       .catch((error) => {
         if (isMounted) {
@@ -217,11 +246,20 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
       recent={reading.recent}
     />
   );
+  const statisticsSection = statistics ? (
+    <section className="library-statistics" aria-label="Library statistics">
+      <div><strong>{statistics.series.toLocaleString()}</strong><span>Series</span></div>
+      <div><strong>{statistics.chapters.toLocaleString()}</strong><span>Chapters</span></div>
+      <div><strong>{statistics.words.toLocaleString()}</strong><span>Words</span></div>
+      <div><strong>{formatBytes(statistics.sizeBytes)}</strong><span>Library size</span></div>
+    </section>
+  ) : null;
 
   if (series.items.length === 0) {
     return (
       <>
         {quickSections}
+        {statisticsSection}
         <section className="empty-state">
           <h2>No series yet</h2>
           <p>Library folder is ready.</p>
@@ -233,6 +271,7 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
   return (
     <>
       {quickSections}
+      {statisticsSection}
 
       <label className="library-search">
         <span>Search</span>
