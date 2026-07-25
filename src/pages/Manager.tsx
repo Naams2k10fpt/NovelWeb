@@ -185,6 +185,11 @@ type RendererApi = {
       volumeId: string | null,
       chapterId: string
     ) => Promise<ApiResponse<{ path: string } | null>>;
+    volumePdf: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string
+    ) => Promise<ApiResponse<{ path: string } | null>>;
   };
 };
 
@@ -906,6 +911,13 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
             openForm("Add chapter", "Chapter title", `Chapter ${node.chapters.length + 1}`, async (title) => {
               unwrap(await api.chapters.create(node.seriesId, node.categoryId, node.id, { title }));
             });
+            return false;
+          }
+        },
+        {
+          label: "Export PDF",
+          run: async () => {
+            unwrap(await api.export.volumePdf(node.seriesId, node.categoryId, node.id));
             return false;
           }
         },

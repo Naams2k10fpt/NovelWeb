@@ -216,7 +216,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 **Status:** `[~]`
 
 - [x] Export chapter to PDF.
-- [ ] Export volume to PDF.
+- [x] Export volume to PDF.
 - [ ] Export series to PDF.
 - [ ] Export chapter to EPUB.
 - [ ] Export volume to EPUB.

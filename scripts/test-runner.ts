@@ -55,7 +55,7 @@ import {
   listRecentEntries
 } from "../electron/services/readingState";
 import { deleteTrashItem, listTrashEntries, restoreTrashItem } from "../electron/services/trash";
-import { buildChapterPdfHtml, safeExportFileName } from "../electron/services/export";
+import { buildChapterPdfHtml, buildVolumePdfHtml, safeExportFileName } from "../electron/services/export";
 
 const TEST_LIB_DIR = join(process.cwd(), "temp-test-library");
 const RESTORED_TEST_LIB_DIR = join(process.cwd(), "temp-test-restored-library");
@@ -221,6 +221,17 @@ async function runTests() {
       (exportHtml.match(/<h1/g) ?? []).length === 1 &&
         safeExportFileName('Chương 1: "Thức tỉnh"?') === "Chương 1_ _Thức tỉnh__",
       "PDF document uses one chapter heading and a Windows-safe file name."
+    );
+    const volumeExportHtml = buildVolumePdfHtml("Truyện thử", "Tập 1", [
+      { title: "Chương 1", html: testHtml },
+      { title: "Chương 2", html: "<h1>Duplicate title</h1><p>Nội dung chương 2.</p>" }
+    ]);
+    assert(
+      volumeExportHtml.includes('href="#chapter-1"') &&
+        volumeExportHtml.includes('id="chapter-2"') &&
+        (volumeExportHtml.match(/class="chapter"/g) ?? []).length === 2 &&
+        !volumeExportHtml.includes("Duplicate title"),
+      "Volume PDF document includes an ordered table of contents and page-broken chapters."
     );
 
     // ----------------------------------------------------

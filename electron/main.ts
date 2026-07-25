@@ -65,7 +65,7 @@ import {
   executeImport
 } from "./services/import";
 import { searchLibrary, rebuildSearchIndex } from "./services/search";
-import { exportChapterToPdf, type ExportResult } from "./services/export";
+import { exportChapterToPdf, exportVolumeToPdf, type ExportResult } from "./services/export";
 import {
   listRecentEntries,
   listBookmarks,
@@ -200,6 +200,25 @@ function registerLibraryIpc(): void {
         return ok(restored);
       } catch (error) {
         return fail(ErrorCode.RESTORE_FAILED, "Could not restore the Library.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "export:volumePdf",
+    async (event, seriesId: unknown, categoryId: unknown, volumeId: unknown): Promise<ApiResponse<ExportResult | null>> => {
+      try {
+        return ok(
+          await exportVolumeToPdf(
+            BrowserWindow.fromWebContents(event.sender),
+            await currentLibraryPathOrThrow(),
+            assertId(seriesId, "seriesId"),
+            assertId(categoryId, "categoryId"),
+            assertId(volumeId, "volumeId")
+          )
+        );
+      } catch (error) {
+        return fail(ErrorCode.EXPORT_FAILED, "Could not export volume to PDF.", String(error));
       }
     }
   );

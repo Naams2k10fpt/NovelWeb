@@ -83,7 +83,9 @@ contextBridge.exposeInMainWorld("api", {
   },
   export: {
     chapterPdf: (seriesId: string, categoryId: string, volumeId: string | null, chapterId: string) =>
-      ipcRenderer.invoke("export:chapterPdf", seriesId, categoryId, volumeId, chapterId)
+      ipcRenderer.invoke("export:chapterPdf", seriesId, categoryId, volumeId, chapterId),
+    volumePdf: (seriesId: string, categoryId: string, volumeId: string) =>
+      ipcRenderer.invoke("export:volumePdf", seriesId, categoryId, volumeId)
   },
   search: {
     query: (query: string) => ipcRenderer.invoke("search:query", query),
