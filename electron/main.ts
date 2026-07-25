@@ -93,6 +93,7 @@ import { type VolumeMetadata } from "./schemas/volume";
 import { type NovelChapterMetadata as ChapterMetadata } from "./schemas/chapter";
 import { type ImportPreview, type ImportReport } from "./services/import";
 import { type SearchResult, type SearchIndexSummary } from "./services/search";
+import { listTrashEntries, restoreTrashItem, type TrashEntry } from "./services/trash";
 
 function registerLibraryIpc(): void {
   ipcMain.handle("library:getCurrent", async (): Promise<ApiResponse<{ path: string | null }>> => {
@@ -255,6 +256,24 @@ function registerSeriesIpc(): void {
       return ok(await moveSeriesToTrash(await currentLibraryPathOrThrow(), assertId(seriesId, "seriesId")));
     } catch (error) {
       return fail(ErrorCode.SERIES_CRUD_FAILED, "Could not move series to trash.", String(error));
+    }
+  });
+}
+
+function registerTrashIpc(): void {
+  ipcMain.handle("trash:list", async (): Promise<ApiResponse<TrashEntry[]>> => {
+    try {
+      return ok(await listTrashEntries(await currentLibraryPathOrThrow()));
+    } catch (error) {
+      return fail(ErrorCode.TRASH_FAILED, "Could not list trash.", String(error));
+    }
+  });
+
+  ipcMain.handle("trash:restore", async (_event, trashId: unknown): Promise<ApiResponse<TrashEntry>> => {
+    try {
+      return ok(await restoreTrashItem(await currentLibraryPathOrThrow(), assertId(trashId, "trashId")));
+    } catch (error) {
+      return fail(ErrorCode.TRASH_FAILED, "Could not restore trash item.", String(error));
     }
   });
 }
@@ -818,6 +837,7 @@ void app.whenReady().then(() => {
   registerImportIpc();
   registerSearchIpc();
   registerReadingStateIpc();
+  registerTrashIpc();
   createWindow();
 
   app.on("activate", () => {

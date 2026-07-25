@@ -36,6 +36,7 @@ Current scope change:
 - Search index based on `content.txt`, plus bookmarks, recent reading, and highlight notes.
 - Metadata, content, and full Library backups from Settings.
 - Safe restore to a new Library folder and automatic backed-up `schemaVersion` migration.
+- Trash browser and restore for series, categories, volumes, and chapters.
 
 ## Roadmap
 

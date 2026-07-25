@@ -3,6 +3,7 @@ import { mkdir, readdir } from "node:fs/promises";
 import {
   assertRecord,
   assertSupportedSchemaVersion,
+  SUPPORTED_SCHEMA_VERSION,
   categoryMetaPath,
   libraryChildPath,
   moveDirectoryToTrash,
@@ -143,7 +144,17 @@ export async function moveVolumeToTrash(
   const now = new Date().toISOString();
 
   await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
-  await moveDirectoryToTrash(volumeDirectoryPath(libraryPath, seriesId, categoryId, volume.id), trashPath);
+  await moveDirectoryToTrash(volumeDirectoryPath(libraryPath, seriesId, categoryId, volume.id), trashPath, {
+    schemaVersion: SUPPORTED_SCHEMA_VERSION,
+    itemType: "volume",
+    itemId: volume.id,
+    title: volume.title,
+    deletedAt: now,
+    seriesId,
+    categoryId,
+    volumeId: volume.id,
+    orderIndex: category.volumeOrder.indexOf(volume.id)
+  });
   await writeJsonFile(
     categoryMetaPath(libraryPath, seriesId, categoryId),
     { ...category, volumeOrder: category.volumeOrder.filter((id) => id !== volume.id), updatedAt: now } satisfies CategoryMetadata,

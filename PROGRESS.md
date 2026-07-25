@@ -236,7 +236,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 - [x] Restore library from backup.
 - [x] Backup before migration.
 - [x] Migration by `schemaVersion`.
-- [ ] Restore from `.trash`.
+- [x] Restore from `.trash`.
 - [ ] Permanent delete with confirmation.
 - [ ] Simple chapter version history.
 

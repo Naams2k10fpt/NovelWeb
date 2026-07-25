@@ -7,6 +7,7 @@ import {
   assertRecord,
   assertSupportedSchemaVersion,
   IMAGE_FILE_EXTENSIONS,
+  SUPPORTED_SCHEMA_VERSION,
   libraryChildPath,
   readJsonFile,
   readOptionalNullableNumber,
@@ -215,11 +216,21 @@ export async function chooseSeriesCover(
 
 export async function moveSeriesToTrash(libraryPath: string, seriesId: string): Promise<{ id: string; trashPath: string }> {
   const id = assertId(seriesId, "seriesId");
-  await readSeriesMetadata(libraryPath, id);
+  const series = await readSeriesMetadata(libraryPath, id);
 
   const trashPath = trashSeriesDirectoryPath(libraryPath, id);
   await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
-  await moveDirectoryToTrash(seriesDirectoryPath(libraryPath, id), trashPath);
+  await moveDirectoryToTrash(seriesDirectoryPath(libraryPath, id), trashPath, {
+    schemaVersion: SUPPORTED_SCHEMA_VERSION,
+    itemType: "series",
+    itemId: id,
+    title: series.title,
+    deletedAt: new Date().toISOString(),
+    seriesId: id,
+    categoryId: null,
+    volumeId: null,
+    orderIndex: -1
+  });
   await rebuildSeriesIndex(libraryPath);
   await rebuildSearchIndex(libraryPath);
   await rebuildRecentIndex(libraryPath);

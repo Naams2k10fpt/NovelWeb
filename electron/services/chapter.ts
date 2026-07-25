@@ -6,6 +6,7 @@ import {
   assertId,
   assertRecord,
   assertSupportedSchemaVersion,
+  SUPPORTED_SCHEMA_VERSION,
   categoryMetaPath,
   chapterAssetsDirectoryPath,
   chapterAssetPath,
@@ -633,7 +634,21 @@ export async function moveNovelChapterToTrash(
   const now = new Date().toISOString();
 
   await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
-  await moveDirectoryToTrash(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapter.id), trashPath);
+  await moveDirectoryToTrash(
+    chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapter.id),
+    trashPath,
+    {
+      schemaVersion: SUPPORTED_SCHEMA_VERSION,
+      itemType: "chapter",
+      itemId: chapter.id,
+      title: chapter.title,
+      deletedAt: now,
+      seriesId,
+      categoryId,
+      volumeId,
+      orderIndex: (volume?.chapterOrder ?? category.chapterOrder).indexOf(chapter.id)
+    }
+  );
 
   if (volume) {
     await writeJsonFile(

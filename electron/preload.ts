@@ -8,6 +8,10 @@ contextBridge.exposeInMainWorld("api", {
     createBackup: (type: "metadata" | "content" | "full") => ipcRenderer.invoke("library:createBackup", type),
     restoreFullBackup: () => ipcRenderer.invoke("library:restoreFullBackup")
   },
+  trash: {
+    list: () => ipcRenderer.invoke("trash:list"),
+    restore: (trashId: string) => ipcRenderer.invoke("trash:restore", trashId)
+  },
   series: {
     list: () => ipcRenderer.invoke("series:list"),
     get: (seriesId: string) => ipcRenderer.invoke("series:get", seriesId),

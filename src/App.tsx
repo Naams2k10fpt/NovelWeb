@@ -9,6 +9,12 @@ import SeriesDetail from "./pages/SeriesDetail";
 type Mode = "library" | "search" | "manager" | "settings";
 type ChapterMode = "edit" | "read";
 type LibraryBackupType = "metadata" | "content" | "full";
+type TrashEntry = {
+  trashId: string;
+  itemType: "series" | "category" | "volume" | "chapter";
+  title: string;
+  deletedAt: string;
+};
 type ApiResponse<T> =
   | { ok: true; data: T }
   | { ok: false; error: { code: string; message: string; details?: unknown } };
@@ -21,6 +27,10 @@ type RendererApi = {
       type: LibraryBackupType
     ) => Promise<ApiResponse<{ name: string; path: string; createdAt: string; type: LibraryBackupType }>>;
     restoreFullBackup: () => Promise<ApiResponse<{ path: string | null }>>;
+  };
+  trash: {
+    list: () => Promise<ApiResponse<TrashEntry[]>>;
+    restore: (trashId: string) => Promise<ApiResponse<TrashEntry>>;
   };
 };
 
@@ -62,8 +72,11 @@ export default function App() {
   const [chapterDirty, setChapterDirty] = useState(false);
   const [chapterMode, setChapterMode] = useState<ChapterMode>("read");
   const [mode, setMode] = useState<Mode>("library");
+  const [restoringTrashId, setRestoringTrashId] = useState<string | null>(null);
   const [selectedChapter, setSelectedChapter] = useState<ChapterTarget | null>(null);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null);
+  const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([]);
+  const [trashError, setTrashError] = useState<string | null>(null);
   const [library, setLibrary] = useState<LibraryState>({
     loading: true,
     path: null,
@@ -107,6 +120,38 @@ export default function App() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    const api = getApi();
+    let isMounted = true;
+
+    if (mode !== "settings" || !library.path || !api) {
+      return;
+    }
+
+    setTrashError(null);
+    void api.trash
+      .list()
+      .then((response) => {
+        if (!isMounted) {
+          return;
+        }
+        if (response.ok) {
+          setTrashEntries(response.data);
+        } else {
+          setTrashError(response.error.message);
+        }
+      })
+      .catch((error) => {
+        if (isMounted) {
+          setTrashError(String(error));
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [library.path, mode]);
 
   async function chooseLibraryFolder(): Promise<void> {
     const api = getApi();
@@ -177,6 +222,27 @@ export default function App() {
       window.alert(`Could not restore the Library.\n${String(error)}`);
     } finally {
       setLibraryTask(null);
+    }
+  }
+
+  async function restoreTrash(trashId: string, title: string): Promise<void> {
+    const api = getApi();
+    if (!api || !window.confirm(`Restore "${title}" from Trash?`)) {
+      return;
+    }
+
+    setRestoringTrashId(trashId);
+    try {
+      const response = await api.trash.restore(trashId);
+      if (response.ok) {
+        setTrashEntries((entries) => entries.filter((entry) => entry.trashId !== trashId));
+      } else {
+        window.alert(response.error.message);
+      }
+    } catch (error) {
+      window.alert(`Could not restore Trash item.\n${String(error)}`);
+    } finally {
+      setRestoringTrashId(null);
     }
   }
 
@@ -345,6 +411,27 @@ export default function App() {
             >
               {libraryTask === "restore" ? "Restoring..." : "Restore full backup"}
             </button>
+          ) : null}
+          {library.path ? (
+            <>
+              <h2>Trash</h2>
+              {trashError ? <p>{trashError}</p> : null}
+              {!trashError && trashEntries.length === 0 ? <p>Trash is empty.</p> : null}
+              {trashEntries.map((entry) => (
+                <div className="manager-actions" key={entry.trashId}>
+                  <span>
+                    {entry.title} · {entry.itemType} · {new Date(entry.deletedAt).toLocaleString()}
+                  </span>
+                  <button
+                    disabled={restoringTrashId !== null}
+                    onClick={() => void restoreTrash(entry.trashId, entry.title)}
+                    type="button"
+                  >
+                    {restoringTrashId === entry.trashId ? "Restoring..." : "Restore"}
+                  </button>
+                </div>
+              ))}
+            </>
           ) : null}
         </section>
       );

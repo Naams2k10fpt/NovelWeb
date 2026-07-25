@@ -52,6 +52,7 @@ import {
   listHighlights,
   listRecentEntries
 } from "../electron/services/readingState";
+import { listTrashEntries, restoreTrashItem } from "../electron/services/trash";
 
 const TEST_LIB_DIR = join(process.cwd(), "temp-test-library");
 const RESTORED_TEST_LIB_DIR = join(process.cwd(), "temp-test-restored-library");
@@ -307,14 +308,42 @@ async function runTests() {
     );
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m13. Testing Soft-Delete (.trash)\x1b[0m");
+    console.log("\n\x1b[35m13. Testing Trash Restore\x1b[0m");
     await moveChapterToTrash(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id);
     const chaptersAfterDelete = await listChapterMetadata(TEST_LIB_DIR, newSeries.id, category.id, null);
     assert(chaptersAfterDelete.length === 0, "Chapter removed from category list.");
+    const chapterTrash = (await listTrashEntries(TEST_LIB_DIR)).find((entry) => entry.itemId === chapter1.id);
+    await restoreTrashItem(TEST_LIB_DIR, chapterTrash!.trashId);
+    assert(
+      (await listChapterMetadata(TEST_LIB_DIR, newSeries.id, category.id, null))[0]?.id === chapter1.id,
+      "Chapter restored to its original category."
+    );
+
+    await moveVolumeToTrash(TEST_LIB_DIR, newSeries.id, lnCategory.id, volume.id);
+    const volumeTrash = (await listTrashEntries(TEST_LIB_DIR)).find((entry) => entry.itemId === volume.id);
+    await restoreTrashItem(TEST_LIB_DIR, volumeTrash!.trashId);
+    assert(
+      (await listVolumeMetadata(TEST_LIB_DIR, newSeries.id, lnCategory.id))[0]?.id === volume.id,
+      "Volume restored to its original category."
+    );
+
+    await moveCategoryToTrash(TEST_LIB_DIR, newSeries.id, category.id);
+    const categoryTrash = (await listTrashEntries(TEST_LIB_DIR)).find((entry) => entry.itemId === category.id);
+    await restoreTrashItem(TEST_LIB_DIR, categoryTrash!.trashId);
+    assert(
+      (await listCategoryMetadata(TEST_LIB_DIR, newSeries.id)).some((item) => item.id === category.id),
+      "Category restored to its original series."
+    );
 
     await moveSeriesToTrash(TEST_LIB_DIR, newSeries.id);
     const seriesListAfterDelete = await listSeriesCards(TEST_LIB_DIR);
     assert(seriesListAfterDelete.length === 0, "Series removed from library index list.");
+    const seriesTrash = (await listTrashEntries(TEST_LIB_DIR)).find((entry) => entry.itemId === newSeries.id);
+    await restoreTrashItem(TEST_LIB_DIR, seriesTrash!.trashId);
+    assert(
+      (await listSeriesCards(TEST_LIB_DIR))[0]?.id === newSeries.id && (await listTrashEntries(TEST_LIB_DIR)).length === 0,
+      "Series restored and Trash is empty."
+    );
 
     // Rebuild indexes after trashing
     await repairSeriesIndex(TEST_LIB_DIR);

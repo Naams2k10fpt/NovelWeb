@@ -33,6 +33,7 @@ export const ErrorCode = {
   LIBRARY_REPAIR_FAILED: "LIBRARY_REPAIR_FAILED",
   BACKUP_FAILED: "BACKUP_FAILED",
   RESTORE_FAILED: "RESTORE_FAILED",
+  TRASH_FAILED: "TRASH_FAILED",
   SERIES_CRUD_FAILED: "SERIES_CRUD_FAILED",
   CATEGORY_CRUD_FAILED: "CATEGORY_CRUD_FAILED",
   VOLUME_CRUD_FAILED: "VOLUME_CRUD_FAILED",
@@ -133,6 +134,19 @@ export type HighlightEntry = ReadingListEntry & {
   color: HighlightColor;
   note: string;
   createdAt: string;
+};
+
+export type TrashItemType = "series" | "category" | "volume" | "chapter";
+export type TrashManifest = {
+  schemaVersion: SupportedSchemaVersion;
+  itemType: TrashItemType;
+  itemId: string;
+  title: string;
+  deletedAt: string;
+  seriesId: string | null;
+  categoryId: string | null;
+  volumeId: string | null;
+  orderIndex: number;
 };
 
 export type ChapterContent = {
@@ -582,9 +596,9 @@ export function trashItemDirectoryPath(libraryPath: string, itemType: string, it
   return libraryChildPath(libraryPath, ".trash", `${itemType}-${assertId(itemId, "itemId")}-${timestamp}`);
 }
 
-export async function moveDirectoryToTrash(sourcePath: string, trashPath: string): Promise<void> {
+export async function moveDirectorySafely(sourcePath: string, targetPath: string): Promise<void> {
   try {
-    await rename(sourcePath, trashPath);
+    await rename(sourcePath, targetPath);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
 
@@ -593,8 +607,24 @@ export async function moveDirectoryToTrash(sourcePath: string, trashPath: string
     }
 
     // fallback copy/remove inside Library
-    await cp(sourcePath, trashPath, { recursive: true, force: false, errorOnExist: true });
+    await cp(sourcePath, targetPath, { recursive: true, force: false, errorOnExist: true });
     await rm(sourcePath, { recursive: true });
+  }
+}
+
+export async function moveDirectoryToTrash(
+  sourcePath: string,
+  trashPath: string,
+  manifest: TrashManifest
+): Promise<void> {
+  const manifestPath = join(sourcePath, "trash.json");
+  await writeJsonFile(manifestPath, manifest);
+
+  try {
+    await moveDirectorySafely(sourcePath, trashPath);
+  } catch (error) {
+    await rm(manifestPath, { force: true });
+    throw error;
   }
 }
 
