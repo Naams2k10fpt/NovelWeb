@@ -8,6 +8,7 @@
     "dev": "electron-vite dev",
     "build": "tsc --noEmit && electron-vite build",
     "test": "tsx --tsconfig tsconfig.test.json scripts/test-runner.ts",
+    "test:pdf": "electron scripts/pdf-export-smoke.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

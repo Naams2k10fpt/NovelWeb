@@ -350,7 +350,7 @@ export function buildSeriesEpub(input: Omit<EpubBookInput, "chapters"> & { group
     ...input,
     chapters: input.groups.flatMap((group) =>
       group.chapters.map((chapter) => ({
-        title: `${group.title} — ${chapter.title}`,
+        title: `${group.title} - ${chapter.title}`,
         html: chapter.html
       }))
     )
@@ -600,7 +600,7 @@ async function readSeriesGroups(libraryPath: string, seriesId: string): Promise<
         const volumes = await listVolumeMetadata(libraryPath, seriesId, category.id);
         return Promise.all(
           volumes.map(async (volume) => ({
-            title: `${category.title} — ${volume.title}`,
+            title: `${category.title} - ${volume.title}`,
             chapters: await readPdfChapters(libraryPath, seriesId, category.id, volume.id)
           }))
         );

@@ -102,6 +102,7 @@ Series data is stored under `series/{series-id}` with metadata, categories, volu
 npm install
 npm run dev
 npm test
+npm run test:pdf
 npm run build
 ```
 

@@ -254,7 +254,7 @@ async function runTests() {
       },
       [
         { title: "Web Novel", chapters: [{ title: "Chương 1", html: testHtml }] },
-        { title: "Light Novel — Tập 1", chapters: [{ title: "Chương 2", html: "<p>Nội dung.</p>" }] }
+        { title: "Light Novel - Tập 1", chapters: [{ title: "Chương 2", html: "<p>Nội dung.</p>" }] }
       ]
     );
     assert(
@@ -319,7 +319,7 @@ async function runTests() {
         creator: "Tác giả",
         groups: [
           { title: "Web Novel", chapters: [{ title: "Chương 1", html: testHtml }] },
-          { title: "Light Novel — Tập 1", chapters: [{ title: "Chương 2", html: "<p>Nội dung.</p>" }] }
+          { title: "Light Novel - Tập 1", chapters: [{ title: "Chương 2", html: "<p>Nội dung.</p>" }] }
         ],
         modifiedAt: newSeries.updatedAt
       })
@@ -327,8 +327,8 @@ async function runTests() {
     const seriesNav = await seriesEpub.file("OEBPS/nav.xhtml")!.async("string");
     assert(
       !!seriesEpub.file("OEBPS/chapter-2.xhtml") &&
-        seriesNav.includes("Web Novel — Chương 1") &&
-        seriesNav.includes("Light Novel — Tập 1 — Chương 2"),
+        seriesNav.includes("Web Novel - Chương 1") &&
+        seriesNav.includes("Light Novel - Tập 1 - Chương 2"),
       "Series EPUB preserves category/volume order in its chapter documents and navigation."
     );
 
