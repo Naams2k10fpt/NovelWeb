@@ -8,6 +8,7 @@ import SeriesDetail from "./pages/SeriesDetail";
 
 type Mode = "library" | "search" | "manager" | "settings";
 type ChapterMode = "edit" | "read";
+type LibraryBackupType = "metadata" | "content" | "full";
 type ApiResponse<T> =
   | { ok: true; data: T }
   | { ok: false; error: { code: string; message: string; details?: unknown } };
@@ -16,6 +17,10 @@ type RendererApi = {
   library: {
     getCurrent: () => Promise<ApiResponse<{ path: string | null }>>;
     chooseFolder: () => Promise<ApiResponse<{ path: string | null }>>;
+    createBackup: (
+      type: LibraryBackupType
+    ) => Promise<ApiResponse<{ name: string; path: string; createdAt: string; type: LibraryBackupType }>>;
+    restoreFullBackup: () => Promise<ApiResponse<{ path: string | null }>>;
   };
 };
 
@@ -53,6 +58,7 @@ const modes: Record<Mode, { label: string; eyebrow: string; title: string }> = {
 };
 
 export default function App() {
+  const [libraryTask, setLibraryTask] = useState<LibraryBackupType | "restore" | null>(null);
   const [chapterDirty, setChapterDirty] = useState(false);
   const [chapterMode, setChapterMode] = useState<ChapterMode>("read");
   const [mode, setMode] = useState<Mode>("library");
@@ -126,6 +132,51 @@ export default function App() {
       }
     } catch (error) {
       setLibrary({ loading: false, path: previousPath, error: String(error) });
+    }
+  }
+
+  async function createBackup(type: LibraryBackupType): Promise<void> {
+    const api = getApi();
+
+    if (!api || !library.path) {
+      return;
+    }
+
+    setLibraryTask(type);
+    try {
+      const response = await api.library.createBackup(type);
+      window.alert(response.ok ? `Backup created:\n${response.data.path}` : response.error.message);
+    } catch (error) {
+      window.alert(`Could not back up the Library.\n${String(error)}`);
+    } finally {
+      setLibraryTask(null);
+    }
+  }
+
+  async function restoreFullBackup(): Promise<void> {
+    const api = getApi();
+
+    if (
+      !api ||
+      !library.path ||
+      !window.confirm("Restore a full backup into a new empty folder and switch to that Library?")
+    ) {
+      return;
+    }
+
+    setLibraryTask("restore");
+    try {
+      const response = await api.library.restoreFullBackup();
+      if (response.ok && response.data.path) {
+        setLibrary({ loading: false, path: response.data.path, error: null });
+        window.alert(`Library restored:\n${response.data.path}`);
+      } else if (!response.ok) {
+        window.alert(response.error.message);
+      }
+    } catch (error) {
+      window.alert(`Could not restore the Library.\n${String(error)}`);
+    } finally {
+      setLibraryTask(null);
     }
   }
 
@@ -255,6 +306,46 @@ export default function App() {
           <button className="primary-action" onClick={chooseLibraryFolder} type="button">
             {library.path ? "Change Library folder" : "Choose Library folder"}
           </button>
+          {library.path ? (
+            <button
+              className="primary-action"
+              disabled={libraryTask !== null}
+              onClick={() => void createBackup("metadata")}
+              type="button"
+            >
+              {libraryTask === "metadata" ? "Backing up..." : "Back up metadata"}
+            </button>
+          ) : null}
+          {library.path ? (
+            <button
+              className="primary-action"
+              disabled={libraryTask !== null}
+              onClick={() => void createBackup("content")}
+              type="button"
+            >
+              {libraryTask === "content" ? "Backing up..." : "Back up content"}
+            </button>
+          ) : null}
+          {library.path ? (
+            <button
+              className="primary-action"
+              disabled={libraryTask !== null}
+              onClick={() => void createBackup("full")}
+              type="button"
+            >
+              {libraryTask === "full" ? "Backing up..." : "Back up full Library"}
+            </button>
+          ) : null}
+          {library.path ? (
+            <button
+              className="primary-action"
+              disabled={libraryTask !== null}
+              onClick={() => void restoreFullBackup()}
+              type="button"
+            >
+              {libraryTask === "restore" ? "Restoring..." : "Restore full backup"}
+            </button>
+          ) : null}
         </section>
       );
     }

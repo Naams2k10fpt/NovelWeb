@@ -19,6 +19,25 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 - Every metadata file supports `schemaVersion`.
 - Run `npm run build` after meaningful changes.
 
+## Implementation Groups
+
+Complete each group as one tested workflow while keeping the phase checklist below as the source of completion status.
+
+1. **Data safety and migration — complete**
+   - Metadata backup, content backup, backup before migration, and migration by `schemaVersion`.
+2. **Recovery and history**
+   - Restore from `.trash`, permanent delete with confirmation, and simple chapter version history.
+3. **Export**
+   - Shared chapter/volume/series export flow for PDF and EPUB, including cover, metadata, table of contents, headings, inline images, page breaks, Vietnamese fonts, export tests, and export preview.
+4. **Import hardening**
+   - Duplicate detection by file hash, detailed import history, TXT/MD/DOCX/PDF workflow tests, and PDF/Markdown split-view tests.
+5. **Core workflow QA**
+   - Library selection, editor/autosave, NovelReader, and final bug checklist.
+6. **Windows release**
+   - App icon, packaging configuration, installer build, and update testing without data loss.
+7. **Post-MVP library features**
+   - Statistics, free-form tags, and collections.
+
 ---
 
 ## Phase 0 - Foundation Decisions
@@ -209,14 +228,14 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 
 ## Phase 11 - Backup, Restore, Migration
 
-**Status:** `[ ]`
+**Status:** `[~]`
 
-- [ ] Metadata backup.
-- [ ] Content backup.
-- [ ] Full library backup.
-- [ ] Restore library from backup.
-- [ ] Backup before migration.
-- [ ] Migration by `schemaVersion`.
+- [x] Metadata backup.
+- [x] Content backup.
+- [x] Full library backup.
+- [x] Restore library from backup.
+- [x] Backup before migration.
+- [x] Migration by `schemaVersion`.
 - [ ] Restore from `.trash`.
 - [ ] Permanent delete with confirmation.
 - [ ] Simple chapter version history.
@@ -225,21 +244,21 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 
 ## Phase 12 - Final Build And Testing
 
-**Status:** `[ ]`
+**Status:** `[~]`
 
 - [ ] Configure Windows packaging.
 - [ ] Prepare app icon.
 - [ ] Build installer.
 - [ ] Test Library selection.
-- [ ] Test CRUD series/category/volume/chapter.
+- [x] Test CRUD series/category/volume/chapter.
 - [ ] Test editor and autosave.
 - [ ] Test NovelReader.
 - [ ] Test TXT/MD/DOCX/PDF import.
 - [ ] Test PDF/Markdown split view.
-- [ ] Test search.
-- [ ] Test bookmark/highlight notes.
+- [x] Test search.
+- [x] Test bookmark/highlight notes.
 - [ ] Test export PDF/EPUB.
-- [ ] Test backup/restore.
+- [x] Test backup/restore.
 - [ ] Test update without data loss.
 - [ ] Final bug checklist.
 

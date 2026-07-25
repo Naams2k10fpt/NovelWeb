@@ -34,6 +34,8 @@ Current scope change:
 - NovelReader with font size, reading width, theme, scroll progress, chapter navigation, bookmarks, and edit markers.
 - Import Wizard in Manager for TXT, MD, DOCX, and PDF.
 - Search index based on `content.txt`, plus bookmarks, recent reading, and highlight notes.
+- Metadata, content, and full Library backups from Settings.
+- Safe restore to a new Library folder and automatic backed-up `schemaVersion` migration.
 
 ## Roadmap
 
@@ -94,6 +96,7 @@ Series data is stored under `series/{series-id}` with metadata, categories, volu
 ```bash
 npm install
 npm run dev
+npm test
 npm run build
 ```
 

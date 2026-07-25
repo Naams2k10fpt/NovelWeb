@@ -1,6 +1,13 @@
-import { rm, mkdir, writeFile } from "node:fs/promises";
+import { access, rm, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ensureLibraryFiles, repairSeriesIndex } from "../electron/services/library";
+import {
+  createFullLibraryBackup,
+  createLibraryBackup,
+  ensureLibraryFiles,
+  migrateLibrary,
+  repairSeriesIndex,
+  restoreFullLibraryBackup
+} from "../electron/services/library";
 import {
   createSeriesMetadata,
   readSeriesMetadata,
@@ -47,6 +54,7 @@ import {
 } from "../electron/services/readingState";
 
 const TEST_LIB_DIR = join(process.cwd(), "temp-test-library");
+const RESTORED_TEST_LIB_DIR = join(process.cwd(), "temp-test-restored-library");
 
 let totalTests = 0;
 let passedTests = 0;
@@ -62,9 +70,19 @@ function assert(condition: boolean, message: string) {
   }
 }
 
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function cleanUp() {
   try {
     await rm(TEST_LIB_DIR, { recursive: true, force: true });
+    await rm(RESTORED_TEST_LIB_DIR, { recursive: true, force: true });
   } catch (err) {}
 }
 
@@ -217,7 +235,79 @@ async function runTests() {
     assert(searchResults[0].snippet.includes("bold test"), "Search snippet contains queried text.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m9. Testing Soft-Delete (.trash)\x1b[0m");
+    console.log("\n\x1b[35m9. Testing Full Library Backup\x1b[0m");
+    const backup = await createFullLibraryBackup(TEST_LIB_DIR);
+    const backupManifest = JSON.parse(await readFile(join(backup.path, "backup.json"), "utf8")) as {
+      schemaVersion: number;
+      type: string;
+    };
+    const backedUpContent = await readFile(
+      join(backup.path, "series", newSeries.id, "categories", category.id, "chapters", chapter1.id, "content.html"),
+      "utf8"
+    );
+    assert(backupManifest.schemaVersion === 1 && backupManifest.type === "full", "Backup manifest is valid.");
+    assert(backedUpContent === testHtml, "Full backup preserves chapter content.");
+
+    // ----------------------------------------------------
+    console.log("\n\x1b[35m10. Testing Selective Backups\x1b[0m");
+    const metadataBackup = await createLibraryBackup(TEST_LIB_DIR, "metadata");
+    const contentBackup = await createLibraryBackup(TEST_LIB_DIR, "content");
+    const chapterRelativePath = join(
+      "series",
+      newSeries.id,
+      "categories",
+      category.id,
+      "chapters",
+      chapter1.id
+    );
+    assert(
+      await fileExists(join(metadataBackup.path, chapterRelativePath, "meta.json")) &&
+        !(await fileExists(join(metadataBackup.path, chapterRelativePath, "content.html"))),
+      "Metadata backup excludes chapter content."
+    );
+    assert(
+      await fileExists(join(contentBackup.path, chapterRelativePath, "content.html")) &&
+        !(await fileExists(join(contentBackup.path, chapterRelativePath, "meta.json"))),
+      "Content backup excludes metadata."
+    );
+
+    // ----------------------------------------------------
+    console.log("\n\x1b[35m11. Testing Full Library Restore\x1b[0m");
+    const restored = await restoreFullLibraryBackup(TEST_LIB_DIR, backup.path, RESTORED_TEST_LIB_DIR);
+    const restoredContent = await readFile(
+      join(restored.path, "series", newSeries.id, "categories", category.id, "chapters", chapter1.id, "content.html"),
+      "utf8"
+    );
+    assert(restoredContent === testHtml, "Full restore preserves chapter content.");
+
+    // ----------------------------------------------------
+    console.log("\n\x1b[35m12. Testing Schema Migration\x1b[0m");
+    const restoredLibraryJsonPath = join(restored.path, "library.json");
+    const restoredLibraryJson = JSON.parse(await readFile(restoredLibraryJsonPath, "utf8")) as Record<string, unknown>;
+    delete restoredLibraryJson.schemaVersion;
+    await writeFile(restoredLibraryJsonPath, `${JSON.stringify(restoredLibraryJson, null, 2)}\n`, "utf8");
+
+    const migration = await migrateLibrary(restored.path);
+    const migratedLibraryJson = JSON.parse(await readFile(restoredLibraryJsonPath, "utf8")) as {
+      schemaVersion?: number;
+    };
+    const preMigrationLibraryJson = JSON.parse(
+      await readFile(join(migration.backupPath!, "library.json"), "utf8")
+    ) as { schemaVersion?: number };
+    assert(
+      migration.fromVersion === 0 &&
+        migration.toVersion === 1 &&
+        migration.migratedFiles === 1 &&
+        migratedLibraryJson.schemaVersion === 1,
+      "Schema migration upgrades version 0 metadata."
+    );
+    assert(
+      migration.backupPath !== null && preMigrationLibraryJson.schemaVersion === undefined,
+      "Migration creates a full pre-migration backup."
+    );
+
+    // ----------------------------------------------------
+    console.log("\n\x1b[35m13. Testing Soft-Delete (.trash)\x1b[0m");
     await moveChapterToTrash(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id);
     const chaptersAfterDelete = await listChapterMetadata(TEST_LIB_DIR, newSeries.id, category.id, null);
     assert(chaptersAfterDelete.length === 0, "Chapter removed from category list.");

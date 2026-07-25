@@ -1,5 +1,5 @@
-import { basename } from "node:path";
-import { readdir } from "node:fs/promises";
+import { basename, isAbsolute, relative, resolve } from "node:path";
+import { cp, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import {
   SUPPORTED_SCHEMA_VERSION,
   REQUIRED_LIBRARY_DIRECTORIES,
@@ -12,6 +12,7 @@ import {
   seriesIndexPath,
   searchIndexPath,
   recentIndexPath,
+  withResourceWriteLock,
   writeJsonFile,
   type LibraryMetadata,
   type LibrarySettings,
@@ -32,6 +33,14 @@ export type SeriesIndex = {
     coverImage?: string | null;
     updatedAt?: string;
   }>;
+};
+
+export type LibraryBackupType = "metadata" | "content" | "full";
+export type LibraryBackupResult = {
+  name: string;
+  path: string;
+  createdAt: string;
+  type: LibraryBackupType;
 };
 
 export async function ensureJsonFile(filePath: string, createData: () => unknown): Promise<void> {
@@ -198,4 +207,224 @@ export async function readSeriesIndex(libraryPath: string): Promise<SeriesIndex>
 export async function repairSeriesIndex(libraryPath: string): Promise<SeriesIndex> {
   await rebuildSeriesIndex(libraryPath);
   return readSeriesIndex(libraryPath);
+}
+
+export async function createLibraryBackup(
+  libraryPath: string,
+  type: LibraryBackupType,
+  options: { skipValidation?: boolean; reason?: "manual" | "migration" } = {}
+): Promise<LibraryBackupResult> {
+  if (!["metadata", "content", "full"].includes(type)) {
+    throw new Error("Backup type is invalid.");
+  }
+  if (!options.skipValidation) {
+    await ensureLibraryFiles(libraryPath);
+  }
+
+  const backupsPath = libraryChildPath(libraryPath, "backups");
+
+  return withResourceWriteLock(backupsPath, async () => {
+    const createdAt = new Date().toISOString();
+    const name = `${type}-${createdAt.replace(/[:.]/g, "-")}`;
+    const targetPath = libraryChildPath(backupsPath, name);
+    const temporaryPath = libraryChildPath(backupsPath, `${name}.tmp`);
+
+    await mkdir(temporaryPath);
+
+    try {
+      for (const entry of await readdir(libraryPath, { withFileTypes: true })) {
+        if (entry.name !== "backups") {
+          const sourcePath = libraryChildPath(libraryPath, entry.name);
+          await cp(
+            sourcePath,
+            libraryChildPath(temporaryPath, entry.name),
+            {
+              recursive: true,
+              errorOnExist: true,
+              force: false,
+              filter:
+                type === "full"
+                  ? undefined
+                  : async (candidatePath) => {
+                      const candidate = await stat(candidatePath);
+                      const firstPathPart = relative(libraryPath, candidatePath).split(/[\\/]/)[0];
+
+                      if (candidate.isDirectory()) {
+                        return type === "metadata" || firstPathPart === "series";
+                      }
+
+                      return type === "metadata"
+                        ? candidatePath.toLowerCase().endsWith(".json")
+                        : firstPathPart === "series" && !candidatePath.toLowerCase().endsWith(".json");
+                    }
+            }
+          );
+        }
+      }
+
+      await writeJsonFile(libraryChildPath(temporaryPath, "backup.json"), {
+        schemaVersion: SUPPORTED_SCHEMA_VERSION,
+        type,
+        reason: options.reason ?? "manual",
+        createdAt
+      });
+      await rename(temporaryPath, targetPath);
+
+      return { name, path: targetPath, createdAt, type };
+    } catch (error) {
+      await rm(temporaryPath, { recursive: true, force: true });
+      throw error;
+    }
+  });
+}
+
+export function createFullLibraryBackup(libraryPath: string): Promise<LibraryBackupResult> {
+  return createLibraryBackup(libraryPath, "full");
+}
+
+async function findLibraryJsonFiles(directoryPath: string, libraryPath: string): Promise<string[]> {
+  const jsonFiles: string[] = [];
+
+  for (const entry of await readdir(directoryPath, { withFileTypes: true })) {
+    if (directoryPath === libraryPath && entry.name === "backups") {
+      continue;
+    }
+
+    const entryPath = libraryChildPath(directoryPath, entry.name);
+    if (entry.isDirectory()) {
+      jsonFiles.push(...(await findLibraryJsonFiles(entryPath, libraryPath)));
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".json")) {
+      jsonFiles.push(entryPath);
+    }
+  }
+
+  return jsonFiles;
+}
+
+export async function migrateLibrary(libraryPath: string): Promise<{
+  fromVersion: number | null;
+  toVersion: number;
+  migratedFiles: number;
+  backupPath: string | null;
+}> {
+  await ensureLibraryFolder(libraryPath);
+
+  let libraryMetadata: Record<string, unknown>;
+  try {
+    libraryMetadata = await readJsonFile<Record<string, unknown>>(libraryChildPath(libraryPath, "library.json"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+
+    await ensureLibraryFiles(libraryPath);
+    return { fromVersion: null, toVersion: SUPPORTED_SCHEMA_VERSION, migratedFiles: 0, backupPath: null };
+  }
+
+  const fromVersion = libraryMetadata.schemaVersion ?? 0;
+  if (!Number.isInteger(fromVersion) || (fromVersion as number) < 0) {
+    throw new Error("library.json schemaVersion is invalid.");
+  }
+  if ((fromVersion as number) > SUPPORTED_SCHEMA_VERSION) {
+    throw new Error(`Library schemaVersion ${String(fromVersion)} is newer than this app supports.`);
+  }
+  if (fromVersion === SUPPORTED_SCHEMA_VERSION) {
+    await ensureLibraryFiles(libraryPath);
+    return { fromVersion, toVersion: SUPPORTED_SCHEMA_VERSION, migratedFiles: 0, backupPath: null };
+  }
+  if (fromVersion !== 0) {
+    throw new Error(`No migration path from schemaVersion ${String(fromVersion)}.`);
+  }
+
+  const filesToMigrate: Array<{ path: string; data: Record<string, unknown> }> = [];
+  for (const filePath of await findLibraryJsonFiles(libraryPath, libraryPath)) {
+    const data = await readJsonFile<Record<string, unknown>>(filePath);
+    const version = data.schemaVersion ?? 0;
+
+    if (version !== 0 && version !== SUPPORTED_SCHEMA_VERSION) {
+      throw new Error(`No migration path for ${filePath} schemaVersion ${String(version)}.`);
+    }
+    if (version === 0) {
+      filesToMigrate.push({ path: filePath, data });
+    }
+  }
+
+  const backup = await createLibraryBackup(libraryPath, "full", {
+    skipValidation: true,
+    reason: "migration"
+  });
+  for (const file of filesToMigrate) {
+    await writeJsonFile(file.path, { ...file.data, schemaVersion: SUPPORTED_SCHEMA_VERSION });
+  }
+  await ensureLibraryFiles(libraryPath);
+
+  return {
+    fromVersion,
+    toVersion: SUPPORTED_SCHEMA_VERSION,
+    migratedFiles: filesToMigrate.length,
+    backupPath: backup.path
+  };
+}
+
+export async function restoreFullLibraryBackup(
+  libraryPath: string,
+  backupPath: string,
+  destinationPath: string
+): Promise<{ path: string }> {
+  const backupsPath = resolve(libraryChildPath(libraryPath, "backups"));
+  const sourcePath = resolve(backupPath);
+  const sourceRelativePath = relative(backupsPath, sourcePath);
+
+  if (
+    sourceRelativePath === "" ||
+    sourceRelativePath !== basename(sourceRelativePath) ||
+    sourceRelativePath.startsWith("..") ||
+    isAbsolute(sourceRelativePath)
+  ) {
+    throw new Error("Backup must be a direct child of the current Library backups folder.");
+  }
+
+  const manifest = await readJsonFile<VersionedMetadata & { type?: unknown }>(
+    libraryChildPath(sourcePath, "backup.json")
+  );
+  assertSupportedSchemaVersion("backup.json", manifest);
+  if (manifest.type !== "full") {
+    throw new Error("Selected folder is not a full Library backup.");
+  }
+
+  const restoredLibraryPath = resolve(destinationPath);
+  const destinationRelativePath = relative(resolve(libraryPath), restoredLibraryPath);
+  if (
+    destinationRelativePath === "" ||
+    (!destinationRelativePath.startsWith("..") && !isAbsolute(destinationRelativePath))
+  ) {
+    throw new Error("Restore destination must be outside the current Library.");
+  }
+
+  await mkdir(restoredLibraryPath, { recursive: true });
+  if ((await readdir(restoredLibraryPath)).length > 0) {
+    throw new Error("Restore destination must be empty.");
+  }
+
+  try {
+    for (const entry of await readdir(sourcePath, { withFileTypes: true })) {
+      if (entry.name !== "backup.json") {
+        await cp(
+          libraryChildPath(sourcePath, entry.name),
+          libraryChildPath(restoredLibraryPath, entry.name),
+          { recursive: true, errorOnExist: true, force: false }
+        );
+      }
+    }
+
+    await ensureLibraryDirectory(restoredLibraryPath, "backups");
+    await checkLibraryHealth(restoredLibraryPath);
+    await ensureLibraryFiles(restoredLibraryPath);
+    return { path: restoredLibraryPath };
+  } catch (error) {
+    for (const entry of await readdir(restoredLibraryPath)) {
+      await rm(libraryChildPath(restoredLibraryPath, entry), { recursive: true, force: true });
+    }
+    throw error;
+  }
 }

@@ -11,7 +11,14 @@ import {
   optionalVolumeId,
   type ApiResponse
 } from "./services/base";
-import { ensureLibraryFiles, repairSeriesIndex } from "./services/library";
+import {
+  createLibraryBackup,
+  migrateLibrary,
+  repairSeriesIndex,
+  restoreFullLibraryBackup,
+  type LibraryBackupResult,
+  type LibraryBackupType
+} from "./services/library";
 import {
   listSeriesCards,
   readSeriesMetadata,
@@ -94,7 +101,7 @@ function registerLibraryIpc(): void {
       const currentLibraryPath = settings.currentLibraryPath ?? null;
 
       if (currentLibraryPath) {
-        await ensureLibraryFiles(currentLibraryPath);
+        await migrateLibrary(currentLibraryPath);
       }
 
       return ok({ path: currentLibraryPath });
@@ -118,7 +125,7 @@ function registerLibraryIpc(): void {
 
       const settings = await readAppSettings();
       const currentLibraryPath = result.filePaths[0];
-      await ensureLibraryFiles(currentLibraryPath);
+      await migrateLibrary(currentLibraryPath);
       await writeAppSettings({ ...settings, currentLibraryPath });
 
       return ok({ path: currentLibraryPath });
@@ -136,6 +143,61 @@ function registerLibraryIpc(): void {
       return fail(ErrorCode.LIBRARY_REPAIR_FAILED, "Could not repair series index.", String(error));
     }
   });
+
+  ipcMain.handle(
+    "library:createBackup",
+    async (_event, type: unknown): Promise<ApiResponse<LibraryBackupResult>> => {
+      try {
+        if (type !== "metadata" && type !== "content" && type !== "full") {
+          throw new Error("Backup type is invalid.");
+        }
+        return ok(await createLibraryBackup(await currentLibraryPathOrThrow(), type as LibraryBackupType));
+      } catch (error) {
+        return fail(ErrorCode.BACKUP_FAILED, "Could not back up the Library.", String(error));
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "library:restoreFullBackup",
+    async (event): Promise<ApiResponse<{ path: string | null }>> => {
+      try {
+        const currentLibraryPath = await currentLibraryPathOrThrow();
+        const window = BrowserWindow.fromWebContents(event.sender);
+        const showFolderDialog = (options: OpenDialogOptions) =>
+          window ? dialog.showOpenDialog(window, options) : dialog.showOpenDialog(options);
+        const backupResult = await showFolderDialog({
+          title: "Choose a full Library backup",
+          defaultPath: join(currentLibraryPath, "backups"),
+          properties: ["openDirectory"]
+        });
+
+        if (backupResult.canceled || !backupResult.filePaths[0]) {
+          return ok({ path: null });
+        }
+
+        const destinationResult = await showFolderDialog({
+          title: "Choose an empty folder for the restored Library",
+          properties: ["openDirectory", "createDirectory"]
+        });
+
+        if (destinationResult.canceled || !destinationResult.filePaths[0]) {
+          return ok({ path: null });
+        }
+
+        const restored = await restoreFullLibraryBackup(
+          currentLibraryPath,
+          backupResult.filePaths[0],
+          destinationResult.filePaths[0]
+        );
+        const settings = await readAppSettings();
+        await writeAppSettings({ ...settings, currentLibraryPath: restored.path });
+        return ok(restored);
+      } catch (error) {
+        return fail(ErrorCode.RESTORE_FAILED, "Could not restore the Library.", String(error));
+      }
+    }
+  );
 }
 
 function registerSeriesIpc(): void {

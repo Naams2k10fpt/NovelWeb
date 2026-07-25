@@ -4,7 +4,9 @@ contextBridge.exposeInMainWorld("api", {
   library: {
     getCurrent: () => ipcRenderer.invoke("library:getCurrent"),
     chooseFolder: () => ipcRenderer.invoke("library:chooseFolder"),
-    repairSeriesIndex: () => ipcRenderer.invoke("library:repairSeriesIndex")
+    repairSeriesIndex: () => ipcRenderer.invoke("library:repairSeriesIndex"),
+    createBackup: (type: "metadata" | "content" | "full") => ipcRenderer.invoke("library:createBackup", type),
+    restoreFullBackup: () => ipcRenderer.invoke("library:restoreFullBackup")
   },
   series: {
     list: () => ipcRenderer.invoke("series:list"),
