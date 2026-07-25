@@ -254,7 +254,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 - [x] Test editor and autosave.
 - [x] Test NovelReader.
 - [x] Test TXT/MD/DOCX/PDF import.
-- [ ] Test PDF/Markdown split view.
+- [x] Test PDF/Markdown split view.
 - [x] Test search.
 - [x] Test bookmark/highlight notes.
 - [ ] Test export PDF/EPUB.
