@@ -214,7 +214,7 @@ async function runTests() {
     assert(loadedContent.text.includes("This is bold test content of chapter 1."), "Plain-text content correctly extracted.");
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m6. Testing Chapter Version History\x1b[0m");
+    console.log("\n\x1b[35m6. Testing Chapter Version History & Autosave Serialization\x1b[0m");
     await saveContent(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id, {
       html: "<p>Changed chapter content.</p>"
     });
@@ -226,6 +226,19 @@ async function runTests() {
         (await listChapterVersions(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id)).length === 2,
       "Restoring a version preserves the replaced content in history."
     );
+    await Promise.all([
+      saveContent(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id, {
+        html: "<h1>Autosave</h1><p>First draft.</p>"
+      }),
+      saveContent(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id, {
+        html: "<h1>Autosave</h1><p>Latest draft.</p>"
+      })
+    ]);
+    assert(
+      (await getContent(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id)).text.includes("Latest draft."),
+      "Overlapping autosaves serialize and preserve the latest editor content."
+    );
+    await saveContent(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id, { html: testHtml });
 
     // ----------------------------------------------------
     console.log("\n\x1b[35m7. Testing Chapter PDF Export Document\x1b[0m");
