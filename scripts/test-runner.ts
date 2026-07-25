@@ -361,7 +361,28 @@ async function runTests() {
     );
 
     // ----------------------------------------------------
-    console.log("\n\x1b[35m8. Testing Reading Progress & Recents\x1b[0m");
+    console.log("\n\x1b[35m8. Testing NovelReader Navigation, Progress & Recents\x1b[0m");
+    const readerChapter1 = await createChapterMetadata(TEST_LIB_DIR, newSeries.id, lnCategory.id, volume.id, {
+      title: "Reader Chapter 1",
+      order: 1
+    });
+    const readerChapter2 = await createChapterMetadata(TEST_LIB_DIR, newSeries.id, lnCategory.id, volume.id, {
+      title: "Reader Chapter 2",
+      order: 2
+    });
+    await saveContent(TEST_LIB_DIR, newSeries.id, lnCategory.id, volume.id, readerChapter2.id, {
+      html: "<p>Reader next chapter content.</p>"
+    });
+    const readerChapters = await listChapterMetadata(TEST_LIB_DIR, newSeries.id, lnCategory.id, volume.id);
+    assert(
+      readerChapters.map((chapter) => chapter.id).join(",") === `${readerChapter1.id},${readerChapter2.id}`,
+      "NovelReader chapter navigation follows volume order."
+    );
+    assert(
+      (await getContent(TEST_LIB_DIR, newSeries.id, lnCategory.id, volume.id, readerChapter2.id)).text ===
+        "Reader next chapter content.",
+      "NovelReader loads the selected next chapter content."
+    );
     const initialProgress = await readChapterReadingProgress(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id);
     assert(initialProgress.scrollTop === 0, "Initial progress scroll top is 0.");
 
