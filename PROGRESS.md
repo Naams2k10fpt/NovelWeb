@@ -244,7 +244,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 
 ## Phase 12 - Final Build And Testing
 
-**Status:** `[~]`
+**Status:** `[x]`
 
 - [x] Configure Windows packaging.
 - [x] Prepare app icon.
@@ -260,7 +260,7 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 - [x] Test export PDF/EPUB.
 - [x] Test backup/restore.
 - [x] Test update without data loss.
-- [ ] Final bug checklist.
+- [x] Final bug checklist.
 
 ---
 
