@@ -192,6 +192,17 @@ export type ImportReport = {
   logs: ImportLogEntry[];
 };
 
+export type ImportHistoryEntry = ImportReport & {
+  id: string;
+  createdAt: string;
+  sourceName: string;
+};
+
+export type ImportHistoryIndex = {
+  schemaVersion: number;
+  entries: ImportHistoryEntry[];
+};
+
 export type ImportHashIndex = {
   schemaVersion: number;
   hashes: Record<string, string[]>;
@@ -687,6 +698,30 @@ export async function readImportHashIndex(libraryPath: string): Promise<ImportHa
 
 export async function writeImportHashIndex(libraryPath: string, index: ImportHashIndex): Promise<void> {
   await writeJsonFile(libraryChildPath(libraryPath, "index", "import-hashes.json"), index);
+}
+
+export async function listImportHistory(libraryPath: string): Promise<ImportHistoryEntry[]> {
+  try {
+    const history = await readJsonFile<ImportHistoryIndex>(
+      libraryChildPath(libraryPath, "index", "import-history.json")
+    );
+    assertSupportedSchemaVersion("import-history.json", history);
+    return Array.isArray(history.entries) ? history.entries : [];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+export async function appendImportHistory(libraryPath: string, entry: ImportHistoryEntry): Promise<void> {
+  const entries = [entry, ...(await listImportHistory(libraryPath))].slice(0, 50);
+  await writeJsonFile(libraryChildPath(libraryPath, "index", "import-history.json"), {
+    schemaVersion: SUPPORTED_SCHEMA_VERSION,
+    entries
+  } satisfies ImportHistoryIndex);
 }
 
 export function escapeImportText(text: string): string {
@@ -1326,7 +1361,7 @@ export async function executeImport(libraryPath: string, importSessionId: unknow
 
   await log(`import done imported=${imported} unsupported=${logs.filter((entry) => entry.status === "unsupported").length} failed=${logs.filter((entry) => entry.status === "failed").length}`);
 
-  return {
+  const report: ImportReport = {
     seriesId: series.id,
     seriesTitle: series.title,
     categoryId: category.id,
@@ -1336,4 +1371,20 @@ export async function executeImport(libraryPath: string, importSessionId: unknow
     failed: logs.filter((entry) => entry.status === "failed").length,
     logs
   };
+  try {
+    await appendImportHistory(libraryPath, {
+      ...report,
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      sourceName: session.sourceFolderPath
+        ? basename(session.sourceFolderPath)
+        : session.sourceFiles?.length === 1
+          ? session.sourceFiles[0].name
+          : `${session.sourceFiles?.length ?? 0} chapter files`
+    });
+  } catch (error) {
+    await log(`import history warning error=${String(error)}`);
+  }
+
+  return report;
 }

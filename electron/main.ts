@@ -63,7 +63,8 @@ import {
   chooseImportSourceFolder,
   chooseImportSourceFiles,
   scanImportSession,
-  executeImport
+  executeImport,
+  listImportHistory
 } from "./services/import";
 import { searchLibrary, rebuildSearchIndex } from "./services/search";
 import {
@@ -701,6 +702,14 @@ function registerChapterIpc(): void {
 }
 
 function registerImportIpc(): void {
+  ipcMain.handle("import:history", async (): Promise<ApiResponse<Awaited<ReturnType<typeof listImportHistory>>>> => {
+    try {
+      return ok(await listImportHistory(await currentLibraryPathOrThrow()));
+    } catch (error) {
+      return fail(ErrorCode.IMPORT_FAILED, "Could not load import history.", String(error));
+    }
+  });
+
   ipcMain.handle("import:chooseSourceFolder", async (event): Promise<ApiResponse<{ importSessionId: string; path: string; name: string } | null>> => {
     try {
       return ok(await chooseImportSourceFolder(BrowserWindow.fromWebContents(event.sender)));

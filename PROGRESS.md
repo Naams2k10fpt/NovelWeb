@@ -270,5 +270,5 @@ Complete each group as one tested workflow while keeping the phase checklist bel
 - [ ] Statistics: series, chapters, words, and Library size.
 - [ ] Free-form tags for series/chapter.
 - [ ] Collections: Reading, Favorite, Needs Edit, Completed.
-- [ ] Detailed import history.
+- [x] Detailed import history.
 - [ ] Export preview.

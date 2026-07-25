@@ -76,6 +76,7 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("chapters:moveToTrash", seriesId, categoryId, volumeId, chapterId)
   },
   import: {
+    history: () => ipcRenderer.invoke("import:history"),
     chooseSourceFolder: () => ipcRenderer.invoke("import:chooseSourceFolder"),
     chooseSourceFiles: () => ipcRenderer.invoke("import:chooseSourceFiles"),
     scan: (importSessionId: string) => ipcRenderer.invoke("import:scan", importSessionId),

@@ -73,6 +73,7 @@ import {
   executeImport,
   importFileId,
   importSessions,
+  listImportHistory,
   scanImportSession
 } from "../electron/services/import";
 
@@ -512,6 +513,14 @@ async function runTests() {
         duplicateImportReport.skipped === 4 &&
         (await listChapterMetadata(TEST_LIB_DIR, newSeries.id, lnCategory.id, importVolume.id)).length === 4,
       "Import skips duplicate source files by hash within the same series."
+    );
+    const importHistory = await listImportHistory(TEST_LIB_DIR);
+    assert(
+      importHistory.length === 2 &&
+        importHistory[0].skipped === 4 &&
+        importHistory[1].imported === 4 &&
+        importHistory.every((entry) => entry.logs.length === 4),
+      "Import history preserves detailed results for recent import sessions."
     );
 
     // ----------------------------------------------------
