@@ -6,7 +6,11 @@ The app is local-first: user content lives in a Library folder chosen by the use
 
 ## Current Status
 
-The LN/WN MVP is complete, including export, backup/restore, import hardening, Windows packaging, workflow tests, statistics, tags, collections, and export preview. Manga is out of scope.
+The LN/WN MVP is complete, including export, backup/restore, import hardening, Windows packaging, workflow tests, statistics, tags, collections, and export preview. Manga is out of scope. The current public release is `v0.1.0-beta.1`.
+
+## Beta Release
+
+Windows beta builds are published on [GitHub Releases](https://github.com/Naams2k10fpt/NovelWeb/releases). The beta installer is not digitally signed, so Windows SmartScreen may display an unknown publisher warning.
 
 ## Features
 
@@ -95,3 +99,11 @@ npm run package:win
 - task branches: small scoped changes from `develop` or the current release branch.
 
 Run `npm run build` after meaningful changes.
+
+## Support
+
+Report issues through [GitHub Issues](https://github.com/Naams2k10fpt/NovelWeb/issues) or email `sumpham36@gmail.com`.
+
+## License
+
+NovelWeb is available under the [MIT License](LICENSE).
