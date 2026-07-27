@@ -152,6 +152,52 @@ body {
   margin-bottom: 16px;
 }
 
+.collection-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.collection-filters button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #cdbfaf;
+  border-radius: 999px;
+  background: #fffaf2;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.collection-filters button[aria-pressed="true"] {
+  border-color: #2f6f73;
+  background: #2f6f73;
+  color: #ffffff;
+}
+
+.library-statistics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.library-statistics div {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid #ddd4c7;
+  border-radius: 10px;
+  background: #fffaf2;
+}
+
+.library-statistics strong {
+  font-size: 1.35rem;
+}
+
+.library-statistics span {
+  color: #66707a;
+}
+
 .library-search span {
   color: #66707a;
   font-size: 13px;
@@ -1965,36 +2011,6 @@ body {
   color: #66707a;
 }
 
-.import-text-editors {
-  display: grid;
-  gap: 12px;
-}
-
-.import-text-editor {
-  display: grid;
-  gap: 6px;
-}
-
-.import-text-editor span {
-  font-weight: 700;
-}
-
-.import-text-editor small {
-  color: #66707a;
-}
-
-.import-text-editor textarea {
-  min-height: 180px;
-  resize: vertical;
-  padding: 10px;
-  border: 1px solid #cdbfaf;
-  border-radius: 6px;
-  background: #ffffff;
-  color: inherit;
-  font: inherit;
-  line-height: 1.5;
-}
-
 .import-progress {
   width: 100%;
 }
@@ -2085,5 +2101,54 @@ body {
     right: 16px;
     left: 16px;
     width: auto;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1ebd9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cdbfaf;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2f6f73;
+}
+.sidebar::-webkit-scrollbar-track {
+  background: #1b2428;
+}
+.sidebar::-webkit-scrollbar-thumb {
+  background: #36515b;
+  border-radius: 4px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: #2f6f73;
+}
+
+/* Sidebar Lazy Loading Spinner */
+.tree-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  color: #66707a;
+  font-size: 13px;
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ddd4c7;
+  border-top-color: #2f6f73;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }

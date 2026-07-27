@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -45,13 +45,6 @@ export type ImportSource = {
   name: string;
 };
 
-type ImportTextPreview = {
-  fileId: string;
-  sourceName: string;
-  fileType: ImportFileType;
-  text: string;
-};
-
 type ImportReportLogEntry = {
   status: "imported" | "unsupported" | "skipped" | "failed";
   fileId: string;
@@ -68,6 +61,12 @@ type ImportReport = {
   skipped: number;
   failed: number;
   logs: ImportReportLogEntry[];
+};
+
+type ImportHistoryEntry = ImportReport & {
+  id: string;
+  createdAt: string;
+  sourceName: string;
 };
 
 type ImportPlanNode = Omit<ImportPreviewNode, "children"> & {
@@ -96,9 +95,9 @@ export type ImportTargetPreset =
 
 type RendererApi = {
   import: {
+    history: () => Promise<ApiResponse<ImportHistoryEntry[]>>;
     chooseSourceFolder: () => Promise<ApiResponse<ImportSource | null>>;
     scan: (importSessionId: string) => Promise<ApiResponse<ImportPreview>>;
-    readText: (importSessionId: string, fileId: string) => Promise<ApiResponse<ImportTextPreview>>;
     execute: (importSessionId: string, input: unknown) => Promise<ApiResponse<ImportReport>>;
   };
 };
@@ -230,17 +229,15 @@ export default function ImportWizard({
   onImported?: (report: ImportReport) => void;
   targetPreset?: ImportTargetPreset;
 }) {
-  const [editedTexts, setEditedTexts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState<ImportHistoryEntry[]>([]);
   const [nodes, setNodes] = useState<ImportPlanNode[]>(() => (initialPreview ? toPlanNodes(initialPreview.nodes) : []));
   const [preview, setPreview] = useState<ImportPreview | null>(initialPreview);
   const [report, setReport] = useState<ImportReport | null>(null);
   const [source, setSource] = useState<ImportSource | null>(initialSource);
   const [step, setStep] = useState<Step>(initialPreview ? "preview" : "source");
-  const [textLoading, setTextLoading] = useState(false);
-  const [textPreviews, setTextPreviews] = useState<Record<string, ImportTextPreview>>({});
   const selectedCount = selectedChapterCount(nodes);
   const selectedTypes = useMemo(() => selectedTypeCounts(nodes), [nodes]);
   const selectedChapters = useMemo(() => collectSelectedChapters(nodes), [nodes]);
@@ -248,9 +245,21 @@ export default function ImportWizard({
     () => selectedChapters.filter((chapter) => isImportableChapter(chapter)),
     [selectedChapters]
   );
-  const selectedTextChapters = useMemo(() => selectedChapters.filter((chapter) => isTextChapter(chapter)), [selectedChapters]);
   const skippedSelectedCount = selectedCount - selectedImportableChapters.length;
-  const textReady = selectedTextChapters.every((chapter) => typeof editedTexts[chapter.id] === "string");
+
+  useEffect(() => {
+    const api = getApi();
+
+    if (!api || !library.path) {
+      return;
+    }
+
+    void api.import.history().then((response) => {
+      if (response.ok) {
+        setHistory(response.data);
+      }
+    });
+  }, [library.path]);
 
   async function chooseSourceFolder(): Promise<void> {
     const api = getApi();
@@ -260,11 +269,9 @@ export default function ImportWizard({
       return;
     }
 
-    setEditedTexts({});
     setError(null);
     setLoading(true);
     setReport(null);
-    setTextPreviews({});
 
     try {
       const nextSource = unwrap(await api.import.chooseSourceFolder());
@@ -285,51 +292,9 @@ export default function ImportWizard({
     }
   }
 
-  async function loadTextPreviews(chapters: SelectedImportChapter[]): Promise<void> {
-    const api = getApi();
-
-    if (!api || !source) {
-      setError("App API is unavailable. Restart the app or check the preload script.");
-      return;
-    }
-
-    const missingChapters = chapters.filter((chapter) => !textPreviews[chapter.id]);
-
-    if (missingChapters.length === 0) {
-      return;
-    }
-
-    setError(null);
-    setTextLoading(true);
-
-    try {
-      const previews = await Promise.all(
-        missingChapters.map((chapter) => api.import.readText(source.importSessionId, chapter.id).then(unwrap))
-      );
-
-      setTextPreviews((current) => ({
-        ...current,
-        ...Object.fromEntries(previews.map((textPreview) => [textPreview.fileId, textPreview]))
-      }));
-      setEditedTexts((current) => ({
-        ...current,
-        ...Object.fromEntries(
-          previews
-            .filter((textPreview) => current[textPreview.fileId] === undefined)
-            .map((textPreview) => [textPreview.fileId, textPreview.text])
-        )
-      }));
-    } catch (textError) {
-      setError(String(textError));
-    } finally {
-      setTextLoading(false);
-    }
-  }
-
-  async function openConfirmStep(): Promise<void> {
+  function openConfirmStep(): void {
     setReport(null);
     setStep("confirm");
-    await loadTextPreviews(selectedTextChapters);
   }
 
   async function executeImport(): Promise<void> {
@@ -367,12 +332,15 @@ export default function ImportWizard({
           chapters: selectedChapters.map((chapter) => ({
             fileId: chapter.id,
             title: fallbackChapterTitle(chapter),
-            volumeTitle: chapter.volumeTitle || source.name,
-            text: editedTexts[chapter.id] ?? ""
+            volumeTitle: chapter.volumeTitle || source.name
           }))
         })
       );
       setReport(nextReport);
+      const historyResponse = await api.import.history();
+      if (historyResponse.ok) {
+        setHistory(historyResponse.data);
+      }
       onImported?.(nextReport);
     } catch (importError) {
       setError(String(importError));
@@ -406,12 +374,12 @@ export default function ImportWizard({
     <section className="import-wizard">
       <div className="import-steps" aria-label="Import steps">
         <StepButton current={step === "source"} label="Source" onClick={() => setStep("source")} />
-        <StepButton current={step === "preview"} disabled={!preview} label="Preview" onClick={() => setStep("preview")} />
+        <StepButton current={step === "preview"} disabled={!preview} label="Files" onClick={() => setStep("preview")} />
         <StepButton
           current={step === "confirm"}
           disabled={!preview || selectedCount === 0}
           label="Confirm"
-          onClick={() => void openConfirmStep()}
+          onClick={openConfirmStep}
         />
       </div>
 
@@ -429,6 +397,32 @@ export default function ImportWizard({
               Cancel
             </button>
           ) : null}
+          {history.length > 0 ? (
+            <div className="import-report">
+              <h3>Recent imports</h3>
+              {history.map((entry) => (
+                <details key={entry.id}>
+                  <summary>
+                    {entry.sourceName} to {entry.seriesTitle} - {new Date(entry.createdAt).toLocaleString()}
+                  </summary>
+                  <p className="muted-text">
+                    Imported {entry.imported} - unsupported {entry.unsupported} - skipped {entry.skipped} - failed{" "}
+                    {entry.failed}
+                  </p>
+                  <ol className="import-summary">
+                    {entry.logs.map((log, index) => (
+                      <li key={`${log.fileId}-${index}`}>
+                        <span>{log.title}</span>
+                        <small>
+                          {log.status.toUpperCase()} - {log.message}
+                        </small>
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              ))}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -444,19 +438,17 @@ export default function ImportWizard({
             <button
               className="primary-action"
               disabled={selectedCount === 0}
-              onClick={() => {
-                void openConfirmStep();
-              }}
+              onClick={openConfirmStep}
               type="button"
             >
-              Review
+              Continue
             </button>
           </div>
 
           {nodes.length === 0 ? (
             <p className="muted-text">No supported files found.</p>
           ) : (
-            <div className="import-tree" aria-label="Import preview">
+            <div className="import-tree" aria-label="Import files">
               {nodes.map((node) => (
                 <ImportNodeRow
                   key={node.id}
@@ -481,7 +473,7 @@ export default function ImportWizard({
             </div>
             <button
               className="primary-action"
-              disabled={importing || textLoading || selectedImportableChapters.length === 0 || !textReady}
+              disabled={importing || selectedImportableChapters.length === 0}
               onClick={() => void executeImport()}
               type="button"
             >
@@ -492,7 +484,6 @@ export default function ImportWizard({
           <p className="muted-text">
             Destination: {targetPreset?.label ?? `New series: ${source?.name ?? preview.sourceFolderName}`}
           </p>
-          {textLoading ? <p className="muted-text">Loading text preview.</p> : null}
           {selectedTypes.pdf > 0 ? (
             <p className="muted-text">Selected PDFs will import extracted text and keep the original file.</p>
           ) : null}
@@ -512,25 +503,6 @@ export default function ImportWizard({
               </li>
             ))}
           </ol>
-
-          {selectedTextChapters.length > 0 ? (
-            <div className="import-text-editors">
-              {selectedTextChapters.map((chapter) => (
-                <label className="import-text-editor" key={chapter.id}>
-                  <span>{fallbackChapterTitle(chapter)}</span>
-                  <small>
-                    {formatFileType(chapter.fileType)} - {chapter.volumeTitle}
-                  </small>
-                  <textarea
-                    onChange={(event) =>
-                      setEditedTexts((current) => ({ ...current, [chapter.id]: event.target.value }))
-                    }
-                    value={editedTexts[chapter.id] ?? ""}
-                  />
-                </label>
-              ))}
-            </div>
-          ) : null}
 
           {report ? (
             <div className="import-report">

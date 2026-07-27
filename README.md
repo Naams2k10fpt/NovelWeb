@@ -34,6 +34,13 @@ Current scope change:
 - NovelReader with font size, reading width, theme, scroll progress, chapter navigation, bookmarks, and edit markers.
 - Import Wizard in Manager for TXT, MD, DOCX, and PDF.
 - Search index based on `content.txt`, plus bookmarks, recent reading, and highlight notes.
+- Metadata, content, and full Library backups from Settings.
+- Safe restore to a new Library folder and automatic backed-up `schemaVersion` migration.
+- Trash browser with restore and confirmed permanent delete.
+- Chapter content history with restore from the editor.
+- Chapter, volume, and series PDF export with metadata, headings, inline images, table of contents, and A4 print styling.
+- Chapter, volume, and series EPUB 3 export with metadata, navigation, ordered XHTML content, and packaged inline images.
+- Series covers are included in PDF title pages and EPUB cover documents.
 
 ## Roadmap
 
@@ -94,7 +101,11 @@ Series data is stored under `series/{series-id}` with metadata, categories, volu
 ```bash
 npm install
 npm run dev
+npm test
+npm run test:pdf
 npm run build
+npm run package:dir
+npm run package:win
 ```
 
 ## Branch Workflow

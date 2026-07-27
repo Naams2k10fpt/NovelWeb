@@ -8,6 +8,13 @@ import SeriesDetail from "./pages/SeriesDetail";
 
 type Mode = "library" | "search" | "manager" | "settings";
 type ChapterMode = "edit" | "read";
+type LibraryBackupType = "metadata" | "content" | "full";
+type TrashEntry = {
+  trashId: string;
+  itemType: "series" | "category" | "volume" | "chapter";
+  title: string;
+  deletedAt: string;
+};
 type ApiResponse<T> =
   | { ok: true; data: T }
   | { ok: false; error: { code: string; message: string; details?: unknown } };
@@ -16,6 +23,15 @@ type RendererApi = {
   library: {
     getCurrent: () => Promise<ApiResponse<{ path: string | null }>>;
     chooseFolder: () => Promise<ApiResponse<{ path: string | null }>>;
+    createBackup: (
+      type: LibraryBackupType
+    ) => Promise<ApiResponse<{ name: string; path: string; createdAt: string; type: LibraryBackupType }>>;
+    restoreFullBackup: () => Promise<ApiResponse<{ path: string | null }>>;
+  };
+  trash: {
+    list: () => Promise<ApiResponse<TrashEntry[]>>;
+    restore: (trashId: string) => Promise<ApiResponse<TrashEntry>>;
+    delete: (trashId: string) => Promise<ApiResponse<TrashEntry>>;
   };
 };
 
@@ -53,11 +69,15 @@ const modes: Record<Mode, { label: string; eyebrow: string; title: string }> = {
 };
 
 export default function App() {
+  const [libraryTask, setLibraryTask] = useState<LibraryBackupType | "restore" | null>(null);
   const [chapterDirty, setChapterDirty] = useState(false);
   const [chapterMode, setChapterMode] = useState<ChapterMode>("read");
   const [mode, setMode] = useState<Mode>("library");
+  const [trashTask, setTrashTask] = useState<{ id: string; action: "restore" | "delete" } | null>(null);
   const [selectedChapter, setSelectedChapter] = useState<ChapterTarget | null>(null);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null);
+  const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([]);
+  const [trashError, setTrashError] = useState<string | null>(null);
   const [library, setLibrary] = useState<LibraryState>({
     loading: true,
     path: null,
@@ -102,6 +122,38 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const api = getApi();
+    let isMounted = true;
+
+    if (mode !== "settings" || !library.path || !api) {
+      return;
+    }
+
+    setTrashError(null);
+    void api.trash
+      .list()
+      .then((response) => {
+        if (!isMounted) {
+          return;
+        }
+        if (response.ok) {
+          setTrashEntries(response.data);
+        } else {
+          setTrashError(response.error.message);
+        }
+      })
+      .catch((error) => {
+        if (isMounted) {
+          setTrashError(String(error));
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [library.path, mode]);
+
   async function chooseLibraryFolder(): Promise<void> {
     const api = getApi();
     const previousPath = library.path;
@@ -126,6 +178,93 @@ export default function App() {
       }
     } catch (error) {
       setLibrary({ loading: false, path: previousPath, error: String(error) });
+    }
+  }
+
+  async function createBackup(type: LibraryBackupType): Promise<void> {
+    const api = getApi();
+
+    if (!api || !library.path) {
+      return;
+    }
+
+    setLibraryTask(type);
+    try {
+      const response = await api.library.createBackup(type);
+      window.alert(response.ok ? `Backup created:\n${response.data.path}` : response.error.message);
+    } catch (error) {
+      window.alert(`Could not back up the Library.\n${String(error)}`);
+    } finally {
+      setLibraryTask(null);
+    }
+  }
+
+  async function restoreFullBackup(): Promise<void> {
+    const api = getApi();
+
+    if (
+      !api ||
+      !library.path ||
+      !window.confirm("Restore a full backup into a new empty folder and switch to that Library?")
+    ) {
+      return;
+    }
+
+    setLibraryTask("restore");
+    try {
+      const response = await api.library.restoreFullBackup();
+      if (response.ok && response.data.path) {
+        setLibrary({ loading: false, path: response.data.path, error: null });
+        window.alert(`Library restored:\n${response.data.path}`);
+      } else if (!response.ok) {
+        window.alert(response.error.message);
+      }
+    } catch (error) {
+      window.alert(`Could not restore the Library.\n${String(error)}`);
+    } finally {
+      setLibraryTask(null);
+    }
+  }
+
+  async function restoreTrash(trashId: string, title: string): Promise<void> {
+    const api = getApi();
+    if (!api || !window.confirm(`Restore "${title}" from Trash?`)) {
+      return;
+    }
+
+    setTrashTask({ id: trashId, action: "restore" });
+    try {
+      const response = await api.trash.restore(trashId);
+      if (response.ok) {
+        setTrashEntries((entries) => entries.filter((entry) => entry.trashId !== trashId));
+      } else {
+        window.alert(response.error.message);
+      }
+    } catch (error) {
+      window.alert(`Could not restore Trash item.\n${String(error)}`);
+    } finally {
+      setTrashTask(null);
+    }
+  }
+
+  async function deleteTrash(trashId: string, title: string): Promise<void> {
+    const api = getApi();
+    if (!api || !window.confirm(`Permanently delete "${title}"? This cannot be undone.`)) {
+      return;
+    }
+
+    setTrashTask({ id: trashId, action: "delete" });
+    try {
+      const response = await api.trash.delete(trashId);
+      if (response.ok) {
+        setTrashEntries((entries) => entries.filter((entry) => entry.trashId !== trashId));
+      } else {
+        window.alert(response.error.message);
+      }
+    } catch (error) {
+      window.alert(`Could not permanently delete Trash item.\n${String(error)}`);
+    } finally {
+      setTrashTask(null);
     }
   }
 
@@ -255,6 +394,74 @@ export default function App() {
           <button className="primary-action" onClick={chooseLibraryFolder} type="button">
             {library.path ? "Change Library folder" : "Choose Library folder"}
           </button>
+          {library.path ? (
+            <button
+              className="primary-action"
+              disabled={libraryTask !== null}
+              onClick={() => void createBackup("metadata")}
+              type="button"
+            >
+              {libraryTask === "metadata" ? "Backing up..." : "Back up metadata"}
+            </button>
+          ) : null}
+          {library.path ? (
+            <button
+              className="primary-action"
+              disabled={libraryTask !== null}
+              onClick={() => void createBackup("content")}
+              type="button"
+            >
+              {libraryTask === "content" ? "Backing up..." : "Back up content"}
+            </button>
+          ) : null}
+          {library.path ? (
+            <button
+              className="primary-action"
+              disabled={libraryTask !== null}
+              onClick={() => void createBackup("full")}
+              type="button"
+            >
+              {libraryTask === "full" ? "Backing up..." : "Back up full Library"}
+            </button>
+          ) : null}
+          {library.path ? (
+            <button
+              className="primary-action"
+              disabled={libraryTask !== null}
+              onClick={() => void restoreFullBackup()}
+              type="button"
+            >
+              {libraryTask === "restore" ? "Restoring..." : "Restore full backup"}
+            </button>
+          ) : null}
+          {library.path ? (
+            <>
+              <h2>Trash</h2>
+              {trashError ? <p>{trashError}</p> : null}
+              {!trashError && trashEntries.length === 0 ? <p>Trash is empty.</p> : null}
+              {trashEntries.map((entry) => (
+                <div className="manager-actions" key={entry.trashId}>
+                  <span>
+                    {entry.title} · {entry.itemType} · {new Date(entry.deletedAt).toLocaleString()}
+                  </span>
+                  <button
+                    disabled={trashTask !== null}
+                    onClick={() => void restoreTrash(entry.trashId, entry.title)}
+                    type="button"
+                  >
+                    {trashTask?.id === entry.trashId && trashTask.action === "restore" ? "Restoring..." : "Restore"}
+                  </button>
+                  <button
+                    disabled={trashTask !== null}
+                    onClick={() => void deleteTrash(entry.trashId, entry.title)}
+                    type="button"
+                  >
+                    {trashTask?.id === entry.trashId && trashTask.action === "delete" ? "Deleting..." : "Delete forever"}
+                  </button>
+                </div>
+              ))}
+            </>
+          ) : null}
         </section>
       );
     }
