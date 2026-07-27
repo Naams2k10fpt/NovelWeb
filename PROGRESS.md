@@ -27,15 +27,15 @@ Complete each group as one tested workflow while keeping the phase checklist bel
    - Metadata backup, content backup, backup before migration, and migration by `schemaVersion`.
 2. **Recovery and history — complete**
    - Restore from `.trash`, permanent delete with confirmation, and simple chapter version history.
-3. **Export**
+3. **Export — complete**
    - Shared chapter/volume/series export flow for PDF and EPUB, including cover, metadata, table of contents, headings, inline images, page breaks, Vietnamese fonts, export tests, and export preview.
-4. **Import hardening**
+4. **Import hardening — complete**
    - Duplicate detection by file hash, detailed import history, TXT/MD/DOCX/PDF workflow tests, and PDF/Markdown split-view tests.
-5. **Core workflow QA**
+5. **Core workflow QA — complete**
    - Library selection, editor/autosave, NovelReader, and final bug checklist.
-6. **Windows release**
+6. **Windows release — complete**
    - App icon, packaging configuration, installer build, and update testing without data loss.
-7. **Post-MVP library features**
+7. **Post-MVP library features — complete**
    - Statistics, free-form tags, and collections.
 
 ---
