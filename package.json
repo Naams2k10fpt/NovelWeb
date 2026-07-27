@@ -1,8 +1,22 @@
 {
   "name": "novelweb",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.1",
   "private": true,
   "description": "A local-first desktop app for managing, editing, reading, importing, and exporting Light Novels and Web Novels.",
+  "author": {
+    "name": "Naams",
+    "email": "sumpham36@gmail.com"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Naams2k10fpt/NovelWeb#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Naams2k10fpt/NovelWeb.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Naams2k10fpt/NovelWeb/issues",
+    "email": "sumpham36@gmail.com"
+  },
   "type": "module",
   "main": "out/main/main.js",
   "scripts": {
