@@ -23,7 +23,7 @@ NovelWeb is a personal desktop app for managing, reading, editing, importing, an
 - Prefer existing project structure before creating new abstractions.
 - Avoid over-engineering.
 - Keep MVP focused on LN/WN first.
-- Manga features are later unless PROGRESS.md says otherwise.
+- Manga is out of scope unless explicitly approved in PLAN.md.
 - JSON + index storage comes before SQLite.
 - Every metadata file must support schemaVersion.
 - Use safe filesystem writes for user data.
