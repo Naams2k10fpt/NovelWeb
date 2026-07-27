@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -63,6 +63,12 @@ type ImportReport = {
   logs: ImportReportLogEntry[];
 };
 
+type ImportHistoryEntry = ImportReport & {
+  id: string;
+  createdAt: string;
+  sourceName: string;
+};
+
 type ImportPlanNode = Omit<ImportPreviewNode, "children"> & {
   title: string;
   selected: boolean;
@@ -89,6 +95,7 @@ export type ImportTargetPreset =
 
 type RendererApi = {
   import: {
+    history: () => Promise<ApiResponse<ImportHistoryEntry[]>>;
     chooseSourceFolder: () => Promise<ApiResponse<ImportSource | null>>;
     scan: (importSessionId: string) => Promise<ApiResponse<ImportPreview>>;
     execute: (importSessionId: string, input: unknown) => Promise<ApiResponse<ImportReport>>;
@@ -225,6 +232,7 @@ export default function ImportWizard({
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState<ImportHistoryEntry[]>([]);
   const [nodes, setNodes] = useState<ImportPlanNode[]>(() => (initialPreview ? toPlanNodes(initialPreview.nodes) : []));
   const [preview, setPreview] = useState<ImportPreview | null>(initialPreview);
   const [report, setReport] = useState<ImportReport | null>(null);
@@ -238,6 +246,20 @@ export default function ImportWizard({
     [selectedChapters]
   );
   const skippedSelectedCount = selectedCount - selectedImportableChapters.length;
+
+  useEffect(() => {
+    const api = getApi();
+
+    if (!api || !library.path) {
+      return;
+    }
+
+    void api.import.history().then((response) => {
+      if (response.ok) {
+        setHistory(response.data);
+      }
+    });
+  }, [library.path]);
 
   async function chooseSourceFolder(): Promise<void> {
     const api = getApi();
@@ -315,6 +337,10 @@ export default function ImportWizard({
         })
       );
       setReport(nextReport);
+      const historyResponse = await api.import.history();
+      if (historyResponse.ok) {
+        setHistory(historyResponse.data);
+      }
       onImported?.(nextReport);
     } catch (importError) {
       setError(String(importError));
@@ -370,6 +396,32 @@ export default function ImportWizard({
             <button onClick={onCancel} type="button">
               Cancel
             </button>
+          ) : null}
+          {history.length > 0 ? (
+            <div className="import-report">
+              <h3>Recent imports</h3>
+              {history.map((entry) => (
+                <details key={entry.id}>
+                  <summary>
+                    {entry.sourceName} to {entry.seriesTitle} - {new Date(entry.createdAt).toLocaleString()}
+                  </summary>
+                  <p className="muted-text">
+                    Imported {entry.imported} - unsupported {entry.unsupported} - skipped {entry.skipped} - failed{" "}
+                    {entry.failed}
+                  </p>
+                  <ol className="import-summary">
+                    {entry.logs.map((log, index) => (
+                      <li key={`${log.fileId}-${index}`}>
+                        <span>{log.title}</span>
+                        <small>
+                          {log.status.toUpperCase()} - {log.message}
+                        </small>
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              ))}
+            </div>
           ) : null}
         </section>
       ) : null}

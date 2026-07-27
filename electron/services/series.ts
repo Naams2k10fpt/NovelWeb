@@ -7,6 +7,7 @@ import {
   assertRecord,
   assertSupportedSchemaVersion,
   IMAGE_FILE_EXTENSIONS,
+  SUPPORTED_SCHEMA_VERSION,
   libraryChildPath,
   readJsonFile,
   readOptionalNullableNumber,
@@ -14,6 +15,7 @@ import {
   readOptionalString,
   readOptionalStringArray,
   readRequiredString,
+  readSeriesCollections,
   readSeriesStatus,
   seriesDirectoryPath,
   seriesMetaPath,
@@ -24,7 +26,12 @@ import {
   type SeriesCard,
   type SeriesDetailData
 } from "./base";
-import { SERIES_METADATA_SCHEMA_VERSION, type SeriesMetadata } from "../schemas/series";
+import {
+  SERIES_COLLECTIONS,
+  SERIES_METADATA_SCHEMA_VERSION,
+  type SeriesCollection,
+  type SeriesMetadata
+} from "../schemas/series";
 import { readSeriesIndex, rebuildSeriesIndex } from "./library";
 import { rebuildSearchIndex } from "./search";
 import { rebuildRecentIndex } from "./readingState";
@@ -69,12 +76,14 @@ export async function readSeriesCoverDataUrl(libraryPath: string, entry: { id: s
   }
 }
 
-export async function toSeriesCard(libraryPath: string, entry: { id: string; title: string; author?: string | null; genres?: string[]; status?: any; coverImage?: string | null }): Promise<SeriesCard> {
+export async function toSeriesCard(libraryPath: string, entry: { id: string; title: string; author?: string | null; genres?: string[]; tags?: string[]; collections?: SeriesMetadata["collections"]; status?: any; coverImage?: string | null }): Promise<SeriesCard> {
   return {
     id: entry.id,
     title: entry.title,
     author: entry.author ?? null,
     genres: entry.genres ?? [],
+    tags: entry.tags ?? [],
+    collections: entry.collections ?? [],
     status: entry.status ?? "planning",
     coverDataUrl: await readSeriesCoverDataUrl(libraryPath, entry)
   };
@@ -93,7 +102,16 @@ export async function toSeriesDetailData(libraryPath: string, metadata: SeriesMe
 export async function readSeriesMetadata(libraryPath: string, seriesId: string): Promise<SeriesMetadata> {
   const metadata = await readJsonFile<SeriesMetadata>(seriesMetaPath(libraryPath, seriesId));
   assertSupportedSchemaVersion(`series/${seriesId}/meta.json`, metadata);
-  return metadata;
+  return {
+    ...metadata,
+    tags: Array.isArray(metadata.tags) ? metadata.tags.filter((tag) => typeof tag === "string") : [],
+    collections: Array.isArray(metadata.collections)
+      ? metadata.collections.filter(
+          (collection): collection is SeriesCollection =>
+            typeof collection === "string" && (SERIES_COLLECTIONS as readonly string[]).includes(collection)
+        )
+      : []
+  };
 }
 
 export async function listSeriesCards(libraryPath: string): Promise<SeriesCard[]> {
@@ -114,6 +132,7 @@ export function parseSeriesCreateInput(input: unknown): SeriesMetadata {
     translator: readOptionalNullableString(record, "translator", null),
     genres: readOptionalStringArray(record, "genres", []),
     tags: readOptionalStringArray(record, "tags", []),
+    collections: readSeriesCollections(record, []),
     status: readSeriesStatus(record, "planning"),
     publisher: readOptionalNullableString(record, "publisher", null),
     year: readOptionalNullableNumber(record, "year", null),
@@ -139,6 +158,7 @@ export function parseSeriesUpdateInput(input: unknown, current: SeriesMetadata):
     translator: readOptionalNullableString(record, "translator", current.translator),
     genres: readOptionalStringArray(record, "genres", current.genres),
     tags: readOptionalStringArray(record, "tags", current.tags),
+    collections: readSeriesCollections(record, current.collections),
     status: readSeriesStatus(record, current.status),
     publisher: readOptionalNullableString(record, "publisher", current.publisher),
     year: readOptionalNullableNumber(record, "year", current.year),
@@ -215,11 +235,21 @@ export async function chooseSeriesCover(
 
 export async function moveSeriesToTrash(libraryPath: string, seriesId: string): Promise<{ id: string; trashPath: string }> {
   const id = assertId(seriesId, "seriesId");
-  await readSeriesMetadata(libraryPath, id);
+  const series = await readSeriesMetadata(libraryPath, id);
 
   const trashPath = trashSeriesDirectoryPath(libraryPath, id);
   await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
-  await moveDirectoryToTrash(seriesDirectoryPath(libraryPath, id), trashPath);
+  await moveDirectoryToTrash(seriesDirectoryPath(libraryPath, id), trashPath, {
+    schemaVersion: SUPPORTED_SCHEMA_VERSION,
+    itemType: "series",
+    itemId: id,
+    title: series.title,
+    deletedAt: new Date().toISOString(),
+    seriesId: id,
+    categoryId: null,
+    volumeId: null,
+    orderIndex: -1
+  });
   await rebuildSeriesIndex(libraryPath);
   await rebuildSearchIndex(libraryPath);
   await rebuildRecentIndex(libraryPath);

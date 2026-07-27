@@ -18,6 +18,8 @@ type SeriesMetadata = {
   originalAuthor: string | null;
   translator: string | null;
   genres: string[];
+  tags: string[];
+  collections: SeriesCollection[];
   status: SeriesStatus;
   description: string;
   coverImage: string | null;
@@ -25,14 +27,18 @@ type SeriesMetadata = {
 };
 
 type SeriesStatus = "planning" | "translating" | "completed" | "paused" | "dropped";
+type SeriesCollection = "reading" | "favorite" | "needs-edit" | "completed";
 
 const SERIES_STATUSES: SeriesStatus[] = ["planning", "translating", "completed", "paused", "dropped"];
+const SERIES_COLLECTIONS: SeriesCollection[] = ["reading", "favorite", "needs-edit", "completed"];
 
 type SeriesFormState = {
   title: string;
   originalAuthor: string;
   genres: string[];
   newGenre: string;
+  tags: string;
+  collections: SeriesCollection[];
   status: SeriesStatus;
   description: string;
 };
@@ -57,6 +63,7 @@ type VolumeMetadata = {
 type ChapterMetadata = {
   id: string;
   title: string;
+  tags: string[];
   translationStatus?: string;
 };
 
@@ -124,6 +131,8 @@ function formFromSeries(series: SeriesMetadata): SeriesFormState {
     originalAuthor: series.originalAuthor ?? "",
     genres: series.genres,
     newGenre: "",
+    tags: series.tags.join(", "),
+    collections: series.collections,
     status: series.status,
     description: series.description
   };
@@ -134,6 +143,11 @@ function uniqueGenres(genres: string[]): string[] {
     left.localeCompare(right)
   );
 }
+
+function parseTags(value: string): string[] {
+  return [...new Set(value.split(",").map((tag) => tag.trim()).filter(Boolean))];
+}
+
 async function loadCategory(api: RendererApi, seriesId: string, category: SupportedCategoryMetadata): Promise<CategoryDetail> {
   const volumes = unwrap(await api.volumes.list(seriesId, category.id));
   const volumeDetails = await Promise.all(
@@ -233,6 +247,8 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
           title,
           originalAuthor: form.originalAuthor.trim() || null,
           genres: form.genres,
+          tags: parseTags(form.tags),
+          collections: form.collections,
           status: form.status,
           description: form.description
         })
@@ -300,6 +316,19 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
     setForm({ ...form, genres: uniqueGenres([...form.genres, genre]), newGenre: "" });
   }
 
+  function toggleCollection(collection: SeriesCollection): void {
+    setForm((current) =>
+      current
+        ? {
+            ...current,
+            collections: current.collections.includes(collection)
+              ? current.collections.filter((item) => item !== collection)
+              : [...current.collections, collection]
+          }
+        : current
+    );
+  }
+
   if (detail.loading) {
     return (
       <section className="empty-state">
@@ -343,6 +372,12 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
           <p>{detail.series.originalAuthor ?? detail.series.translator ?? "Unknown author"}</p>
           {detail.series.genres.length > 0 ? (
             <p className="series-detail-genres">{detail.series.genres.join(", ")}</p>
+          ) : null}
+          {detail.series.tags.length > 0 ? (
+            <p className="series-detail-genres">{detail.series.tags.map((tag) => `#${tag}`).join(" ")}</p>
+          ) : null}
+          {detail.series.collections.length > 0 ? (
+            <p className="series-detail-genres">{detail.series.collections.map(formatLabel).join(" · ")}</p>
           ) : null}
           {detail.series.description ? <p>{detail.series.description}</p> : null}
           <div className="series-detail-actions">
@@ -420,6 +455,29 @@ export default function SeriesDetail({ seriesId, onBack, onEditChapter, onReadCh
               </button>
             </div>
           </fieldset>
+          <fieldset className="series-genre-picker">
+            <legend>Collections</legend>
+            <div className="series-genre-options">
+              {SERIES_COLLECTIONS.map((collection) => (
+                <label key={collection}>
+                  <input
+                    checked={form.collections.includes(collection)}
+                    onChange={() => toggleCollection(collection)}
+                    type="checkbox"
+                  />
+                  <span>{formatLabel(collection)}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <label>
+            <span>Tags</span>
+            <input
+              onChange={(event) => setForm((current) => (current ? { ...current, tags: event.target.value } : current))}
+              placeholder="favorite, isekai, needs edit"
+              value={form.tags}
+            />
+          </label>
           <label className="series-description-field">
             <span>Description</span>
             <textarea
@@ -584,7 +642,9 @@ function ChapterList({
                 type="button"
               >
                 <span>{chapter.title}</span>
-                <span>{formatLabel(chapter.translationStatus ?? "draft")}</span>
+                <span>
+                  {[formatLabel(chapter.translationStatus ?? "draft"), ...chapter.tags.map((tag) => `#${tag}`)].join(" · ")}
+                </span>
               </button>
               <button className="chapter-edit-action" onClick={() => onEditChapter(targetFor(chapter))} type="button">
                 Edit

@@ -152,6 +152,52 @@ body {
   margin-bottom: 16px;
 }
 
+.collection-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.collection-filters button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #cdbfaf;
+  border-radius: 999px;
+  background: #fffaf2;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.collection-filters button[aria-pressed="true"] {
+  border-color: #2f6f73;
+  background: #2f6f73;
+  color: #ffffff;
+}
+
+.library-statistics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.library-statistics div {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid #ddd4c7;
+  border-radius: 10px;
+  background: #fffaf2;
+}
+
+.library-statistics strong {
+  font-size: 1.35rem;
+}
+
+.library-statistics span {
+  color: #66707a;
+}
+
 .library-search span {
   color: #66707a;
   font-size: 13px;

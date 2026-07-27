@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { BrowserWindow, dialog, type OpenDialogOptions } from "electron";
-import { mkdir, rename, stat, readFile, copyFile } from "node:fs/promises";
+import { mkdir, rename, rm, stat, readFile, copyFile } from "node:fs/promises";
 import { extname, basename, dirname } from "node:path";
 import {
   assertId,
   assertRecord,
   assertSupportedSchemaVersion,
+  SUPPORTED_SCHEMA_VERSION,
   categoryMetaPath,
   chapterAssetsDirectoryPath,
   chapterAssetPath,
@@ -27,6 +28,7 @@ import {
   readOptionalInteger,
   readOptionalNonNegativeInteger,
   readOptionalNullableString,
+  readOptionalStringArray,
   readRequiredIdArray,
   readRequiredString,
   readRequiredText,
@@ -88,6 +90,7 @@ export function parseNovelChapterCreateInput(input: unknown, orderFallback: numb
     order: readOptionalInteger(record, "order", orderFallback),
     wordCount: readOptionalNonNegativeInteger(record, "wordCount", 0),
     characterCount: readOptionalNonNegativeInteger(record, "characterCount", 0),
+    tags: readOptionalStringArray(record, "tags", []),
     translationStatus: readTranslationStatus(record, "draft"),
     hasOriginalPdf: readOptionalBoolean(record, "hasOriginalPdf", false),
     originalFileName: readOptionalNullableString(record, "originalFileName", null),
@@ -108,6 +111,7 @@ export function parseNovelChapterUpdateInput(input: unknown, current: NovelChapt
     order: readOptionalInteger(record, "order", current.order),
     wordCount: readOptionalNonNegativeInteger(record, "wordCount", current.wordCount),
     characterCount: readOptionalNonNegativeInteger(record, "characterCount", current.characterCount),
+    tags: readOptionalStringArray(record, "tags", current.tags),
     translationStatus: readTranslationStatus(record, current.translationStatus),
     hasOriginalPdf: readOptionalBoolean(record, "hasOriginalPdf", current.hasOriginalPdf),
     originalFileName: readOptionalNullableString(record, "originalFileName", current.originalFileName),
@@ -127,7 +131,7 @@ export async function readNovelChapterMetadata(
     chapterMetaPath(libraryPath, seriesId, categoryId, volumeId, chapterId)
   );
   assertSupportedSchemaVersion(`series/${seriesId}/categories/${categoryId}/chapters/${chapterId}/meta.json`, metadata);
-  return metadata;
+  return { ...metadata, tags: Array.isArray(metadata.tags) ? metadata.tags.filter((tag) => typeof tag === "string") : [] };
 }
 
 // Re-export as alias used by preload/handlers
@@ -516,6 +520,131 @@ export async function readNovelChapterOriginalText(
 
 export { readNovelChapterOriginalText as getOriginalText };
 
+export type ChapterVersion = {
+  id: string;
+  createdAt: string;
+};
+
+type ChapterVersionIndex = {
+  schemaVersion: 1;
+  entries: ChapterVersion[];
+};
+
+const MAX_CHAPTER_VERSIONS = 20;
+
+function chapterVersionsDirectoryPath(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): string {
+  return libraryChildPath(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), "versions");
+}
+
+function chapterVersionIndexPath(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): string {
+  return libraryChildPath(
+    chapterVersionsDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId),
+    "index.json"
+  );
+}
+
+async function readChapterVersionIndex(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<ChapterVersionIndex> {
+  try {
+    const index = await readJsonFile<ChapterVersionIndex>(
+      chapterVersionIndexPath(libraryPath, seriesId, categoryId, volumeId, chapterId)
+    );
+    assertSupportedSchemaVersion("versions/index.json", index);
+    return {
+      schemaVersion: 1,
+      entries: index.entries.map((entry) => ({
+        id: assertId(entry.id, "versionId"),
+        createdAt: readRequiredText(entry as unknown as JsonRecord, "createdAt")
+      }))
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { schemaVersion: 1, entries: [] };
+    }
+    throw error;
+  }
+}
+
+async function createChapterVersion(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  html: string
+): Promise<void> {
+  if (!html) {
+    return;
+  }
+
+  const directoryPath = chapterVersionsDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  const index = await readChapterVersionIndex(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  const version: ChapterVersion = { id: randomUUID(), createdAt: new Date().toISOString() };
+  const entries = [version, ...index.entries];
+  // ponytail: retain 20 versions; make this configurable only if real libraries need more.
+  const removedEntries = entries.splice(MAX_CHAPTER_VERSIONS);
+
+  await mkdir(directoryPath, { recursive: true });
+  await writeTextFile(libraryChildPath(directoryPath, `${version.id}.html`), html);
+  await writeJsonFile(
+    chapterVersionIndexPath(libraryPath, seriesId, categoryId, volumeId, chapterId),
+    { schemaVersion: 1, entries } satisfies ChapterVersionIndex,
+    { backup: true }
+  );
+  await Promise.all(
+    removedEntries.map((entry) => rm(libraryChildPath(directoryPath, `${entry.id}.html`), { force: true }))
+  );
+}
+
+export async function listChapterVersions(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<ChapterVersion[]> {
+  await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  return (await readChapterVersionIndex(libraryPath, seriesId, categoryId, volumeId, chapterId)).entries;
+}
+
+export async function restoreChapterVersion(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string,
+  versionId: string
+): Promise<ChapterContent> {
+  const id = assertId(versionId, "versionId");
+  const index = await readChapterVersionIndex(libraryPath, seriesId, categoryId, volumeId, chapterId);
+  if (!index.entries.some((entry) => entry.id === id)) {
+    throw new Error("Chapter version does not exist.");
+  }
+
+  const html = await readFile(
+    libraryChildPath(chapterVersionsDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapterId), `${id}.html`),
+    "utf8"
+  );
+  return saveNovelChapterContent(libraryPath, seriesId, categoryId, volumeId, chapterId, { html });
+}
+
 export async function saveNovelChapterContent(
   libraryPath: string,
   seriesId: string,
@@ -528,6 +657,9 @@ export async function saveNovelChapterContent(
     const record = assertRecord(input);
     const html = sanitizeNovelHtml(persistNovelAssetImages(readRequiredText(record, "html")));
     const metadata = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
+    const currentHtml = await readOptionalTextFile(
+      chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.contentFile)
+    );
     const text = htmlToPlainText(html);
     const now = new Date().toISOString();
     const nextMetadata: NovelChapterMetadata = {
@@ -537,6 +669,9 @@ export async function saveNovelChapterContent(
       updatedAt: now
     };
 
+    if (currentHtml !== html) {
+      await createChapterVersion(libraryPath, seriesId, categoryId, volumeId, chapterId, currentHtml);
+    }
     await writeTextFile(
       chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.contentFile),
       html,
@@ -633,7 +768,21 @@ export async function moveNovelChapterToTrash(
   const now = new Date().toISOString();
 
   await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
-  await moveDirectoryToTrash(chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapter.id), trashPath);
+  await moveDirectoryToTrash(
+    chapterDirectoryPath(libraryPath, seriesId, categoryId, volumeId, chapter.id),
+    trashPath,
+    {
+      schemaVersion: SUPPORTED_SCHEMA_VERSION,
+      itemType: "chapter",
+      itemId: chapter.id,
+      title: chapter.title,
+      deletedAt: now,
+      seriesId,
+      categoryId,
+      volumeId,
+      orderIndex: (volume?.chapterOrder ?? category.chapterOrder).indexOf(chapter.id)
+    }
+  );
 
   if (volume) {
     await writeJsonFile(

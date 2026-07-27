@@ -1,8 +1,10 @@
 export const SERIES_METADATA_SCHEMA_VERSION = 1 as const;
 
 export const SERIES_STATUSES = ["planning", "translating", "completed", "paused", "dropped"] as const;
+export const SERIES_COLLECTIONS = ["reading", "favorite", "needs-edit", "completed"] as const;
 
 export type SeriesStatus = (typeof SERIES_STATUSES)[number];
+export type SeriesCollection = (typeof SERIES_COLLECTIONS)[number];
 
 export type SeriesMetadata = {
   schemaVersion: typeof SERIES_METADATA_SCHEMA_VERSION;
@@ -13,6 +15,7 @@ export type SeriesMetadata = {
   translator: string | null;
   genres: string[];
   tags: string[];
+  collections: SeriesCollection[];
   status: SeriesStatus;
   publisher: string | null;
   year: number | null;

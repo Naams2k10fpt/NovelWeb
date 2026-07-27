@@ -4,6 +4,7 @@ import {
   assertId,
   assertRecord,
   assertSupportedSchemaVersion,
+  SUPPORTED_SCHEMA_VERSION,
   categoryDirectoryPath,
   categoryMetaPath,
   libraryChildPath,
@@ -137,7 +138,17 @@ export async function moveCategoryToTrash(
   const now = new Date().toISOString();
 
   await mkdir(libraryChildPath(libraryPath, ".trash"), { recursive: true });
-  await moveDirectoryToTrash(categoryDirectoryPath(libraryPath, series.id, category.id), trashPath);
+  await moveDirectoryToTrash(categoryDirectoryPath(libraryPath, series.id, category.id), trashPath, {
+    schemaVersion: SUPPORTED_SCHEMA_VERSION,
+    itemType: "category",
+    itemId: category.id,
+    title: category.title,
+    deletedAt: now,
+    seriesId: series.id,
+    categoryId: category.id,
+    volumeId: null,
+    orderIndex: series.categoryOrder.indexOf(category.id)
+  });
   await writeJsonFile(
     seriesMetaPath(libraryPath, series.id),
     { ...series, categoryOrder: series.categoryOrder.filter((id) => id !== category.id), updatedAt: now } satisfies SeriesMetadata,

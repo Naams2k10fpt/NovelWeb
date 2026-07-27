@@ -3,7 +3,9 @@ import { copyFile, mkdir, readFile, rename, stat, writeFile, cp, rm, appendFile 
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   SERIES_METADATA_SCHEMA_VERSION,
+  SERIES_COLLECTIONS,
   SERIES_STATUSES,
+  type SeriesCollection,
   type SeriesMetadata,
   type SeriesStatus
 } from "../schemas/series";
@@ -31,11 +33,15 @@ export const ErrorCode = {
   LIBRARY_FOLDER_LOAD_FAILED: "LIBRARY_FOLDER_LOAD_FAILED",
   LIBRARY_FOLDER_CHOOSE_FAILED: "LIBRARY_FOLDER_CHOOSE_FAILED",
   LIBRARY_REPAIR_FAILED: "LIBRARY_REPAIR_FAILED",
+  BACKUP_FAILED: "BACKUP_FAILED",
+  RESTORE_FAILED: "RESTORE_FAILED",
+  TRASH_FAILED: "TRASH_FAILED",
   SERIES_CRUD_FAILED: "SERIES_CRUD_FAILED",
   CATEGORY_CRUD_FAILED: "CATEGORY_CRUD_FAILED",
   VOLUME_CRUD_FAILED: "VOLUME_CRUD_FAILED",
   CHAPTER_CRUD_FAILED: "CHAPTER_CRUD_FAILED",
   IMPORT_FAILED: "IMPORT_FAILED",
+  EXPORT_FAILED: "EXPORT_FAILED",
   SEARCH_FAILED: "SEARCH_FAILED",
   READING_STATE_FAILED: "READING_STATE_FAILED"
 } as const;
@@ -95,6 +101,8 @@ export type SeriesCard = {
   title: string;
   author: string | null;
   genres: string[];
+  tags: string[];
+  collections: SeriesCollection[];
   status: SeriesStatus;
   coverDataUrl: string | null;
 };
@@ -131,6 +139,19 @@ export type HighlightEntry = ReadingListEntry & {
   color: HighlightColor;
   note: string;
   createdAt: string;
+};
+
+export type TrashItemType = "series" | "category" | "volume" | "chapter";
+export type TrashManifest = {
+  schemaVersion: SupportedSchemaVersion;
+  itemType: TrashItemType;
+  itemId: string;
+  title: string;
+  deletedAt: string;
+  seriesId: string | null;
+  categoryId: string | null;
+  volumeId: string | null;
+  orderIndex: number;
 };
 
 export type ChapterContent = {
@@ -479,6 +500,20 @@ export function readSeriesStatus(record: JsonRecord, fallback: SeriesStatus): Se
   throw new Error("status is invalid.");
 }
 
+export function readSeriesCollections(record: JsonRecord, fallback: SeriesCollection[]): SeriesCollection[] {
+  const value = record.collections;
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (!Array.isArray(value) || value.some((item) => !SERIES_COLLECTIONS.includes(item as SeriesCollection))) {
+    throw new Error("collections is invalid.");
+  }
+
+  return [...new Set(value as SeriesCollection[])];
+}
+
 export function readCategoryType(record: JsonRecord, fallback?: CategoryType): CategoryType {
   const value = record.type;
 
@@ -580,9 +615,9 @@ export function trashItemDirectoryPath(libraryPath: string, itemType: string, it
   return libraryChildPath(libraryPath, ".trash", `${itemType}-${assertId(itemId, "itemId")}-${timestamp}`);
 }
 
-export async function moveDirectoryToTrash(sourcePath: string, trashPath: string): Promise<void> {
+export async function moveDirectorySafely(sourcePath: string, targetPath: string): Promise<void> {
   try {
-    await rename(sourcePath, trashPath);
+    await rename(sourcePath, targetPath);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
 
@@ -591,8 +626,24 @@ export async function moveDirectoryToTrash(sourcePath: string, trashPath: string
     }
 
     // fallback copy/remove inside Library
-    await cp(sourcePath, trashPath, { recursive: true, force: false, errorOnExist: true });
+    await cp(sourcePath, targetPath, { recursive: true, force: false, errorOnExist: true });
     await rm(sourcePath, { recursive: true });
+  }
+}
+
+export async function moveDirectoryToTrash(
+  sourcePath: string,
+  trashPath: string,
+  manifest: TrashManifest
+): Promise<void> {
+  const manifestPath = join(sourcePath, "trash.json");
+  await writeJsonFile(manifestPath, manifest);
+
+  try {
+    await moveDirectorySafely(sourcePath, trashPath);
+  } catch (error) {
+    await rm(manifestPath, { force: true });
+    throw error;
   }
 }
 

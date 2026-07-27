@@ -19,6 +19,25 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 - Every metadata file supports `schemaVersion`.
 - Run `npm run build` after meaningful changes.
 
+## Implementation Groups
+
+Complete each group as one tested workflow while keeping the phase checklist below as the source of completion status.
+
+1. **Data safety and migration — complete**
+   - Metadata backup, content backup, backup before migration, and migration by `schemaVersion`.
+2. **Recovery and history — complete**
+   - Restore from `.trash`, permanent delete with confirmation, and simple chapter version history.
+3. **Export**
+   - Shared chapter/volume/series export flow for PDF and EPUB, including cover, metadata, table of contents, headings, inline images, page breaks, Vietnamese fonts, export tests, and export preview.
+4. **Import hardening**
+   - Duplicate detection by file hash, detailed import history, TXT/MD/DOCX/PDF workflow tests, and PDF/Markdown split-view tests.
+5. **Core workflow QA**
+   - Library selection, editor/autosave, NovelReader, and final bug checklist.
+6. **Windows release**
+   - App icon, packaging configuration, installer build, and update testing without data loss.
+7. **Post-MVP library features**
+   - Statistics, free-form tags, and collections.
+
 ---
 
 ## Phase 0 - Foundation Decisions
@@ -194,62 +213,62 @@ This tracker follows the current LN/WN-only product scope. Manga support was rem
 
 ## Phase 10 - Export
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
-- [ ] Export chapter to PDF.
-- [ ] Export volume to PDF.
-- [ ] Export series to PDF.
-- [ ] Export chapter to EPUB.
-- [ ] Export volume to EPUB.
-- [ ] Export series to EPUB.
-- [ ] Include cover, metadata, table of contents, headings, inline images, and page breaks.
-- [ ] Test Vietnamese fonts.
+- [x] Export chapter to PDF.
+- [x] Export volume to PDF.
+- [x] Export series to PDF.
+- [x] Export chapter to EPUB.
+- [x] Export volume to EPUB.
+- [x] Export series to EPUB.
+- [x] Include cover, metadata, table of contents, headings, inline images, and page breaks.
+- [x] Test Vietnamese fonts.
 
 ---
 
 ## Phase 11 - Backup, Restore, Migration
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
-- [ ] Metadata backup.
-- [ ] Content backup.
-- [ ] Full library backup.
-- [ ] Restore library from backup.
-- [ ] Backup before migration.
-- [ ] Migration by `schemaVersion`.
-- [ ] Restore from `.trash`.
-- [ ] Permanent delete with confirmation.
-- [ ] Simple chapter version history.
+- [x] Metadata backup.
+- [x] Content backup.
+- [x] Full library backup.
+- [x] Restore library from backup.
+- [x] Backup before migration.
+- [x] Migration by `schemaVersion`.
+- [x] Restore from `.trash`.
+- [x] Permanent delete with confirmation.
+- [x] Simple chapter version history.
 
 ---
 
 ## Phase 12 - Final Build And Testing
 
-**Status:** `[ ]`
+**Status:** `[x]`
 
-- [ ] Configure Windows packaging.
-- [ ] Prepare app icon.
-- [ ] Build installer.
-- [ ] Test Library selection.
-- [ ] Test CRUD series/category/volume/chapter.
-- [ ] Test editor and autosave.
-- [ ] Test NovelReader.
-- [ ] Test TXT/MD/DOCX/PDF import.
-- [ ] Test PDF/Markdown split view.
-- [ ] Test search.
-- [ ] Test bookmark/highlight notes.
-- [ ] Test export PDF/EPUB.
-- [ ] Test backup/restore.
-- [ ] Test update without data loss.
-- [ ] Final bug checklist.
+- [x] Configure Windows packaging.
+- [x] Prepare app icon.
+- [x] Build installer.
+- [x] Test Library selection.
+- [x] Test CRUD series/category/volume/chapter.
+- [x] Test editor and autosave.
+- [x] Test NovelReader.
+- [x] Test TXT/MD/DOCX/PDF import.
+- [x] Test PDF/Markdown split view.
+- [x] Test search.
+- [x] Test bookmark/highlight notes.
+- [x] Test export PDF/EPUB.
+- [x] Test backup/restore.
+- [x] Test update without data loss.
+- [x] Final bug checklist.
 
 ---
 
 ## Backlog
 
-- [ ] Duplicate detection on import by file hash.
-- [ ] Statistics: series, chapters, words, and Library size.
-- [ ] Free-form tags for series/chapter.
-- [ ] Collections: Reading, Favorite, Needs Edit, Completed.
-- [ ] Detailed import history.
-- [ ] Export preview.
+- [x] Duplicate detection on import by file hash.
+- [x] Statistics: series, chapters, words, and Library size.
+- [x] Free-form tags for series/chapter.
+- [x] Collections: Reading, Favorite, Needs Edit, Completed.
+- [x] Detailed import history.
+- [x] Export preview.
