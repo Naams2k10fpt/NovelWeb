@@ -6,21 +6,7 @@ The app is local-first: user content lives in a Library folder chosen by the use
 
 ## Current Status
 
-Completed:
-
-- Phase 0: Technical scope and MVP decisions.
-- Phase 1: Electron + Vite + React + TypeScript app shell.
-- Phase 2: Safe local storage foundation.
-- Phase 3: Series, Category, Volume, and Chapter data model for LN/WN.
-- Phase 4: Library and Manager UI.
-- Phase 5: Novel editor and reader.
-- Phase 6: TXT/MD/DOCX/PDF import.
-- Phase 9: Search, recent reading, bookmarks, highlight notes.
-
-Current scope change:
-
-- Manga support has been removed from the product scope.
-- The next product phases are Export, Backup/Restore/Migration, and final packaging/testing.
+The LN/WN MVP is complete, including export, backup/restore, import hardening, Windows packaging, workflow tests, statistics, tags, collections, and export preview. Manga is out of scope.
 
 ## Features
 
@@ -41,12 +27,6 @@ Current scope change:
 - Chapter, volume, and series PDF export with metadata, headings, inline images, table of contents, and A4 print styling.
 - Chapter, volume, and series EPUB 3 export with metadata, navigation, ordered XHTML content, and packaged inline images.
 - Series covers are included in PDF title pages and EPUB cover documents.
-
-## Roadmap
-
-- Phase 10: Export PDF/EPUB.
-- Phase 11: Backup, restore, migration, trash restore, and version history.
-- Phase 12: Windows packaging and final workflow testing.
 
 ## Tech Stack
 

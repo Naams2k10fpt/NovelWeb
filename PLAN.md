@@ -176,7 +176,7 @@ Chapter `type`: `prologue`, `chapter`, `epilogue`, `interlude`, `afterword`, `bo
 
 Translation `status`: `draft`, `editing`, `reviewed`, `completed`.
 
-## Roadmap
+## Delivery Status
 
 ### Phase 0-6 - Complete
 
@@ -186,14 +186,14 @@ Translation `status`: `draft`, `editing`, `reviewed`, `completed`.
 
 - Search, recent reading, bookmarks, highlight notes, and reader/editor marker flow.
 
-### Phase 10 - Export
+### Phase 10 - Export — Complete
 
 - Export chapter/volume/series to PDF.
 - Export chapter/volume/series to EPUB.
 - Include cover, metadata, table of contents, headings, inline images, and page breaks.
 - Verify Vietnamese fonts and images.
 
-### Phase 11 - Backup, Restore, Migration
+### Phase 11 - Backup, Restore, Migration — Complete
 
 - Metadata backup.
 - Content backup.
@@ -203,7 +203,7 @@ Translation `status`: `draft`, `editing`, `reviewed`, `completed`.
 - Trash restore and permanent delete.
 - Simple chapter version history.
 
-### Phase 12 - Final Build And Testing
+### Phase 12 - Final Build And Testing — Complete
 
 - Configure Windows packaging.
 - Prepare app icon.
