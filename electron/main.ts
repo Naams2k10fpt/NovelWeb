@@ -1,5 +1,14 @@
-import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain as electronIpcMain,
+  shell,
+  type OpenDialogOptions
+} from "electron";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { getExternalUrl, isTrustedRendererUrl } from "./security";
 import {
   ok,
   fail,
@@ -112,6 +121,21 @@ import { type NovelChapterMetadata as ChapterMetadata } from "./schemas/chapter"
 import { type ImportPreview, type ImportReport } from "./services/import";
 import { type SearchResult, type SearchIndexSummary } from "./services/search";
 import { deleteTrashItem, listTrashEntries, restoreTrashItem, type TrashEntry } from "./services/trash";
+
+const rendererFilePath = join(__dirname, "../renderer/index.html");
+const rendererFileUrl = pathToFileURL(rendererFilePath).href;
+type IpcHandler = Parameters<typeof electronIpcMain.handle>[1];
+const ipcMain = {
+  handle(channel: string, listener: IpcHandler): void {
+    electronIpcMain.handle(channel, (event, ...args) => {
+      const senderUrl = event.senderFrame?.url ?? "";
+      if (!isTrustedRendererUrl(senderUrl, process.env.ELECTRON_RENDERER_URL, rendererFileUrl)) {
+        throw new Error("Blocked IPC from an untrusted renderer.");
+      }
+      return listener(event, ...args);
+    });
+  }
+};
 
 function registerLibraryIpc(): void {
   ipcMain.handle("library:statistics", async (): Promise<ApiResponse<LibraryStatistics>> => {
@@ -1066,17 +1090,36 @@ function createWindow(): void {
     height: 800,
     autoHideMenuBar: true,
     webPreferences: {
-      preload: join(__dirname, "../preload/preload.mjs"),
+      preload: join(__dirname, "../preload/preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
+  });
+
+  window.webContents.on("will-navigate", (event, url) => {
+    if (isTrustedRendererUrl(url, process.env.ELECTRON_RENDERER_URL, rendererFileUrl)) {
+      return;
+    }
+
+    event.preventDefault();
+    const externalUrl = getExternalUrl(url);
+    if (externalUrl) {
+      void shell.openExternal(externalUrl);
+    }
+  });
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    const externalUrl = getExternalUrl(url);
+    if (externalUrl) {
+      void shell.openExternal(externalUrl);
+    }
+    return { action: "deny" };
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    void window.loadFile(join(__dirname, "../renderer/index.html"));
+    void window.loadFile(rendererFilePath);
   }
 }
 

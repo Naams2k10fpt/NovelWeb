@@ -122,7 +122,7 @@ export async function updateVolumeMetadata(
   volumeId: string,
   input: unknown
 ): Promise<VolumeMetadata> {
-  const category = await readCategoryMetadata(libraryPath, seriesId, categoryId);
+  await readCategoryMetadata(libraryPath, seriesId, categoryId);
 
   const current = await readVolumeMetadata(libraryPath, seriesId, categoryId, volumeId);
   const metadata = parseVolumeUpdateInput(input, current);

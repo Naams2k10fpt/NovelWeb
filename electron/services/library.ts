@@ -19,8 +19,7 @@ import {
   writeAppSettings,
   type LibraryMetadata,
   type LibrarySettings,
-  type VersionedMetadata,
-  type SeriesCard
+  type VersionedMetadata
 } from "./base";
 import { SERIES_COLLECTIONS, SERIES_STATUSES, type SeriesCollection, type SeriesStatus } from "../schemas/series";
 
