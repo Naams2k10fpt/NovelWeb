@@ -17,6 +17,9 @@
     "url": "https://github.com/Naams2k10fpt/NovelWeb/issues",
     "email": "sumpham36@gmail.com"
   },
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "type": "module",
   "main": "out/main/main.js",
   "scripts": {
