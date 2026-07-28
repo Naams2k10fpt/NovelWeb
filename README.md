@@ -6,11 +6,29 @@ The app is local-first: user content lives in a Library folder chosen by the use
 
 ## Current Status
 
-The LN/WN MVP is complete, including export, backup/restore, import hardening, Windows packaging, workflow tests, statistics, tags, collections, and export preview. Manga is out of scope. The current public release is `v0.1.0-beta.1`.
+The LN/WN MVP is complete, including export, backup/restore, import hardening, Windows packaging, workflow tests, statistics, tags, collections, and export preview. Manga is out of scope. The current beta version is `v0.1.0-beta.1`.
 
 ## Beta Release
 
 Windows beta builds are published on [GitHub Releases](https://github.com/Naams2k10fpt/NovelWeb/releases). The beta installer is not digitally signed, so Windows SmartScreen may display an unknown publisher warning.
+
+### Requirements
+
+- Windows 10 or Windows 11, x64.
+- Node.js 22.12 or later and npm are required only when building from source.
+
+### Install
+
+1. Download `NovelWeb-0.1.0-beta.1-x64-setup.exe` and its `.sha256` file from GitHub Releases.
+2. Verify the installer checksum:
+
+   ```powershell
+   Get-FileHash .\NovelWeb-0.1.0-beta.1-x64-setup.exe -Algorithm SHA256
+   Get-Content .\NovelWeb-0.1.0-beta.1-x64-setup.exe.sha256
+   ```
+
+3. Confirm that both hashes match, then run the installer.
+4. If SmartScreen appears, review the publisher warning before choosing to continue.
 
 ## Features
 
@@ -83,7 +101,7 @@ Series data is stored under `series/{series-id}` with metadata, categories, volu
 ## Commands
 
 ```bash
-npm install
+npm ci
 npm run dev
 npm test
 npm run test:pdf

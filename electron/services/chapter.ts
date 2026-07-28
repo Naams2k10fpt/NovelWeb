@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { BrowserWindow, dialog, type OpenDialogOptions } from "electron";
 import { mkdir, rename, rm, stat, readFile, copyFile } from "node:fs/promises";
-import { extname, basename, dirname } from "node:path";
+import { extname, dirname } from "node:path";
 import {
   assertId,
   assertRecord,
@@ -11,13 +11,11 @@ import {
   chapterAssetsDirectoryPath,
   chapterAssetPath,
   chapterAssetSource,
-  chapterAssetsDirectoryPath as getAssetsDir,
   chapterContentPath,
   chapterDirectoryPath,
   chapterMetaPath,
   IMAGE_FILE_EXTENSIONS,
   imageFileNameFromAssetSource,
-  isSafeImageFileName,
   libraryChildPath,
   moveDirectoryToTrash,
   optionalVolumeId,
@@ -34,7 +32,6 @@ import {
   readRequiredText,
   readTranslationStatus,
   seriesDirectoryPath,
-  seriesMetaPath,
   trashItemDirectoryPath,
   volumeMetaPath,
   withResourceWriteLock,
@@ -45,19 +42,17 @@ import {
   type ChapterMetadata,
   type ChapterOriginalPdf,
   type ChapterOriginalText,
-  type ChapterReadingProgress,
   type JsonRecord
 } from "./base";
 import { CHAPTER_METADATA_SCHEMA_VERSION, type NovelChapterMetadata } from "../schemas/chapter";
 import { type CategoryMetadata } from "../schemas/category";
 import { type VolumeMetadata } from "../schemas/volume";
-import { type SeriesMetadata } from "../schemas/series";
 import { readCategoryMetadata } from "./category";
 import { readVolumeMetadata } from "./volume";
 import { copyImportedPdfImages, normalizeImportText } from "./import";
 import { upsertSearchDocument, rebuildSearchIndex } from "./search";
-import { readChapterReference, rebuildRecentIndex, updateChapterReadingReferences, upsertRecentEntry } from "./readingState";
-import { imageMimeType, readImageDataUrl } from "./series";
+import { readChapterReference, rebuildRecentIndex, updateChapterReadingReferences } from "./readingState";
+import { imageMimeType } from "./series";
 
 export async function assertNovelChapterScope(
   libraryPath: string,

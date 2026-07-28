@@ -9,6 +9,7 @@ directories:
 files:
   - out/**/*
   - package.json
+  - LICENSE
 win:
   icon: build/icon.ico
   target:

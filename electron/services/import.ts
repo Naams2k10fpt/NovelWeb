@@ -18,17 +18,12 @@ import {
   IMAGE_FILE_EXTENSIONS,
   IMPORT_FILE_TYPES,
   libraryChildPath,
-  moveDirectoryToTrash,
-  optionalVolumeId,
   readJsonFile,
   readRequiredString,
   readRequiredText,
   SUPPORTED_SCHEMA_VERSION,
-  trashItemDirectoryPath,
   writeJsonFile,
-  writeTextFile,
   appendImportLog,
-  type ApiResponse,
   type JsonRecord
 } from "./base";
 import { type SeriesMetadata } from "../schemas/series";

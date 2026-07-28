@@ -29,7 +29,6 @@ import {
   type SeriesProgress,
   type JsonRecord
 } from "./base";
-import { type SeriesMetadata } from "../schemas/series";
 import { readSeriesMetadata } from "./series";
 import { readCategoryMetadata } from "./category";
 import { readVolumeMetadata } from "./volume";
