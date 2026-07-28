@@ -49,7 +49,7 @@ export type LibraryBackupResult = {
 
 export async function activateLibraryPath(libraryPath: string): Promise<string> {
   const settings = await readAppSettings();
-  await migrateLibrary(libraryPath);
+  await migrateLibrary(libraryPath, { createIfMissing: true });
   await writeAppSettings({ ...settings, currentLibraryPath: libraryPath });
   return libraryPath;
 }
@@ -326,19 +326,29 @@ async function findLibraryJsonFiles(directoryPath: string, libraryPath: string):
   return jsonFiles;
 }
 
-export async function migrateLibrary(libraryPath: string): Promise<{
+export async function migrateLibrary(
+  libraryPath: string,
+  options: { createIfMissing?: boolean } = {}
+): Promise<{
   fromVersion: number | null;
   toVersion: number;
   migratedFiles: number;
   backupPath: string | null;
 }> {
-  await ensureLibraryFolder(libraryPath);
+  try {
+    await assertDirectory(libraryPath);
+  } catch (error) {
+    if (!options.createIfMissing || (error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new Error(`Library folder is unavailable: ${libraryPath}`, { cause: error });
+    }
+    await ensureLibraryFolder(libraryPath);
+  }
 
   let libraryMetadata: Record<string, unknown>;
   try {
     libraryMetadata = await readJsonFile<Record<string, unknown>>(libraryChildPath(libraryPath, "library.json"));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT" || !options.createIfMissing) {
       throw error;
     }
 

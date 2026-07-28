@@ -26,6 +26,7 @@ export const SEARCH_SNIPPET_RADIUS = 90;
 export type SearchDocument = {
   seriesId: string;
   seriesTitle: string;
+  seriesStatus: SeriesMetadata["status"];
   categoryId: string;
   categoryTitle: string;
   volumeId: string | null;
@@ -72,7 +73,10 @@ export async function readSearchIndex(libraryPath: string): Promise<SearchIndex>
   try {
     const index = await readJsonFile<SearchIndex>(searchIndexPath(libraryPath));
     assertSupportedSchemaVersion("search-index.json", index);
-    if (!Array.isArray(index.documents) || index.documents.some((document) => !Array.isArray(document.tags))) {
+    if (
+      !Array.isArray(index.documents) ||
+      index.documents.some((document) => !Array.isArray(document.tags) || typeof document.seriesStatus !== "string")
+    ) {
       return rebuildSearchIndex(libraryPath);
     }
     return index;
@@ -95,6 +99,7 @@ export async function toSearchDocument(
   return {
     seriesId: series.id,
     seriesTitle: series.title,
+    seriesStatus: series.status,
     categoryId: category.id,
     categoryTitle: category.title,
     volumeId: volume?.id ?? null,
@@ -184,6 +189,7 @@ export async function upsertSearchDocument(
     const document: SearchDocument = {
       seriesId: series.id,
       seriesTitle: series.title,
+      seriesStatus: series.status,
       categoryId: category.id,
       categoryTitle: category.title,
       volumeId: volume?.id ?? null,
@@ -223,6 +229,14 @@ export function searchSnippet(text: string, matchIndex: number, queryLength: num
   return `${start > 0 ? "..." : ""}${snippet}${end < text.length ? "..." : ""}`;
 }
 
+export function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/đ/gi, (letter) => (letter === "Đ" ? "D" : "d"))
+    .toLowerCase();
+}
+
 export async function searchLibrary(libraryPath: string, queryInput: unknown): Promise<SearchResult[]> {
   if (typeof queryInput !== "string") {
     throw new Error("query must be a string.");
@@ -238,7 +252,7 @@ export async function searchLibrary(libraryPath: string, queryInput: unknown): P
     index = await rebuildSearchIndex(libraryPath);
   }
 
-  const lowerQuery = query.toLowerCase();
+  const normalizedQuery = normalizeSearchText(query);
   const results: SearchResult[] = [];
 
   for (const document of index.documents) {
@@ -250,14 +264,14 @@ export async function searchLibrary(libraryPath: string, queryInput: unknown): P
       ...document.tags,
       document.text
     ]
-        .join("\n")
-        .toLowerCase();
+        .join("\n");
+    const normalizedSearchable = normalizeSearchText(searchable);
 
-    if (!searchable.includes(lowerQuery)) {
+    if (!normalizedSearchable.includes(normalizedQuery)) {
       continue;
     }
 
-    const textIndex = document.text.toLowerCase().indexOf(lowerQuery);
+    const textIndex = normalizeSearchText(document.text).indexOf(normalizedQuery);
     const { text: _text, ...result } = document;
     results.push({
       ...result,

@@ -12,6 +12,7 @@ type LibraryPageProps = {
     error: string | null;
   };
   onOpenSettings: () => void;
+  onOpenManager: () => void;
   onOpenChapter: (target: ChapterTarget) => void;
   onOpenSeries: (seriesId: string) => void;
 };
@@ -125,7 +126,7 @@ function formatBytes(value: number): string {
   return `${size.toFixed(size >= 10 ? 0 : 1)} ${unit}`;
 }
 
-export default function Library({ library, onOpenChapter, onOpenSettings, onOpenSeries }: LibraryPageProps) {
+export default function Library({ library, onOpenChapter, onOpenManager, onOpenSettings, onOpenSeries }: LibraryPageProps) {
   const [collectionFilter, setCollectionFilter] = useState<CollectionFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [reading, setReading] = useState<ReadingState>({
@@ -282,7 +283,10 @@ export default function Library({ library, onOpenChapter, onOpenSettings, onOpen
         {statisticsSection}
         <section className="empty-state">
           <h2>No series yet</h2>
-          <p>Library folder is ready.</p>
+          <p>Create a series or import an existing novel folder to get started.</p>
+          <button className="primary-action" onClick={onOpenManager} type="button">
+            Open Manager
+          </button>
         </section>
       </>
     );

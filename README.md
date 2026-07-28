@@ -30,6 +30,14 @@ Windows beta builds are published on [GitHub Releases](https://github.com/Naams2
 3. Confirm that both hashes match, then run the installer.
 4. If SmartScreen appears, review the publisher warning before choosing to continue.
 
+### Uninstall and local data
+
+Uninstalling NovelWeb removes the app but keeps its AppData preferences and every user-selected Library folder. Delete those folders manually only after making a backup if you want to remove all local data.
+
+### Export accessibility
+
+Use EPUB for screen readers and reflowable text. PDF export is intended for visual reading and printing; the current beta does not generate tagged PDFs.
+
 ## Features
 
 - Library folder selection through Electron dialogs.
@@ -107,6 +115,7 @@ npm test
 npm run test:pdf
 npm run build
 npm run package:dir
+npm run test:packaged-pdf
 npm run package:win
 ```
 

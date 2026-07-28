@@ -10,8 +10,19 @@
   box-sizing: border-box;
 }
 
+:focus-visible {
+  outline: 2px solid #2f6f73 !important;
+  outline-offset: 2px;
+}
+
+.sidebar :focus-visible,
+.novel-reader-dark :focus-visible {
+  outline-color: #f7d56f !important;
+}
+
 body {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .app-shell {
@@ -156,6 +167,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin: 12px 0;
 }
 
 .collection-filters button {
@@ -296,12 +308,18 @@ body {
   border-color: #2f6f73;
 }
 
+.reading-quick-list strong,
 .reading-quick-list span,
 .reading-quick-list small {
+  min-width: 0;
   overflow: hidden;
   color: #66707a;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.reading-quick-list strong {
+  color: inherit;
 }
 
 .reading-quick-list small {
@@ -334,7 +352,10 @@ body {
   font-size: 13px;
 }
 
-.search-form input {
+.search-form input,
+.search-form select {
+  width: 100%;
+  min-width: 0;
   min-height: 40px;
   padding: 0 12px;
   border: 1px solid #cdbfaf;
@@ -342,6 +363,12 @@ body {
   background: #ffffff;
   color: inherit;
   font: inherit;
+}
+
+.search-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
 }
 
 .search-actions {
@@ -784,6 +811,7 @@ body {
 .chapter-row {
   display: flex;
   width: 100%;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -808,10 +836,14 @@ body {
 }
 
 .chapter-row span + span {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
   margin-left: 8px;
   color: #66707a;
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chapter-edit-action {
@@ -829,7 +861,9 @@ body {
 .novel-editor {
   display: grid;
   gap: 16px;
+  width: 100%;
   max-width: 920px;
+  margin: 0 auto;
 }
 
 .novel-editor-split {
@@ -896,6 +930,9 @@ body {
 }
 
 .editor-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1240,6 +1277,19 @@ body {
   color: #edf2f7;
 }
 
+.reader-state .empty-state {
+  margin: 4px 0;
+}
+
+.novel-reader-dark .empty-state {
+  border-color: #46515a;
+  background: #20282d;
+}
+
+.novel-reader-dark .empty-state p {
+  color: #b7c1c8;
+}
+
 .reader-toolbar {
   position: sticky;
   top: 0;
@@ -1302,6 +1352,19 @@ body {
   cursor: pointer;
 }
 
+.novel-reader-dark .reader-settings-bar button:not(.plain-action),
+.novel-reader-dark .reader-side-toolbar,
+.novel-reader-dark .reader-panel-header button,
+.novel-reader-dark .reader-chapter-jump li button {
+  border-color: #46515a;
+  background: #20282d;
+  color: #edf2f7;
+}
+
+.novel-reader-dark .plain-action {
+  color: #76c5c9;
+}
+
 .reader-side-toolbar {
   position: fixed;
   right: 32px;
@@ -1335,9 +1398,19 @@ body {
   border-bottom: 0;
 }
 
+.novel-reader-dark .reader-side-toolbar button {
+  border-color: #46515a;
+  color: #edf2f7;
+}
+
 .reader-side-toolbar button:hover:not(:disabled),
 .reader-side-toolbar button[aria-pressed="true"] {
   background: #eee4d6;
+}
+
+.novel-reader-dark .reader-side-toolbar button:hover:not(:disabled),
+.novel-reader-dark .reader-side-toolbar button[aria-pressed="true"] {
+  background: #2f3b41;
 }
 
 .reader-side-toolbar button:disabled {
@@ -1354,7 +1427,8 @@ body {
   gap: 10px;
   width: min(360px, calc(100vw - 380px));
   max-height: min(620px, calc(100vh - 120px));
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 12px;
   border: 1px solid #cdbfaf;
   border-radius: 8px;
@@ -1388,18 +1462,27 @@ body {
 .reader-chapter-jump ol {
   display: grid;
   gap: 6px;
+  min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+.reader-chapter-jump li {
+  min-width: 0;
+  overflow: hidden;
+}
+
 .reader-chapter-jump li button {
   display: flex;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 42px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  overflow: hidden;
   padding: 8px 10px;
   text-align: left;
 }
@@ -1407,6 +1490,21 @@ body {
 .reader-chapter-jump li button[aria-current="page"] {
   border-color: #2f6f73;
   background: #e4efee;
+}
+
+.novel-reader-dark .reader-chapter-jump {
+  border-color: #46515a;
+  background: #20282d;
+  color: #edf2f7;
+}
+
+.novel-reader-dark .reader-chapter-jump li button[aria-current="page"] {
+  border-color: #76c5c9;
+  background: #2f3b41;
+}
+
+.novel-reader-dark .reader-chapter-jump li small {
+  color: #b7c1c8;
 }
 
 .reader-chapter-jump li span {
@@ -1868,6 +1966,7 @@ body {
 .manager-import-panel .import-wizard {
   display: grid;
   gap: 12px;
+  min-width: 0;
   max-width: none;
 }
 
@@ -1997,6 +2096,7 @@ body {
 }
 
 .import-summary li {
+  min-width: 0;
   padding: 8px 10px;
   border: 1px solid #ddd4c7;
   border-radius: 6px;
@@ -2005,6 +2105,7 @@ body {
 
 .import-summary span {
   display: block;
+  overflow-wrap: anywhere;
 }
 
 .import-summary small {

@@ -2,6 +2,7 @@ node_modules/
 out/
 dist/
 tmp/
+qa-artifacts/
 *.log
 .env
 .env.*

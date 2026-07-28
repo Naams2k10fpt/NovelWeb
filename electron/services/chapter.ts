@@ -122,6 +122,16 @@ export async function readNovelChapterMetadata(
   chapterId: string
 ): Promise<NovelChapterMetadata> {
   await assertNovelChapterScope(libraryPath, seriesId, categoryId, volumeId);
+  return readNovelChapterMetadataFile(libraryPath, seriesId, categoryId, volumeId, chapterId);
+}
+
+async function readNovelChapterMetadataFile(
+  libraryPath: string,
+  seriesId: string,
+  categoryId: string,
+  volumeId: string | null,
+  chapterId: string
+): Promise<NovelChapterMetadata> {
   const metadata = await readJsonFile<NovelChapterMetadata>(
     chapterMetaPath(libraryPath, seriesId, categoryId, volumeId, chapterId)
   );
@@ -147,22 +157,23 @@ export async function listNovelChapterMetadata(
   // Create directories if missing
   await mkdir(chapterDirectory, { recursive: true });
   const entries = await readdir(chapterDirectory, { withFileTypes: true });
-  const chapters = new Map<string, NovelChapterMetadata>();
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-
-    try {
-      const metadata = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, entry.name);
-      chapters.set(metadata.id, metadata);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+  const loadedChapters = await Promise.all(
+    entries.filter((entry) => entry.isDirectory()).map(async (entry) => {
+      try {
+        return await readNovelChapterMetadataFile(libraryPath, seriesId, categoryId, volumeId, entry.name);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          return null;
+        }
         throw error;
       }
-    }
-  }
+    })
+  );
+  const chapters = new Map(
+    loadedChapters
+      .filter((chapter): chapter is NovelChapterMetadata => chapter !== null)
+      .map((chapter) => [chapter.id, chapter])
+  );
 
   return [
     ...order.map((chapterId) => chapters.get(chapterId)).filter((item): item is NovelChapterMetadata => !!item),
@@ -423,7 +434,8 @@ export async function readNovelChapterContent(
   seriesId: string,
   categoryId: string,
   volumeId: string | null,
-  chapterId: string
+  chapterId: string,
+  options: { includeText?: boolean } = {}
 ): Promise<ChapterContent> {
   const metadata = await readNovelChapterMetadata(libraryPath, seriesId, categoryId, volumeId, chapterId);
   let storedHtml = sanitizeNovelHtml(
@@ -445,9 +457,12 @@ export async function readNovelChapterContent(
   }
 
   const html = await hydrateNovelAssetImages(libraryPath, seriesId, categoryId, volumeId, chapterId, storedHtml);
-  const text = await readOptionalTextFile(
-    chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.plainTextFile)
-  );
+  const text =
+    options.includeText === false
+      ? ""
+      : await readOptionalTextFile(
+          chapterContentPath(libraryPath, seriesId, categoryId, volumeId, chapterId, metadata.plainTextFile)
+        );
 
   return {
     html,

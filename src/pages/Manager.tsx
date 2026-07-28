@@ -791,16 +791,16 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
     if (!node) {
       return [
         {
-          label: "Add series",
+          label: "Import series",
           run: async () => {
             await openImport("Import new series", { mode: "new", label: "New series from selected folder" });
             return false;
           }
         },
         {
-          label: "Add empty series",
+          label: "Create series",
           run: async () => {
-            openForm("Add series", "Series title", "", async (title) => {
+            openForm("Create series", "Series title", "", async (title) => {
               unwrap(await api.series.create({ title }));
             });
             return false;
@@ -1137,7 +1137,7 @@ export default function Manager({ library, onOpenSettings }: ManagerProps) {
         <div className="manager-panel-header">
           <h2>Tree</h2>
           <button className="primary-action" onClick={() => void runAction(actionsFor(null)[0].run)} type="button">
-            Add series
+            Import series
           </button>
         </div>
 
@@ -1432,6 +1432,7 @@ function TreeButton({
         onDragLeave={isFolder ? () => onFolderDragLeave(node) : undefined}
         onDragOver={isChapter ? (event) => onChapterDragOver(event, node) : isFolder ? (event) => onFolderDragOver(event, node) : undefined}
         onDrop={isChapter ? (event) => onChapterDrop(event, node) : isFolder ? (event) => onFolderDrop(event, node) : undefined}
+        title={node.title}
         type="button"
       >
         <span className={isChapter ? "tree-icon tree-icon-chapter" : "tree-icon tree-icon-folder"} aria-hidden="true" />

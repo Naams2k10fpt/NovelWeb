@@ -14,12 +14,14 @@ type LibraryState = {
 type SearchResult = {
   seriesId: string;
   seriesTitle: string;
+  seriesStatus: string;
   categoryId: string;
   categoryTitle: string;
   volumeId: string | null;
   volumeTitle: string | null;
   chapterId: string;
   chapterTitle: string;
+  tags: string[];
   snippet: string;
   updatedAt: string;
 };
@@ -48,9 +50,17 @@ function unwrap<T>(response: ApiResponse<T>): T {
   return response.data;
 }
 
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/đ/gi, (letter) => (letter === "Đ" ? "D" : "d"))
+    .toLowerCase();
+}
+
 function highlightedParts(text: string, query: string): Array<{ text: string; match: boolean }> {
-  const needle = query.trim().toLowerCase();
-  const haystack = text.toLowerCase();
+  const needle = normalizeSearchText(query.trim());
+  const haystack = normalizeSearchText(text);
   const parts: Array<{ text: string; match: boolean }> = [];
   let cursor = 0;
 
@@ -103,6 +113,21 @@ export default function Search({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searched, setSearched] = useState(false);
+  const [seriesFilter, setSeriesFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const filteredResults = results.filter(
+    (result) =>
+      (!seriesFilter || result.seriesId === seriesFilter) &&
+      (!categoryFilter || result.categoryId === categoryFilter) &&
+      (!tagFilter || result.tags.includes(tagFilter)) &&
+      (!statusFilter || result.seriesStatus === statusFilter)
+  );
+  const seriesOptions = [...new Map(results.map((result) => [result.seriesId, result.seriesTitle])).entries()];
+  const categoryOptions = [...new Map(results.map((result) => [result.categoryId, result.categoryTitle])).entries()];
+  const tagOptions = [...new Set(results.flatMap((result) => result.tags))].sort();
+  const statusOptions = [...new Set(results.map((result) => result.seriesStatus))].sort();
 
   async function runSearch(): Promise<void> {
     const api = getApi();
@@ -200,6 +225,47 @@ export default function Search({
             Rebuild index
           </button>
         </div>
+
+        {results.length > 0 ? (
+          <div className="search-filters">
+            <label>
+              <span>Series</span>
+              <select onChange={(event) => setSeriesFilter(event.target.value)} value={seriesFilter}>
+                <option value="">All series</option>
+                {seriesOptions.map(([id, title]) => (
+                  <option key={id} value={id}>{title}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Category</span>
+              <select onChange={(event) => setCategoryFilter(event.target.value)} value={categoryFilter}>
+                <option value="">All categories</option>
+                {categoryOptions.map(([id, title]) => (
+                  <option key={id} value={id}>{title}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Tag</span>
+              <select onChange={(event) => setTagFilter(event.target.value)} value={tagFilter}>
+                <option value="">All tags</option>
+                {tagOptions.map((tag) => (
+                  <option key={tag} value={tag}>{tag}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Status</span>
+              <select onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}>
+                <option value="">All statuses</option>
+                {statusOptions.map((status) => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : null}
       </form>
 
       {indexSummary ? (
@@ -209,16 +275,16 @@ export default function Search({
       ) : null}
       {error ? <p className="error-text">{error}</p> : null}
 
-      {searched && !loading && results.length === 0 ? (
+      {searched && !loading && filteredResults.length === 0 ? (
         <section className="empty-state">
           <h2>No matches</h2>
-          <p>Try another keyword or rebuild the index.</p>
+          <p>Try another keyword, clear a filter, or rebuild the index.</p>
         </section>
       ) : null}
 
-      {results.length > 0 ? (
+      {filteredResults.length > 0 ? (
         <ol className="search-results">
-          {results.map((result) => (
+          {filteredResults.map((result) => (
             <li key={`${result.seriesId}-${result.categoryId}-${result.volumeId ?? "direct"}-${result.chapterId}`}>
               <button
                 className="search-result-card"

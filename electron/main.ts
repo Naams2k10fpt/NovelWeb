@@ -157,7 +157,11 @@ function registerLibraryIpc(): void {
 
       return ok({ path: currentLibraryPath });
     } catch (error) {
-      return fail(ErrorCode.LIBRARY_FOLDER_LOAD_FAILED, "Could not load current Library folder.", String(error));
+      return fail(
+        ErrorCode.LIBRARY_FOLDER_LOAD_FAILED,
+        "The saved Library folder is unavailable. Locate it or choose another folder in Settings.",
+        String(error)
+      );
     }
   });
 
@@ -572,17 +576,17 @@ function registerChapterIpc(): void {
     }
   });
 
-  ipcMain.handle("chapters:getContent", async (_event, seriesId: unknown, categoryId: unknown, volumeId: unknown, chapterId: unknown): Promise<ApiResponse<ChapterContent>> => {
+  ipcMain.handle("chapters:getContent", async (_event, seriesId: unknown, categoryId: unknown, volumeId: unknown, chapterId: unknown): Promise<ApiResponse<Pick<ChapterContent, "html">>> => {
     try {
-      return ok(
-        await getContent(
-          await currentLibraryPathOrThrow(),
-          assertId(seriesId, "seriesId"),
-          assertId(categoryId, "categoryId"),
-          optionalVolumeId(volumeId),
-          assertId(chapterId, "chapterId")
-        )
+      const content = await getContent(
+        await currentLibraryPathOrThrow(),
+        assertId(seriesId, "seriesId"),
+        assertId(categoryId, "categoryId"),
+        optionalVolumeId(volumeId),
+        assertId(chapterId, "chapterId"),
+        { includeText: false }
       );
+      return ok({ html: content.html });
     } catch (error) {
       return fail(ErrorCode.CHAPTER_CRUD_FAILED, "Could not load chapter content.", String(error));
     }

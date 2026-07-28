@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChapterTarget } from "./NovelEditor";
+import { loadReaderContent, prefetchReaderContent } from "../readerCache";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -40,6 +41,12 @@ type HighlightEntry = {
 };
 
 type ReaderTheme = "light" | "dark";
+
+type ReaderPreferences = {
+  fontSize: number;
+  readingWidth: number;
+  theme: ReaderTheme;
+};
 
 type PendingMarker = {
   left: number;
@@ -116,6 +123,32 @@ function unwrap<T>(response: ApiResponse<T>): T {
   }
 
   return response.data;
+}
+
+const READER_PREFERENCES_KEY = "novelweb.readerPreferences";
+const DEFAULT_READER_PREFERENCES: ReaderPreferences = {
+  fontSize: 18,
+  readingWidth: 760,
+  theme: "light"
+};
+
+function readReaderPreferences(): ReaderPreferences {
+  try {
+    const stored = JSON.parse(localStorage.getItem(READER_PREFERENCES_KEY) ?? "{}") as Partial<ReaderPreferences>;
+    return {
+      fontSize:
+        typeof stored.fontSize === "number" && stored.fontSize >= 14 && stored.fontSize <= 24
+          ? stored.fontSize
+          : DEFAULT_READER_PREFERENCES.fontSize,
+      readingWidth:
+        typeof stored.readingWidth === "number" && stored.readingWidth >= 560 && stored.readingWidth <= 980
+          ? stored.readingWidth
+          : DEFAULT_READER_PREFERENCES.readingWidth,
+      theme: stored.theme === "dark" || stored.theme === "light" ? stored.theme : DEFAULT_READER_PREFERENCES.theme
+    };
+  } catch {
+    return DEFAULT_READER_PREFERENCES;
+  }
 }
 
 function normalizedMarkerText(value: string): string {
@@ -324,7 +357,8 @@ export default function NovelReader({
   onOpenChapter: (target: ChapterTarget) => void;
   target: ChapterTarget;
 }) {
-  const [chapterList, setChapterList] = useState<ChapterMetadata[]>([]);
+  const [chapterList, setChapterList] = useState<ChapterMetadata[]>(target.chapterList ?? []);
+  const [chapterListError, setChapterListError] = useState<string | null>(null);
   const [chapterListOpen, setChapterListOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bookmark, setBookmark] = useState<BookmarkEntry | null>(null);
@@ -335,14 +369,23 @@ export default function NovelReader({
   const [highlights, setHighlights] = useState<HighlightEntry[]>([]);
   const [pendingMarker, setPendingMarker] = useState<PendingMarker | null>(null);
   const [pendingNote, setPendingNote] = useState("");
-  const [fontSize, setFontSize] = useState(18);
   const [html, setHtml] = useState("");
-  const [readingWidth, setReadingWidth] = useState(760);
-  const [theme, setTheme] = useState<ReaderTheme>("light");
+  const [readerPreferences, setReaderPreferences] = useState(readReaderPreferences);
   const [loading, setLoading] = useState(true);
+  const chapterListButtonRef = useRef<HTMLButtonElement>(null);
+  const chapterListCloseRef = useRef<HTMLButtonElement>(null);
   const loadedRef = useRef(false);
   const pendingScrollTopRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { fontSize, readingWidth, theme } = readerPreferences;
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(READER_PREFERENCES_KEY, JSON.stringify(readerPreferences));
+    } catch {
+      // Reader settings are optional when storage is unavailable.
+    }
+  }, [readerPreferences]);
 
   function saveProgress(): void {
     const api = getApi();
@@ -369,32 +412,32 @@ export default function NovelReader({
     setLoading(true);
     loadedRef.current = false;
     setError(null);
+    setBookmarkError(null);
+    setChapterListError(null);
     setHighlightError(null);
-    setChapterList([]);
+    setChapterList(target.chapterList ?? []);
     setChapterListOpen(false);
+    setBookmark(null);
     setHighlights([]);
     setPendingMarker(null);
     setPendingNote("");
 
+    const progressRequest = api.chapters
+      .getProgress(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
+      .then(unwrap)
+      .catch(() => ({ scrollTop: 0, updatedAt: null }));
+
     void Promise.all([
-      api.chapters.list(target.seriesId, target.categoryId, target.volumeId),
-      api.chapters.getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId),
-      api.chapters.getProgress(target.seriesId, target.categoryId, target.volumeId, target.chapterId),
-      api.bookmarks?.get(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
-        Promise.resolve({ ok: true, data: null } as ApiResponse<BookmarkEntry | null>),
-      api.highlights?.listForChapter(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
-        Promise.resolve({ ok: true, data: [] } as ApiResponse<HighlightEntry[]>)
+      loadReaderContent(api, target),
+      progressRequest
     ])
-      .then(([chaptersResponse, contentResponse, progressResponse, bookmarkResponse, highlightsResponse]) => {
+      .then(([content, progress]) => {
         if (!isMounted) {
           return;
         }
 
-        setChapterList(unwrap(chaptersResponse));
-        setHtml(unwrap(contentResponse).html || "<p>No content yet.</p>");
-        setBookmark(unwrap(bookmarkResponse));
-        setHighlights(unwrap(highlightsResponse));
-        pendingScrollTopRef.current = target.scrollTop ?? unwrap(progressResponse).scrollTop;
+        setHtml(content.html || "<p>No content yet.</p>");
+        pendingScrollTopRef.current = target.scrollTop ?? progress.scrollTop;
         loadedRef.current = true;
         setLoading(false);
       })
@@ -402,6 +445,51 @@ export default function NovelReader({
         if (isMounted) {
           setLoading(false);
           setError(String(loadError));
+        }
+      });
+
+    const chapterListRequest = target.chapterList
+      ? Promise.resolve(target.chapterList)
+      : api.chapters.list(target.seriesId, target.categoryId, target.volumeId).then(unwrap);
+    void chapterListRequest
+      .then((chapters) => {
+        if (isMounted) {
+          setChapterList(chapters);
+        }
+      })
+      .catch((loadError) => {
+        if (isMounted) {
+          setChapterListError(`Chapter navigation unavailable: ${String(loadError)}`);
+        }
+      });
+
+    void (
+      api.bookmarks?.get(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
+      Promise.resolve({ ok: true, data: null } as ApiResponse<BookmarkEntry | null>)
+    )
+      .then((response) => {
+        if (isMounted) {
+          setBookmark(unwrap(response));
+        }
+      })
+      .catch((loadError) => {
+        if (isMounted) {
+          setBookmarkError(String(loadError));
+        }
+      });
+
+    void (
+      api.highlights?.listForChapter(target.seriesId, target.categoryId, target.volumeId, target.chapterId) ??
+      Promise.resolve({ ok: true, data: [] } as ApiResponse<HighlightEntry[]>)
+    )
+      .then((response) => {
+        if (isMounted) {
+          setHighlights(unwrap(response));
+        }
+      })
+      .catch((loadError) => {
+        if (isMounted) {
+          setHighlightError(String(loadError));
         }
       });
 
@@ -413,23 +501,77 @@ export default function NovelReader({
         clearTimeout(progressTimerRef.current);
       }
     };
-  }, [target.categoryId, target.chapterId, target.scrollTop, target.searchText, target.seriesId, target.volumeId]);
+  }, [target.categoryId, target.chapterId, target.chapterList, target.scrollTop, target.searchText, target.seriesId, target.volumeId]);
+
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+
+    const api = getApi();
+    const currentIndex = chapterList.findIndex((chapter) => chapter.id === target.chapterId);
+    if (!api || currentIndex < 0) {
+      return;
+    }
+
+    for (const chapter of [chapterList[currentIndex - 1], chapterList[currentIndex + 1]]) {
+      if (chapter) {
+        prefetchReaderContent(api, {
+          categoryId: target.categoryId,
+          chapterId: chapter.id,
+          seriesId: target.seriesId,
+          volumeId: target.volumeId
+        });
+      }
+    }
+  }, [chapterList, loading, target.categoryId, target.chapterId, target.seriesId, target.volumeId]);
 
   useEffect(() => {
     if (loading || !html) {
       return;
     }
 
-    const frame = window.requestAnimationFrame(() => {
-      const didHighlightSearchMatch = target.searchText ? highlightSearchMatch(target.searchText) : false;
+    const didHighlightSearchMatch = target.searchText ? highlightSearchMatch(target.searchText) : false;
+    if (didHighlightSearchMatch) {
+      return;
+    }
 
-      if (!didHighlightSearchMatch) {
-        window.scrollTo({ top: pendingScrollTopRef.current });
+    let cancelled = false;
+    let frame = 0;
+    const images = Array.from(document.querySelectorAll<HTMLImageElement>(".reader-content img"));
+    void Promise.allSettled(images.map((image) => image.decode())).then(() => {
+      if (!cancelled) {
+        frame = window.requestAnimationFrame(() => window.scrollTo({ top: pendingScrollTopRef.current }));
       }
     });
 
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
   }, [html, loading, target.categoryId, target.chapterId, target.searchText, target.seriesId, target.volumeId]);
+
+  useEffect(() => {
+    if (!chapterListOpen) {
+      return;
+    }
+
+    function closeChapterList(): void {
+      setChapterListOpen(false);
+      chapterListButtonRef.current?.focus();
+    }
+
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeChapterList();
+      }
+    }
+
+    chapterListCloseRef.current?.focus();
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [chapterListOpen]);
 
   useEffect(() => {
     if (loading || !html) {
@@ -575,7 +717,8 @@ export default function NovelReader({
       seriesId: target.seriesId,
       seriesTitle: target.seriesTitle,
       title: chapter.title,
-      volumeId: target.volumeId
+      volumeId: target.volumeId,
+      chapterList
     };
   }
 
@@ -595,21 +738,25 @@ export default function NovelReader({
 
   if (loading) {
     return (
-      <section className="empty-state">
-        <h2>Loading reader</h2>
-        <p>Reading chapter content.</p>
+      <section className={`novel-reader novel-reader-${theme} reader-state`}>
+        <div className="empty-state">
+          <h2>Loading reader</h2>
+          <p>Reading chapter content.</p>
+        </div>
       </section>
     );
   }
 
   if (error) {
     return (
-      <section className="empty-state">
-        <h2>Could not load reader</h2>
-        <p>{error}</p>
-        <button className="primary-action" onClick={onBack} type="button">
-          Back
-        </button>
+      <section className={`novel-reader novel-reader-${theme} reader-state`}>
+        <div className="empty-state">
+          <h2>Could not load reader</h2>
+          <p>{error}</p>
+          <button className="primary-action" onClick={onBack} type="button">
+            Back
+          </button>
+        </div>
       </section>
     );
   }
@@ -636,6 +783,7 @@ export default function NovelReader({
         <button
           aria-label="Open chapter list"
           aria-pressed={chapterListOpen}
+          ref={chapterListButtonRef}
           onClick={() => setChapterListOpen((current) => !current)}
           title="Chapter list"
           type="button"
@@ -712,10 +860,21 @@ export default function NovelReader({
       ) : null}
 
       {chapterListOpen ? (
-        <aside className="reader-chapter-jump" aria-label="Chapter list">
+        <aside
+          aria-labelledby="reader-chapter-list-heading"
+          className="reader-chapter-jump"
+          role="dialog"
+        >
           <div className="reader-panel-header">
-            <strong>Chapters</strong>
-            <button onClick={() => setChapterListOpen(false)} type="button">
+            <strong id="reader-chapter-list-heading">Chapters</strong>
+            <button
+              onClick={() => {
+                setChapterListOpen(false);
+                chapterListButtonRef.current?.focus();
+              }}
+              ref={chapterListCloseRef}
+              type="button"
+            >
               Close
             </button>
           </div>
@@ -742,20 +901,38 @@ export default function NovelReader({
         </button>
         <label>
           Font
-          <input max="24" min="14" onChange={(event) => setFontSize(Number(event.target.value))} type="range" value={fontSize} />
+          <input
+            max="24"
+            min="14"
+            onChange={(event) =>
+              setReaderPreferences((current) => ({ ...current, fontSize: Number(event.target.value) }))
+            }
+            type="range"
+            value={fontSize}
+          />
         </label>
         <label>
           Width
           <input
             max="980"
             min="560"
-            onChange={(event) => setReadingWidth(Number(event.target.value))}
+            onChange={(event) =>
+              setReaderPreferences((current) => ({ ...current, readingWidth: Number(event.target.value) }))
+            }
             step="20"
             type="range"
             value={readingWidth}
           />
         </label>
-        <button onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))} type="button">
+        <button
+          onClick={() =>
+            setReaderPreferences((current) => ({
+              ...current,
+              theme: current.theme === "light" ? "dark" : "light"
+            }))
+          }
+          type="button"
+        >
           {theme === "light" ? "Dark" : "Light"}
         </button>
       </div>
@@ -765,6 +942,7 @@ export default function NovelReader({
       </header>
 
       {bookmarkError ? <p className="error-text">{bookmarkError}</p> : null}
+      {chapterListError ? <p className="error-text">{chapterListError}</p> : null}
       {highlightError ? <p className="error-text">{highlightError}</p> : null}
 
       <article className="reader-page" style={{ maxWidth: readingWidth }}>

@@ -5,6 +5,7 @@ import NovelEditor, { type ChapterTarget } from "./pages/NovelEditor";
 import NovelReader from "./pages/NovelReader";
 import Search from "./pages/Search";
 import SeriesDetail from "./pages/SeriesDetail";
+import { clearReaderContentCache } from "./readerCache";
 
 type Mode = "library" | "search" | "manager" | "settings";
 type ChapterMode = "edit" | "read";
@@ -84,6 +85,10 @@ export default function App() {
     error: null
   });
   const currentMode = modes[mode];
+
+  useEffect(() => {
+    clearReaderContentCache();
+  }, [library.path]);
 
   useEffect(() => {
     let isMounted = true;
@@ -306,15 +311,19 @@ export default function App() {
     setSelectedChapter(target);
   }
 
-  function closeChapter(seriesId?: string): void {
+  function closeChapter(): boolean {
     if (!confirmLeaveChapter()) {
-      return;
+      return false;
     }
 
     setChapterDirty(false);
     setChapterMode("read");
     setSelectedChapter(null);
-    if (seriesId) {
+    return true;
+  }
+
+  function closeChapterToSeries(seriesId: string): void {
+    if (closeChapter()) {
       setMode("library");
       setSelectedSeriesId(seriesId);
     }
@@ -329,6 +338,7 @@ export default function App() {
       if (chapterMode === "edit") {
         return (
           <NovelEditor
+            key={`${selectedChapter.seriesId}:${selectedChapter.chapterId}`}
             onBack={closeChapter}
             onDirtyChange={setChapterDirty}
             onRead={() => openChapter(selectedChapter, "read")}
@@ -339,8 +349,9 @@ export default function App() {
 
       return (
         <NovelReader
+          key={`${selectedChapter.seriesId}:${selectedChapter.chapterId}`}
           onBack={closeChapter}
-          onBackToSeries={() => closeChapter(selectedChapter.seriesId)}
+          onBackToSeries={() => closeChapterToSeries(selectedChapter.seriesId)}
           onEdit={(target) => openChapter(target ?? selectedChapter, "edit")}
           onOpenChapter={(target) => openChapter(target, "read")}
           target={selectedChapter}
@@ -368,6 +379,7 @@ export default function App() {
         <Library
           library={library}
           onOpenChapter={(target) => openChapter(target, "read")}
+          onOpenManager={() => openMode("manager")}
           onOpenSeries={openSeries}
           onOpenSettings={() => openMode("settings")}
         />

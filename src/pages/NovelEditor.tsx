@@ -5,6 +5,7 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useState } from "react";
+import { invalidateReaderContent } from "../readerCache";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -20,14 +21,17 @@ export type ChapterTarget = {
   title: string;
   searchText?: string;
   scrollTop?: number;
+  chapterList?: ChapterListItem[];
+};
+
+export type ChapterListItem = {
+  id: string;
+  title: string;
+  translationStatus?: string;
 };
 
 type ChapterContent = {
   html: string;
-  text: string;
-  wordCount: number;
-  characterCount: number;
-  updatedAt: string;
 };
 
 type ChapterImageAsset = {
@@ -883,6 +887,7 @@ export default function NovelEditor({
           html
         })
       );
+      invalidateReaderContent(target);
       void api.chapters
         .listVersions(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
         .then((response) => setVersions(unwrap(response)))
@@ -938,6 +943,7 @@ export default function NovelEditor({
           selectedVersionId
         )
       );
+      invalidateReaderContent(target);
       const content = unwrap(
         await api.chapters.getContent(target.seriesId, target.categoryId, target.volumeId, target.chapterId)
       );
@@ -1087,14 +1093,14 @@ export default function NovelEditor({
       <header className="novel-editor-header">
         <span>{target.seriesTitle ?? "Editor"}</span>
         <input
-          aria-label="Chapter title"
+          aria-label="Content heading"
           className="novel-title-input"
           onChange={(event) => updateTitle(event.target.value)}
-          placeholder="Chapter title"
+          placeholder="Content heading (shown as Heading 1)"
           spellCheck={false}
           value={title}
         />
-        <small>{target.title}</small>
+        <small>Metadata title: {target.title}</small>
       </header>
 
       <div className="editor-toolbar" aria-label="Editor toolbar">

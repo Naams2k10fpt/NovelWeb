@@ -35,7 +35,8 @@ import { createVolumeMetadata, readVolumeMetadata, listVolumeMetadata } from "./
 import { createNovelChapterMetadata, saveNovelChapterContent, escapeHtmlAttribute } from "./chapter";
 
 const requireNodeModule = createRequire(import.meta.url);
-GlobalWorkerOptions.workerSrc = pathToFileURL(requireNodeModule.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs")).href;
+const pdfModulePath = requireNodeModule.resolve("pdfjs-dist/legacy/build/pdf.mjs");
+GlobalWorkerOptions.workerSrc = pathToFileURL(join(dirname(pdfModulePath), "pdf.worker.mjs")).href;
 
 export type ImportSessionFile = {
   fileId: string;
@@ -671,6 +672,10 @@ export async function readImportSourceText(sourceFile: ImportSourceFile): Promis
   throw new Error("Import file type is not supported.");
 }
 
+export async function readImportDocxHtml(sourcePath: string): Promise<string> {
+  return (await mammoth.convertToHtml({ path: sourcePath }, { convertImage: mammoth.images.dataUri })).value;
+}
+
 export async function importSourceFileHash(sourceFile: ImportSourceFile): Promise<string | null> {
   return sourceFile.fileType === "images"
     ? null
@@ -1275,7 +1280,10 @@ export async function executeImport(libraryPath: string, importSessionId: unknow
             : null
       });
 
-      let html = importChapterTextToHtml(chapter.text, chapter.sourceFile.fileType);
+      let html =
+        chapter.sourceFile.fileType === "docx"
+          ? await readImportDocxHtml(chapter.sourceFile.sourcePath)
+          : importChapterTextToHtml(chapter.text, chapter.sourceFile.fileType);
       let pdfImages: PdfImageImportResult = { html: "", count: 0, error: null };
 
       if (chapter.sourceFile.fileType === "images") {

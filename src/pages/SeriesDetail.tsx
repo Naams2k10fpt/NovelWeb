@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { ChapterTarget } from "./NovelEditor";
+import { prefetchReaderContent } from "../readerCache";
 
 type ApiResponse<T> =
   | { ok: true; data: T }
@@ -103,6 +104,12 @@ type RendererApi = {
   };
   chapters: {
     list: (seriesId: string, categoryId: string, volumeId?: string | null) => Promise<ApiResponse<ChapterMetadata[]>>;
+    getContent: (
+      seriesId: string,
+      categoryId: string,
+      volumeId: string | null,
+      chapterId: string
+    ) => Promise<ApiResponse<{ html: string }>>;
   };
 };
 
@@ -611,6 +618,12 @@ function ChapterList({
   title: string;
   volumeId: string | null;
 }) {
+  const readerChapterList = chapters.map(({ id, title: chapterTitle, translationStatus }) => ({
+    id,
+    title: chapterTitle,
+    translationStatus
+  }));
+
   function targetFor(chapter: ChapterMetadata): ChapterTarget {
     return {
       categoryId,
@@ -618,8 +631,16 @@ function ChapterList({
       seriesId,
       seriesTitle,
       title: chapter.title,
-      volumeId
+      volumeId,
+      chapterList: readerChapterList
     };
+  }
+
+  function prefetch(chapter: ChapterMetadata): void {
+    const api = getApi();
+    if (api) {
+      prefetchReaderContent(api, targetFor(chapter));
+    }
   }
 
   return (
@@ -638,6 +659,8 @@ function ChapterList({
             <li key={chapter.id}>
               <button
                 className="chapter-row"
+                onFocus={() => prefetch(chapter)}
+                onMouseEnter={() => prefetch(chapter)}
                 onClick={() => onReadChapter(targetFor(chapter))}
                 type="button"
               >

@@ -79,6 +79,11 @@ import {
 } from "../electron/services/import";
 import { getLibraryStatistics } from "../electron/services/statistics";
 import { getExternalUrl, isTrustedRendererUrl } from "../electron/security";
+import {
+  clearReaderContentCache,
+  invalidateReaderContent,
+  loadReaderContent
+} from "../src/readerCache";
 
 const TEST_LIB_DIR = join(process.cwd(), "temp-test-library");
 const RESTORED_TEST_LIB_DIR = join(process.cwd(), "temp-test-restored-library");
@@ -113,7 +118,7 @@ async function writeTestDocx(filePath: string): Promise<void> {
   const zip = new JSZip();
   zip.file(
     "[Content_Types].xml",
-    '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'
+    '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="png" ContentType="image/png"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'
   );
   zip.file(
     "_rels/.rels",
@@ -121,8 +126,13 @@ async function writeTestDocx(filePath: string): Promise<void> {
   );
   zip.file(
     "word/document.xml",
-    '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>DOCX import content.</w:t></w:r></w:p></w:body></w:document>'
+    '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>DOCX import content.</w:t></w:r></w:p><w:p><w:r><w:drawing><wp:inline xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="9525" cy="9525"/><wp:docPr id="1" name="QA pixel"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="qa.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rId2"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:prstGeom prst="rect"/></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:body></w:document>'
   );
+  zip.file(
+    "word/_rels/document.xml.rels",
+    '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>'
+  );
+  zip.file("word/media/image1.png", Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=", "base64"));
   await writeFile(filePath, await zip.generateAsync({ type: "nodebuffer" }));
 }
 
@@ -186,6 +196,47 @@ async function runTests() {
     "Unsafe external protocols are blocked."
   );
 
+  console.log("\n\x1b[35m0.1. Testing Reader Content Cache\x1b[0m");
+  const readerLoads = new Map<string, number>();
+  const readerCacheApi = {
+    chapters: {
+      getContent: async (
+        _seriesId: string,
+        _categoryId: string,
+        _volumeId: string | null,
+        chapterId: string
+      ) => {
+        readerLoads.set(chapterId, (readerLoads.get(chapterId) ?? 0) + 1);
+        return { ok: true as const, data: { html: `<p>${chapterId}</p>` } };
+      }
+    }
+  };
+  const readerTarget = (chapterId: string) => ({
+    seriesId: "series",
+    categoryId: "category",
+    volumeId: null,
+    chapterId
+  });
+
+  clearReaderContentCache();
+  const [firstLoad, duplicateLoad] = await Promise.all([
+    loadReaderContent(readerCacheApi, readerTarget("one")),
+    loadReaderContent(readerCacheApi, readerTarget("one"))
+  ]);
+  assert(
+    readerLoads.get("one") === 1 && firstLoad === duplicateLoad,
+    "Concurrent reader loads share one content request."
+  );
+  await loadReaderContent(readerCacheApi, readerTarget("two"));
+  await loadReaderContent(readerCacheApi, readerTarget("three"));
+  await loadReaderContent(readerCacheApi, readerTarget("one"));
+  await loadReaderContent(readerCacheApi, readerTarget("four"));
+  await loadReaderContent(readerCacheApi, readerTarget("two"));
+  assert(readerLoads.get("two") === 2, "Reader cache keeps only the three most recently used chapters.");
+  invalidateReaderContent(readerTarget("one"));
+  await loadReaderContent(readerCacheApi, readerTarget("one"));
+  assert(readerLoads.get("one") === 2, "Saving a chapter can invalidate its cached reader content.");
+
   await cleanUp();
   await mkdir(TEST_LIB_DIR, { recursive: true });
 
@@ -201,6 +252,18 @@ async function runTests() {
       await fileExists(join(SELECTED_TEST_LIB_DIR, "library.json")),
       "Selecting a new folder initializes its Library files."
     );
+    await rm(SELECTED_TEST_LIB_DIR, { recursive: true, force: true });
+    let missingLibraryRejected = false;
+    try {
+      await migrateLibrary(SELECTED_TEST_LIB_DIR);
+    } catch {
+      missingLibraryRejected = true;
+    }
+    assert(
+      missingLibraryRejected && !(await fileExists(SELECTED_TEST_LIB_DIR)),
+      "Opening a missing saved Library fails without recreating an empty folder."
+    );
+    await activateLibraryPath(SELECTED_TEST_LIB_DIR);
     await ensureLibraryFiles(TEST_LIB_DIR);
     assert(true, "Library files initialized successfully.");
 
@@ -297,7 +360,7 @@ async function runTests() {
     assert(chapters.length === 1, "Chapter list contains exactly 1 chapter.");
 
     // Editor Save & Load html content
-    const testHtml = "<p>This is <strong>bold</strong> test content of chapter 1.</p>";
+    const testHtml = "<p>This is <strong>bold</strong> test content of chapter 1 in Thành phố.</p>";
     await saveContent(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id, {
       html: testHtml
     });
@@ -305,7 +368,11 @@ async function runTests() {
 
     const loadedContent = await getContent(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id);
     assert(loadedContent.html === testHtml, "Loaded HTML content matches saved content.");
-    assert(loadedContent.text.includes("This is bold test content of chapter 1."), "Plain-text content correctly extracted.");
+    assert(loadedContent.text.includes("This is bold test content of chapter 1"), "Plain-text content correctly extracted.");
+    assert(
+      (await getContent(TEST_LIB_DIR, newSeries.id, category.id, null, chapter1.id, { includeText: false })).text === "",
+      "Renderer chapter loading skips the duplicate plain-text payload."
+    );
 
     // ----------------------------------------------------
     console.log("\n\x1b[35m6. Testing Chapter Version History & Autosave Serialization\x1b[0m");
@@ -545,6 +612,14 @@ async function runTests() {
         ] as const)
       )
     );
+    const importedHtml = new Map(
+      await Promise.all(
+        importedChapters.map(async (chapter) => [
+          chapter.title,
+          (await getContent(TEST_LIB_DIR, newSeries.id, lnCategory.id, importVolume.id, chapter.id)).html
+        ] as const)
+      )
+    );
     assert(
       importReport.imported === 4 && importReport.failed === 0 && importedChapters.length === 4,
       "Import execution creates all four chapters without failures."
@@ -555,6 +630,11 @@ async function runTests() {
         importedText.get("Imported DOCX") === "DOCX import content." &&
         importedText.get("Imported PDF")?.includes("PDF import content."),
       "Imported TXT, Markdown, DOCX, and PDF content remains readable."
+    );
+    assert(
+      importedHtml.get("Imported DOCX")?.includes("<strong>DOCX import content.</strong>") === true &&
+        importedHtml.get("Imported DOCX")?.includes("data:image/png;base64,") === true,
+      "DOCX import preserves bold formatting and embedded images."
     );
     const duplicateImportReport = await executeImport(TEST_LIB_DIR, importSessionId, importPlan);
     assert(
@@ -644,6 +724,10 @@ async function runTests() {
     assert(
       (await searchLibrary(TEST_LIB_DIR, "favorite"))[0]?.chapterId === chapter1.id,
       "Search finds chapters by free-form tag."
+    );
+    assert(
+      (await searchLibrary(TEST_LIB_DIR, "thanh pho"))[0]?.chapterId === chapter1.id,
+      "Search matches Vietnamese text without requiring accents."
     );
 
     // ----------------------------------------------------
