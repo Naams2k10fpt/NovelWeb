@@ -78,6 +78,7 @@ import {
   scanImportSession
 } from "../electron/services/import";
 import { getLibraryStatistics } from "../electron/services/statistics";
+import { getExternalUrl, isTrustedRendererUrl } from "../electron/security";
 
 const TEST_LIB_DIR = join(process.cwd(), "temp-test-library");
 const RESTORED_TEST_LIB_DIR = join(process.cwd(), "temp-test-restored-library");
@@ -160,6 +161,30 @@ async function cleanUp() {
 
 async function runTests() {
   console.log("\x1b[36m=== NovelWeb Integration Test Suite ===\x1b[0m\n");
+
+  console.log("\x1b[35m0. Testing Renderer Trust Boundaries\x1b[0m");
+  const rendererUrl = "file:///C:/NovelWeb/out/renderer/index.html";
+  assert(
+    isTrustedRendererUrl(`${rendererUrl}#reader`, undefined, rendererUrl),
+    "Packaged renderer URL and fragments are trusted."
+  );
+  assert(
+    !isTrustedRendererUrl("file:///C:/NovelWeb/out/renderer/other.html", undefined, rendererUrl),
+    "Other local files are not trusted renderers."
+  );
+  assert(
+    isTrustedRendererUrl("http://localhost:5173/reader", "http://localhost:5173", rendererUrl) &&
+      !isTrustedRendererUrl("https://example.com", "http://localhost:5173", rendererUrl),
+    "Development trust is limited to the configured origin."
+  );
+  assert(
+    getExternalUrl("https://example.com/docs") !== null && getExternalUrl("mailto:test@example.com") !== null,
+    "Safe external links are allowed."
+  );
+  assert(
+    getExternalUrl("javascript:alert(1)") === null && getExternalUrl("file:///C:/secret.txt") === null,
+    "Unsafe external protocols are blocked."
+  );
 
   await cleanUp();
   await mkdir(TEST_LIB_DIR, { recursive: true });
