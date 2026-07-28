@@ -2,7 +2,6 @@ import { app } from "electron";
 import { copyFile, mkdir, readFile, rename, stat, writeFile, cp, rm, appendFile as nodeAppendFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
-  SERIES_METADATA_SCHEMA_VERSION,
   SERIES_COLLECTIONS,
   SERIES_STATUSES,
   type SeriesCollection,
@@ -10,14 +9,10 @@ import {
   type SeriesStatus
 } from "../schemas/series";
 import {
-  CATEGORY_METADATA_SCHEMA_VERSION,
   CATEGORY_TYPES,
-  type CategoryMetadata,
   type CategoryType
 } from "../schemas/category";
-import { VOLUME_METADATA_SCHEMA_VERSION, type VolumeMetadata } from "../schemas/volume";
 import {
-  CHAPTER_METADATA_SCHEMA_VERSION,
   NOVEL_CHAPTER_TYPES,
   TRANSLATION_STATUSES,
   type NovelChapterMetadata,

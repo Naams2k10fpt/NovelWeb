@@ -8,8 +8,7 @@ import {
   searchIndexPath,
   SUPPORTED_SCHEMA_VERSION,
   withResourceWriteLock,
-  writeJsonFile,
-  type SeriesDetailData
+  writeJsonFile
 } from "./base";
 import { type SeriesMetadata } from "../schemas/series";
 import { type CategoryMetadata } from "../schemas/category";

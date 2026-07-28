@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir } from "node:fs/promises";
 import {
-  assertId,
   assertRecord,
   assertSupportedSchemaVersion,
   SUPPORTED_SCHEMA_VERSION,
